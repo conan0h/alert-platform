@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 
 // Options controls one apply run.
 type Options struct {
-	DryRun     bool
+	DryRun      bool
 	AutoApprove bool
 	// SkipGates exists for break-glass only. It is recorded in the audit log
 	// precisely because it is the thing you want to find when explaining an
@@ -79,11 +80,11 @@ func (a *Applier) Apply(plan Plan) error {
 			ToRef:    sp.DesiredRef,
 			Duration: time.Since(start).Round(time.Millisecond).String(),
 			Detail: map[string]any{
-				"action":       sp.Action,
-				"unit_hash":    sp.UnitHash,
-				"env_hash":     sp.EnvHash,
-				"secret_names": sp.SecretNames,
-				"dry_run":      a.Opts.DryRun,
+				"action":        sp.Action,
+				"unit_hash":     sp.UnitHash,
+				"env_hash":      sp.EnvHash,
+				"secret_names":  sp.SecretNames,
+				"dry_run":       a.Opts.DryRun,
 				"gates_skipped": a.Opts.SkipGates,
 			},
 		}
@@ -410,15 +411,27 @@ func RunValidator(root string) error {
 	return nil
 }
 
+// safeRef is the shape a source ref is allowed to have. The schema already
+// constrains `spec.source.ref` to a semver tag, but this value reaches a
+// subprocess and a `git clone --branch`, so it is re-checked at the point of
+// use: a validator that runs earlier is a different guarantee from a check
+// that runs here, and only one of them is still true if the call site moves.
+var safeRef = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
+
 // checkRefExists confirms a tag is real before a deploy tries to fetch it.
 // Catching a typo here costs a second; catching it after the restart costs
 // an outage.
 func checkRefExists(root, ref string) error {
-	cmd := exec.Command("git", "rev-parse", "--verify", "--quiet", ref+"^{tag}")
+	if !safeRef.MatchString(ref) {
+		return fmt.Errorf("ref %q is not a semver tag; specs may only pin immutable tags "+
+			"(docs/spec.md, D2)", ref)
+	}
+	// safeRef above constrains ref to a semver tag before it reaches here.
+	cmd := exec.Command("git", "rev-parse", "--verify", "--quiet", ref+"^{tag}") //nolint:gosec
 	cmd.Dir = root
 	if err := cmd.Run(); err != nil {
 		// A lightweight tag has no tag object; fall back to a commit lookup.
-		cmd = exec.Command("git", "rev-parse", "--verify", "--quiet", ref)
+		cmd = exec.Command("git", "rev-parse", "--verify", "--quiet", ref) //nolint:gosec // see safeRef
 		cmd.Dir = root
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("git tag %q does not exist in %s; "+

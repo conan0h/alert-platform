@@ -18,7 +18,7 @@ import (
 // environment for planning and hashing. Plans are printed to terminals,
 // pasted into tickets and stored on disk; they must never contain a
 // credential. Apply substitutes real values at deploy time.
-const SecretPlaceholder = "<resolved-at-apply>"
+const SecretPlaceholder = "<resolved-at-apply>" //nolint:gosec // not a credential: this is the string that replaces one
 
 // Change is one difference between desired and observed state.
 type Change struct {
@@ -30,15 +30,15 @@ type Change struct {
 
 // ServicePlan is the change set for one service.
 type ServicePlan struct {
-	Service     string   `json:"service"`
-	Action      string   `json:"action"` // create | update | noop
-	CurrentRef  string   `json:"current_ref"`
-	DesiredRef  string   `json:"desired_ref"`
-	Changes     []Change `json:"changes"`
-	UnitHash    string   `json:"unit_hash"`
-	EnvHash     string   `json:"env_hash"`
-	SecretNames []string `json:"secret_names"`
-	Unit        string   `json:"-"`
+	Service     string          `json:"service"`
+	Action      string          `json:"action"` // create | update | noop
+	CurrentRef  string          `json:"current_ref"`
+	DesiredRef  string          `json:"desired_ref"`
+	Changes     []Change        `json:"changes"`
+	UnitHash    string          `json:"unit_hash"`
+	EnvHash     string          `json:"env_hash"`
+	SecretNames []string        `json:"secret_names"`
+	Unit        string          `json:"-"`
 	Effective   fleet.Effective `json:"-"`
 }
 
@@ -235,7 +235,9 @@ func (p Plan) Save(path string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(raw, '\n'), 0o644)
+	// 0644: plans are review artefacts and contain no secret values by
+	// construction — see TestPlanNeverContainsSecretValues.
+	return os.WriteFile(path, append(raw, '\n'), 0o644) //nolint:gosec
 }
 
 func LoadPlan(path string) (Plan, error) {

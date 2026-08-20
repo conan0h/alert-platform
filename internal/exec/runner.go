@@ -77,7 +77,9 @@ func (s *SSHRunner) WriteFile(path, content string, mode os.FileMode) error {
 	// Write to a temp path then move into place: a half-written unit file
 	// that systemd reloads is worse than no change at all.
 	tmp := fmt.Sprintf("/tmp/.alertctl-%d", time.Now().UnixNano())
-	cmd := osexec.Command("ssh", "-o", "BatchMode=yes", s.target(),
+	// The remote path is a platform-generated temp name and is shell-quoted;
+	// the host comes from the fleet spec, not from user input.
+	cmd := osexec.Command("ssh", "-o", "BatchMode=yes", s.target(), //nolint:gosec
 		fmt.Sprintf("cat > %s", shellQuote(tmp)))
 	cmd.Stdin = strings.NewReader(content)
 	var stderr bytes.Buffer
