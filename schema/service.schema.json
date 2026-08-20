@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "alertplatform/v1/service",
+  "title": "Alert Platform Service Spec",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": { "const": "alertplatform/v1" },
+    "kind": { "const": "Service" },
+    "metadata": {
+      "type": "object",
+      "required": ["name", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,30}[a-z0-9]$",
+          "description": "Immutable identity. Lowercase, hyphenated, 3-32 chars. Used for systemd unit name, state dir, and metrics labels."
+        },
+        "description": { "type": "string", "minLength": 10, "maxLength": 200 },
+        "tier": { "enum": ["standard", "critical"], "default": "standard" }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["source", "polling", "dedup", "delivery", "health"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "object",
+          "required": ["repo", "path", "ref", "entrypoint"],
+          "additionalProperties": false,
+          "properties": {
+            "repo": { "type": "string", "format": "uri" },
+            "path": { "type": "string", "pattern": "^[^/].*" },
+            "ref": {
+              "type": "string",
+              "pattern": "^v\\d+\\.\\d+\\.\\d+$",
+              "description": "Must be a semver tag. Branches are not deployable: rollback requires an immutable ref."
+            },
+            "entrypoint": { "type": "string", "pattern": "\\.py$" }
+          }
+        },
+        "polling": {
+          "type": "object",
+          "required": ["interval_sec", "source_url"],
+          "properties": {
+            "interval_sec": { "type": "integer", "minimum": 30, "maximum": 86400 },
+            "source_url": { "type": "string", "format": "uri" }
+          },
+          "additionalProperties": true
+        },
+        "dedup": {
+          "type": "object",
+          "required": ["keys"],
+          "additionalProperties": false,
+          "properties": {
+            "keys": {
+              "type": "array",
+              "items": { "type": "string" },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "cross_source": { "type": "boolean", "default": false },
+            "retention_days": { "type": "integer", "minimum": 1, "maximum": 3650 }
+          }
+        },
+        "delivery": {
+          "type": "object",
+          "required": ["telegram_chat_secret", "bot_token_secret"],
+          "additionalProperties": false,
+          "properties": {
+            "telegram_chat_secret": { "$ref": "#/$defs/secretName" },
+            "bot_token_secret": { "$ref": "#/$defs/secretName" },
+            "rate_limit_per_min": { "type": "integer", "minimum": 1, "maximum": 60 }
+          }
+        },
+        "health": {
+          "type": "object",
+          "required": ["metrics"],
+          "additionalProperties": false,
+          "properties": {
+            "heartbeat_interval_sec": { "type": "integer", "minimum": 30, "maximum": 3600 },
+            "startup_grace_sec": { "type": "integer", "minimum": 10, "maximum": 600 },
+            "metrics": {
+              "type": "object",
+              "required": ["port"],
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": true },
+                "port": {
+                  "type": "integer",
+                  "minimum": 9100,
+                  "maximum": 9199,
+                  "description": "Reserved fleet range. Cross-service uniqueness is enforced by the validator, not the schema."
+                }
+              }
+            }
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "memory_max": { "type": "string", "pattern": "^\\d+[MG]$" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "secretName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,40}$",
+      "description": "A NAME in the secrets backend, never a value. The validator additionally rejects anything that looks like a real token."
+    }
+  }
+}

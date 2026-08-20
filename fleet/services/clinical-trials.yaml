@@ -1,0 +1,35 @@
+apiVersion: alertplatform/v1
+kind: Service
+
+metadata:
+  name: clinical-trials
+  description: Alerts on ClinicalTrials.gov study status changes and results postings
+  tier: standard
+
+spec:
+  source:
+    repo: https://github.com/conan0h/alert-platform
+    path: services/clinical_trials
+    ref: v0.1.0                       # post-migration baseline; see docs/migration.md
+    entrypoint: main.py
+
+  polling:
+    # 300, not the 600 previously declared: 300 is what the service has
+    # actually been running. The spec now matches reality, so any cadence
+    # change is a deliberate one-line diff rather than a surprise at deploy.
+    interval_sec: 300
+    source_url: https://clinicaltrials.gov/api/v2/studies
+
+  dedup:
+    keys: [nct_id, last_update_posted]
+    cross_source: true
+    retention_days: 365
+
+  delivery:
+    telegram_chat_secret: tg_chat_trials
+    bot_token_secret: tg_bot_token
+    rate_limit_per_min: 10
+
+  health:
+    metrics:
+      port: 9103

@@ -1,0 +1,40 @@
+# Secrets. The repo references secrets by name only (docs/spec.md, D3);
+# resolved values live in the secret store and, at runtime, in a 0640 file
+# on the host. Nothing credential-shaped belongs here.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime state. These were committed before the migration — a 3.5 MB
+# production SQLite file and a 7 MB unrotated log. State now lives under
+# /var/lib/alert-platform on the host.
+*.db
+*.db-journal
+*.db-wal
+*.sqlite
+*.sqlite3
+*.log
+
+# Build outputs and environments
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+bin/
+.alertctl/
+
+# Plans are point-in-time artefacts tied to one host state; they go stale
+# and must never be resurrected from git.
+plan.json
+*.plan.json
+
+# Editor debris (a .test.swp made it into the previous archive)
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+.vscode/
+.pytest_cache/

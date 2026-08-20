@@ -1,0 +1,17 @@
+# Present so `pip install -e services/` works for local development and
+# tests. Production does not install the tree as a package: the apply engine
+# syncs the repo at the pinned tag and sets PYTHONPATH to the services dir,
+# which keeps "what is deployed" identical to "what is in the tag".
+[project]
+name = "alert-platform-services"
+version = "0.1.0"
+description = "Managed alerting services for the market alert suite"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.31.0", "feedparser>=6.0.10"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["alertlib"]

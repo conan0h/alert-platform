@@ -1,0 +1,40 @@
+apiVersion: alertplatform/v1
+kind: Service
+
+metadata:
+  name: fda-catalysts
+  description: Alerts on FDA approval decisions, PDUFA dates, and adcomm outcomes
+  tier: standard
+
+spec:
+  source:
+    repo: https://github.com/conanohara/alert-platform
+    path: services/fda_catalysts
+    ref: v0.1.0
+    entrypoint: main.py
+
+  polling:
+    # Three tiers, as with edgar-mna. 45s is the live wire cadence; the
+    # previously declared 300 described the EDGAR tier only.
+    interval_sec: 45
+    edgar_interval_sec: 300
+    fda_interval_sec: 600
+    # The implementation reads FDA's official RSS feeds, not the openFDA
+    # REST API. The api_key_secret that used to sit here referenced a
+    # credential nothing consumed — removed rather than left to rot.
+    source_url: https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml
+    user_agent_secret: edgar_user_agent   # this service also polls EDGAR 8-Ks
+
+  dedup:
+    keys: [application_number, decision_date]
+    cross_source: true
+    retention_days: 180
+
+  delivery:
+    telegram_chat_secret: tg_chat_fda
+    bot_token_secret: tg_bot_token
+    rate_limit_per_min: 20
+
+  health:
+    metrics:
+      port: 9102

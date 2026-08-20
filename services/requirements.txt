@@ -1,0 +1,8 @@
+# Runtime dependencies for every managed service.
+#
+# Deliberately small: these run on a 256 MB memory ceiling and every added
+# dependency is a supply-chain surface and a thing to patch. Pinned to
+# minimums, not exact versions — the deploy pins the code via git tag; the
+# dependency floor is what the code needs to work.
+requests>=2.31.0
+feedparser>=6.0.10

@@ -1,0 +1,42 @@
+apiVersion: alertplatform/v1
+kind: Service
+
+metadata:
+  name: form4-insider
+  description: Alerts on SEC Form 4 insider trade filings above value thresholds
+  tier: critical
+
+spec:
+  source:
+    repo: https://github.com/conan0h/alert-platform
+    path: services/form4_insider
+    ref: v0.1.0
+    entrypoint: main.py
+
+  polling:
+    interval_sec: 120                 # live value; the declared 60 was aspirational
+    source_url: https://www.sec.gov/cgi-bin/browse-edgar
+    user_agent_secret: edgar_user_agent
+
+    # Alert thresholds are policy, and policy belongs in desired state.
+    # These match the values the service has been running; raising the floor
+    # to 250000 (as the pre-migration spec declared) is now a reviewable
+    # one-line change rather than an edit to a running process.
+    min_transaction_value_usd: 100000
+    large_transaction_value_usd: 1000000   # bypasses the leaderboard filter
+    alpha_percentile_cutoff: 0.75          # top 25% of scored insiders
+
+  dedup:
+    keys: [accession_number]
+    cross_source: true
+    retention_days: 90
+
+  delivery:
+    telegram_chat_secret: tg_chat_form4
+    bot_token_secret: tg_bot_token
+    rate_limit_per_min: 30
+
+  health:
+    heartbeat_interval_sec: 120
+    metrics:
+      port: 9104

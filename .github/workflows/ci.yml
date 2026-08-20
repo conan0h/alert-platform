@@ -1,0 +1,77 @@
+name: ci
+
+# The deploy gate and CI run the same checks through the same entry points.
+# A green build here means `alertctl apply` will not fail its validation gate.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  fleet:
+    name: fleet spec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pyyaml jsonschema
+      - name: Validate specs and fleet invariants
+        run: python3 tools/validate.py
+      - name: Observability config is up to date with the specs
+        run: python3 tools/gen_observability.py --check
+
+  control-plane:
+    name: alertctl
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: go vet -mod=vendor ./...
+      - run: go test -mod=vendor ./... -race
+      - run: go build -mod=vendor -o bin/alertctl ./cmd/alertctl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: alertctl
+          path: bin/alertctl
+
+  services:
+    name: services
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: pip install pytest pyyaml -r services/requirements.txt
+      # Built here so the cross-language contract tests run rather than skip:
+      # they are the only check that the Go-rendered environment satisfies
+      # the Python config loader.
+      - run: go build -mod=vendor -o bin/alertctl ./cmd/alertctl
+      - run: python3 -m pytest services/tests -q
+
+  secrets:
+    name: no committed secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject credential-shaped values and runtime state
+        run: |
+          set -euo pipefail
+          if git ls-files | grep -E '(^|/)\.env$|\.db$|\.log$|\.pem$'; then
+            echo "::error::runtime state or secrets are tracked in git"
+            exit 1
+          fi
+          if git grep -nIE '[0-9]{6,}:[A-Za-z0-9_-]{30,}|AKIA[0-9A-Z]{16}|-----BEGIN' \
+               -- . ':(exclude)tools/validate.py' ':(exclude).github/workflows/ci.yml'; then
+            echo "::error::credential-shaped value found in tracked files"
+            exit 1
+          fi

@@ -1,0 +1,46 @@
+[
+  {
+    "targets": [
+      "ec2-alerts-prod:9103"
+    ],
+    "labels": {
+      "job": "alert-platform",
+      "service": "clinical-trials",
+      "tier": "standard",
+      "fleet": "market-alert-suite"
+    }
+  },
+  {
+    "targets": [
+      "ec2-alerts-prod:9101"
+    ],
+    "labels": {
+      "job": "alert-platform",
+      "service": "edgar-mna",
+      "tier": "standard",
+      "fleet": "market-alert-suite"
+    }
+  },
+  {
+    "targets": [
+      "ec2-alerts-prod:9102"
+    ],
+    "labels": {
+      "job": "alert-platform",
+      "service": "fda-catalysts",
+      "tier": "standard",
+      "fleet": "market-alert-suite"
+    }
+  },
+  {
+    "targets": [
+      "ec2-alerts-prod:9104"
+    ],
+    "labels": {
+      "job": "alert-platform",
+      "service": "form4-insider",
+      "tier": "critical",
+      "fleet": "market-alert-suite"
+    }
+  }
+]

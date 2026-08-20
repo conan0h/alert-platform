@@ -1,0 +1,48 @@
+# edgar-mna.yaml — desired state for the SEC EDGAR M&A filings service.
+# This is the annotated reference spec; the other three follow the same shape.
+
+apiVersion: alertplatform/v1
+kind: Service
+
+metadata:
+  name: edgar-mna                     # immutable identity; renaming = new service
+  description: Alerts on SEC EDGAR M&A-related filings (8-K, SC 13D, DEFM14A)
+  tier: standard                      # standard | critical — drives alert severity later
+
+spec:
+  # What code runs. Pinned ref = reproducible deploys and meaningful rollback.
+  source:
+    repo: https://github.com/conan0h/alert-platform
+    path: services/edgar_mna
+    ref: v0.1.0                       # git tag; apply engine refuses branches in prod
+    entrypoint: main.py
+
+  # How it behaves. Only fields that DIFFER from fleet defaults appear here.
+  polling:
+    # This service polls three tiers at different cadences. interval_sec is
+    # the primary (PR wire) loop; the slower tiers use the spec.polling
+    # extension point so all three are visible here rather than only in code.
+    interval_sec: 45
+    edgar_interval_sec: 300           # SEC EDGAR atom feeds
+    press_interval_sec: 600           # company press-release feeds
+    source_url: https://efts.sec.gov/LATEST/search-index
+    user_agent_secret: edgar_user_agent   # SEC requires identified UA
+    forms: ["8-K", "SC 13D", "SC 13G", "DEFM14A", "425"]
+
+  dedup:
+    keys: [accession_number]
+    cross_source: true                # participates in suite-wide dedup
+    retention_days: 90
+
+  delivery:
+    telegram_chat_secret: tg_chat_mna # name in SSM under secrets_prefix
+    bot_token_secret: tg_bot_token
+    rate_limit_per_min: 20
+
+  health:
+    metrics:
+      port: 9101                      # unique per service; schema enforces range
+    # inherits heartbeat_interval_sec: 300 from fleet defaults
+
+  resources:
+    memory_max: 384M                  # override: EDGAR responses are large

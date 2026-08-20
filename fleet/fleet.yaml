@@ -1,0 +1,66 @@
+# fleet.yaml — fleet-level desired state and defaults.
+#
+# This file declares what is true for EVERY service unless a service
+# spec explicitly overrides it. Merge semantics: scalar values in a
+# service spec replace fleet defaults; maps are deep-merged; lists
+# are replaced wholesale (never concatenated). See docs/spec.md.
+
+apiVersion: alertplatform/v1
+kind: Fleet
+
+metadata:
+  name: market-alert-suite
+  owner: conan
+  repo: https://github.com/conanohara/alert-platform
+
+# Where services run. Phase 1 models the current world (one EC2 host).
+# The apply engine in Phase 2 reads this to know where to act.
+targets:
+  default_host:
+    address: ec2-alerts-prod          # resolved via SSH config, not raw IP
+    user: svc-deploy
+    platform: linux/amd64
+
+defaults:
+  runtime:
+    interpreter: python3.10
+    working_dir: /opt/alert-platform
+    restart_policy: on-failure        # systemd Restart=
+    restart_sec: 10
+    memory_max: 256M                  # systemd MemoryMax= safety ceiling
+    user: svc-alerts                  # never root
+
+  logging:
+    format: json                      # structured logs from day one
+    level: INFO
+    destination: journald             # single source; shippers come later
+
+  state:
+    backend: sqlite
+    dir: /var/lib/alert-platform      # per-service subdir created by platform
+    backup:
+      enabled: true
+      interval: daily
+
+  # The health contract. Nothing consumes these fields until Phases 3/5,
+  # but declaring them HERE means validation gates and telemetry read the
+  # spec instead of growing their own config.
+  health:
+    heartbeat_interval_sec: 300       # service must emit liveness signal
+    startup_grace_sec: 60             # post-deploy validation waits this long
+    metrics:
+      enabled: true
+      # each service declares its own unique port in its spec
+
+  delivery:
+    channel_type: telegram
+    # Secret VALUES never appear in this repo. Specs reference a secret
+    # by name; the apply engine resolves it from the store at deploy time.
+    secrets_backend: aws_ssm
+    secrets_prefix: /alert-platform/prod
+
+# Fleet-wide change safety knobs (consumed by Phase 2 apply engine).
+change_policy:
+  max_concurrent_deploys: 1           # one service at a time, always
+  require_plan_before_apply: true
+  audit_log: /var/log/alert-platform/audit.jsonl
