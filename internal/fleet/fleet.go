@@ -21,30 +21,30 @@ const APIVersion = "alertplatform/v1"
 
 // Fleet is fleet/fleet.yaml.
 type Fleet struct {
-	APIVersion string         `yaml:"apiVersion"`
-	Kind       string         `yaml:"kind"`
-	Metadata   FleetMetadata  `yaml:"metadata"`
-	Targets    map[string]Target `yaml:"targets"`
-	Defaults   map[string]any `yaml:"defaults"`
-	ChangePolicy ChangePolicy `yaml:"change_policy"`
+	APIVersion   string            `yaml:"apiVersion"`
+	Kind         string            `yaml:"kind"`
+	Metadata     FleetMetadata     `yaml:"metadata"`
+	Targets      map[string]Target `yaml:"targets"`
+	Defaults     map[string]any    `yaml:"defaults"`
+	ChangePolicy ChangePolicy      `yaml:"change_policy"`
 }
 
 type FleetMetadata struct {
-	Name  string `yaml:"name"`
-	Owner string `yaml:"owner"`
-	Repo  string `yaml:"repo"`
+	Name  string `yaml:"name" json:"name"`
+	Owner string `yaml:"owner" json:"owner"`
+	Repo  string `yaml:"repo" json:"repo"`
 }
 
 type Target struct {
-	Address  string `yaml:"address"`
-	User     string `yaml:"user"`
-	Platform string `yaml:"platform"`
+	Address  string `yaml:"address" json:"address"`
+	User     string `yaml:"user" json:"user"`
+	Platform string `yaml:"platform" json:"platform"`
 }
 
 type ChangePolicy struct {
-	MaxConcurrentDeploys  int    `yaml:"max_concurrent_deploys"`
-	RequirePlanBeforeApply bool  `yaml:"require_plan_before_apply"`
-	AuditLog              string `yaml:"audit_log"`
+	MaxConcurrentDeploys   int    `yaml:"max_concurrent_deploys" json:"max_concurrent_deploys"`
+	RequirePlanBeforeApply bool   `yaml:"require_plan_before_apply" json:"require_plan_before_apply"`
+	AuditLog               string `yaml:"audit_log" json:"audit_log"`
 }
 
 // Service is one fleet/services/*.yaml.

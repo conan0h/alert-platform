@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>alert-platform console</title>
+<style>
+  /* An operator console, not a marketing page: one typeface (mono, so data
+     aligns), one accent (amber, for identity), and semantic colors reserved
+     for state. The plan panel deliberately mirrors alertctl's own output —
+     the console is a second view over the same engine, and it should read
+     like one. */
+  :root {
+    --bg: #0b0d10;
+    --panel: #10141a;
+    --panel-2: #141a22;
+    --line: #1f2734;
+    --text: #d9e1ec;
+    --muted: #74808f;
+    --faint: #4c5666;
+    --amber: #e8a33d;
+    --amber-dim: rgba(232, 163, 61, .12);
+    --ok: #46b57c;
+    --err: #e0574f;
+    --create: #5b9bd5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.55 ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono",
+          Menlo, Consolas, monospace;
+    padding: 0 20px 48px;
+  }
+  a { color: var(--amber); text-decoration: none; }
+  a:hover, a:focus-visible { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+  /* -- statusline ------------------------------------------------------- */
+  header {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px;
+    padding: 14px 2px 12px;
+    border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; background: var(--bg); z-index: 2;
+  }
+  .prompt { color: var(--amber); font-weight: 600; }
+  .crumb  { color: var(--muted); }
+  .crumb b { color: var(--text); font-weight: 500; }
+  .sep    { color: var(--faint); }
+  .lamp {
+    margin-left: auto; display: inline-flex; align-items: baseline; gap: 7px;
+    color: var(--muted);
+  }
+  .lamp .dot { font-size: 15px; line-height: 1; }
+  .lamp.ok .dot     { color: var(--ok); }
+  .lamp.drift .dot  { color: var(--amber); }
+  .lamp.dark .dot   { color: var(--faint); }
+  button.refresh {
+    background: none; border: 1px solid var(--line); border-radius: 3px;
+    color: var(--muted); font: inherit; padding: 2px 10px; cursor: pointer;
+  }
+  button.refresh:hover { border-color: var(--amber); color: var(--amber); }
+
+  /* -- banner ----------------------------------------------------------- */
+  .banner {
+    display: none; margin: 14px 0 0;
+    border: 1px solid var(--amber); border-left-width: 4px; border-radius: 3px;
+    background: var(--amber-dim); color: var(--text);
+    padding: 9px 12px;
+  }
+  .banner.show { display: block; }
+  .banner .why { color: var(--muted); display: block; margin-top: 2px; word-break: break-word; }
+
+  /* -- sections --------------------------------------------------------- */
+  .eyebrow {
+    color: var(--amber); font-size: 11px; letter-spacing: .14em;
+    text-transform: uppercase; margin: 26px 0 10px;
+  }
+  .eyebrow small { color: var(--faint); letter-spacing: normal; text-transform: none; margin-left: 10px; }
+
+  /* -- service cards ---------------------------------------------------- */
+  .grid {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+    padding: 12px 14px 10px;
+  }
+  .card h2 {
+    display: flex; align-items: baseline; gap: 8px;
+    font-size: 13px; font-weight: 600; margin: 0 0 2px;
+  }
+  .tier {
+    margin-left: auto; font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 3px; padding: 0 6px;
+  }
+  .tier.critical { color: var(--amber); border-color: var(--amber); }
+  .card .desc { color: var(--muted); margin: 0 0 10px; min-height: 2.6em; }
+  .kv { width: 100%; border-collapse: collapse; }
+  .kv td { padding: 1.5px 0; vertical-align: top; }
+  .kv td:first-child { color: var(--faint); padding-right: 12px; white-space: nowrap; }
+  .kv .live { color: var(--muted); }
+  .state { display: inline-flex; align-items: baseline; gap: 6px; }
+  .state .dot { line-height: 1; }
+  .state.active .dot   { color: var(--ok); }
+  .state.failed .dot,
+  .state.inactive .dot { color: var(--err); }
+  .state.unknown .dot  { color: var(--faint); }
+  .refpair .stale { color: var(--amber); }
+
+  /* -- panels ----------------------------------------------------------- */
+  .panels { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; align-items: start; }
+  @media (max-width: 940px) { .panels { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+    padding: 12px 14px;
+  }
+  .panel .meta { color: var(--faint); margin-bottom: 10px; word-break: break-word; }
+  .empty { color: var(--muted); padding: 6px 0; }
+
+  /* plan: the CLI's own glyphs. + create, ~ update, = no change. */
+  .plan-svc { margin: 0 0 12px; }
+  .plan-line { display: flex; gap: 10px; align-items: baseline; }
+  .glyph { width: 1ch; font-weight: 700; }
+  .glyph.create { color: var(--create); }
+  .glyph.update { color: var(--amber); }
+  .glyph.noop   { color: var(--faint); }
+  .plan-line .action { color: var(--muted); margin-left: auto; font-size: 11px; letter-spacing: .08em; }
+  .changes { margin: 4px 0 0 calc(1ch + 10px); border-left: 1px solid var(--line); padding-left: 12px; }
+  .change { padding: 1px 0; }
+  .change .field { color: var(--muted); display: inline-block; min-width: 13ch; }
+  .change .from { color: var(--faint); text-decoration: line-through; }
+  .change .arrow { color: var(--faint); padding: 0 4px; }
+  .change .to { color: var(--text); }
+  .change .why { color: var(--faint); display: block; margin-left: 13ch; }
+  .plan-foot { color: var(--muted); border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+
+  /* audit timeline */
+  .audit-entry {
+    display: grid; grid-template-columns: 17ch 1fr; gap: 2px 12px;
+    padding: 7px 0; border-bottom: 1px solid var(--line);
+  }
+  .audit-entry:last-child { border-bottom: 0; }
+  .audit-entry time { color: var(--faint); }
+  .audit-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .event { color: var(--muted); }
+  .event.rollback { color: var(--amber); }
+  .outcome { font-size: 11px; border-radius: 3px; padding: 0 6px; border: 1px solid; }
+  .outcome.success { color: var(--ok); border-color: var(--ok); }
+  .outcome.failed  { color: var(--err); border-color: var(--err); }
+  .audit-detail { grid-column: 2; color: var(--muted); }
+  .audit-detail .refs { color: var(--text); }
+  .auto { color: var(--amber); }
+
+  footer {
+    margin-top: 34px; padding-top: 12px; border-top: 1px solid var(--line);
+    color: var(--faint);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="prompt">alert-platform</span>
+  <span class="sep">▸</span>
+  <span class="crumb">fleet <b id="fleet-name">…</b></span>
+  <span class="sep">▸</span>
+  <span class="crumb">target <b id="target-name">…</b></span>
+  <span class="lamp dark" id="lamp"><span class="dot">●</span><span id="lamp-text">connecting</span></span>
+  <button class="refresh" id="refresh" type="button">refresh</button>
+</header>
+
+<div class="banner" id="banner" role="status">
+  Target unreachable — showing desired state from the specs only.
+  <small class="why" id="banner-why"></small>
+</div>
+
+<div class="eyebrow">Services <small id="svc-note"></small></div>
+<div class="grid" id="services"></div>
+
+<div class="panels">
+  <section class="panel" aria-labelledby="plan-eyebrow">
+    <div class="eyebrow" id="plan-eyebrow" style="margin-top:2px">Change set <small id="plan-meta"></small></div>
+    <div id="plan"><div class="empty">Computing plan…</div></div>
+  </section>
+  <section class="panel" aria-labelledby="audit-eyebrow">
+    <div class="eyebrow" id="audit-eyebrow" style="margin-top:2px">Audit trail <small id="audit-meta"></small></div>
+    <div id="audit"><div class="empty">Reading audit log…</div></div>
+  </section>
+</div>
+
+<footer>
+  read-only · changes go through <b>alertctl plan</b> → <b>alertctl apply</b> ·
+  serve remotely with <b>ssh -L 8600:127.0.0.1:8600 &lt;target&gt;</b>
+</footer>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+  (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function getJSON(url) {
+  const res = await fetch(url, { headers: { "Accept": "application/json" } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || (res.status + " " + res.statusText));
+  return body;
+}
+
+/* -- services: desired state always renders; observed state overlays it -- */
+
+function renderServices(overview, status) {
+  const observed = new Map((status?.services || []).map((r) => [r.service, r]));
+  $("services").innerHTML = (overview.services || []).map((s) => {
+    const obs = observed.get(s.name);
+    const rows = [];
+
+    if (obs && !obs.error) {
+      const deployed = obs.ref || "";
+      // A service the host has never heard of is "not deployed", not
+      // "unknown" — the platform knows exactly what that state means.
+      const cls = ["active", "failed", "inactive"].includes(obs.state) ? obs.state : "unknown";
+      const label = deployed ? obs.state : "not deployed";
+      const enabledNote = (deployed && obs.enabled !== "enabled" && obs.enabled !== "unknown")
+        ? ` <span class="live">(${esc(obs.enabled)})</span>` : "";
+      rows.push(["state", `<span class="state ${cls}"><span class="dot">●</span>${esc(label)}${enabledNote}</span>`]);
+      rows.push(["ref", deployed === s.ref
+        ? esc(s.ref)
+        : `<span class="refpair"><span class="stale">${esc(deployed || "none")}</span>` +
+          ` <span class="live">→ wants ${esc(s.ref)}</span></span>`]);
+      if (obs.deployed_at) rows.push(["deployed", `<span class="live">${esc(obs.deployed_at)} by ${esc(obs.deployed_by)}</span>`]);
+    } else {
+      rows.push(["ref", esc(s.ref) + ' <span class="live">(desired)</span>']);
+      if (obs?.error) rows.push(["state", '<span class="state unknown"><span class="dot">●</span>unreachable</span>']);
+    }
+
+    rows.push(["poll", s.poll_interval_sec ? s.poll_interval_sec + "s" : "—"]);
+    rows.push(["health", `:${s.metrics_port} /healthz · heartbeat ${s.heartbeat_interval_sec}s`]);
+    rows.push(["secrets", s.secrets?.length ? esc(s.secrets.join(", ")) : "—"]);
+    rows.push(["unit", esc(s.unit)]);
+
+    return `<article class="card">
+      <h2>${esc(s.name)}<span class="tier ${esc(s.tier)}">${esc(s.tier)}</span></h2>
+      <p class="desc">${esc(s.description)}</p>
+      <table class="kv">${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}</table>
+    </article>`;
+  }).join("");
+  $("svc-note").textContent = `${overview.services?.length ?? 0} managed · specs in fleet/services/`;
+}
+
+/* -- plan: rendered with the CLI's own glyphs ----------------------------- */
+
+function renderPlan(plan) {
+  $("plan-meta").innerHTML = `fingerprint ${esc(plan.id)} · ${esc(plan.target)}`;
+  const svcs = plan.services || [];
+  const pending = svcs.filter((s) => s.action !== "noop");
+
+  const lamp = $("lamp");
+  lamp.className = "lamp " + (pending.length ? "drift" : "ok");
+  $("lamp-text").textContent = pending.length
+    ? `${pending.length} change${pending.length > 1 ? "s" : ""} pending`
+    : "in sync";
+
+  if (!svcs.length) { $("plan").innerHTML = '<div class="empty">No services in the fleet.</div>'; return; }
+
+  const glyph = { create: "+", update: "~", noop: "=" };
+  $("plan").innerHTML = svcs.map((s) => {
+    const g = glyph[s.action] || "?";
+    let html = `<div class="plan-svc">
+      <div class="plan-line"><span class="glyph ${esc(s.action)}">${g}</span>
+        <span>${esc(s.service)}</span><span class="action">${esc(s.action)}</span></div>`;
+    if (s.action !== "noop" && s.changes?.length) {
+      html += `<div class="changes">` + s.changes.map((c) =>
+        `<div class="change"><span class="field">${esc(c.field)}</span>` +
+        `<span class="from">${esc(c.observed || "(none)")}</span>` +
+        `<span class="arrow">→</span><span class="to">${esc(c.desired)}</span>` +
+        (c.reason ? `<span class="why">${esc(c.reason)}</span>` : "") + `</div>`).join("") + `</div>`;
+    }
+    return html + `</div>`;
+  }).join("") +
+  `<div class="plan-foot">${pending.length} to change, ${svcs.length - pending.length} unchanged` +
+  (pending.length ? ` · apply with <b>alertctl plan -out plan.json && alertctl apply -plan plan.json</b>` : "") +
+  `</div>`;
+}
+
+/* -- audit ---------------------------------------------------------------- */
+
+function renderAudit(audit) {
+  $("audit-meta").textContent = audit.path || "";
+  const entries = audit.entries || [];
+  if (!entries.length) {
+    $("audit").innerHTML =
+      '<div class="empty">No deploys recorded yet. The trail begins with the first <b>alertctl apply</b>.</div>';
+    return;
+  }
+  $("audit").innerHTML = entries.map((e) => {
+    const when = (e.ts || "").replace("T", " ").replace(/\.\d+Z?$/, "Z");
+    return `<div class="audit-entry">
+      <time>${esc(when)}</time>
+      <div class="audit-head">
+        <span class="event ${esc(e.event)}">${esc(e.event)}</span>
+        <b>${esc(e.service || "—")}</b>
+        ${e.outcome ? `<span class="outcome ${esc(e.outcome)}">${esc(e.outcome)}</span>` : ""}
+        ${e.detail?.automatic ? '<span class="auto">automatic</span>' : ""}
+      </div>
+      <div class="audit-detail">
+        <span class="refs">${esc(e.from_ref || "(none)")} → ${esc(e.to_ref || "(none)")}</span>
+        · ${esc(e.actor || "?")}${e.duration ? " · " + esc(e.duration) : ""}${e.plan_id ? " · plan " + esc(e.plan_id) : ""}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+/* -- load ----------------------------------------------------------------- */
+
+async function load() {
+  $("refresh").textContent = "refreshing…";
+  let overview;
+  try {
+    overview = await getJSON("/api/overview");
+    $("fleet-name").textContent = overview.fleet?.name || "?";
+    $("target-name").textContent = overview.target_mode || overview.target?.address || "?";
+  } catch (err) {
+    $("banner").classList.add("show");
+    $("banner-why").textContent = "specs failed to load: " + err.message;
+    $("refresh").textContent = "refresh";
+    return;
+  }
+
+  const [status, plan, audit] = await Promise.allSettled([
+    getJSON("/api/status"),
+    getJSON("/api/plan"),
+    getJSON("/api/audit?n=50"),
+  ]);
+
+  // The status endpoint answers 200 with per-row errors — one unreachable
+  // probe must not blank the table. So "target down" is: the plan could not
+  // be computed, or every service failed to observe.
+  const rows = status.status === "fulfilled" ? (status.value.services || []) : [];
+  const allRowsFailed = rows.length > 0 && rows.every((r) => r.error);
+  const targetDown = status.status === "rejected" || plan.status === "rejected" || allRowsFailed;
+  $("banner").classList.toggle("show", targetDown);
+  if (targetDown) {
+    const why = (status.reason || plan.reason)?.message || rows.find((r) => r.error)?.error || "";
+    $("banner-why").textContent = why;
+    $("lamp").className = "lamp dark";
+    $("lamp-text").textContent = "target unreachable";
+    $("plan").innerHTML = '<div class="empty">Plan needs a reachable target to diff against.</div>';
+    $("plan-meta").textContent = "";
+  }
+
+  renderServices(overview, status.status === "fulfilled" ? status.value : null);
+  if (plan.status === "fulfilled") renderPlan(plan.value);
+  if (audit.status === "fulfilled") renderAudit(audit.value);
+  else $("audit").innerHTML = `<div class="empty">${esc(audit.reason?.message || "audit log unavailable")}</div>`;
+
+  $("refresh").textContent = "refresh";
+}
+
+$("refresh").addEventListener("click", load);
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

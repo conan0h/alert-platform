@@ -10,6 +10,10 @@ Work top to bottom. Each step narrows the failure to one layer.
     ./bin/alertctl status
     ./bin/alertctl history -n 10
 
+For a whole-fleet view — status, pending changes and recent deploys on one
+page — `./bin/alertctl serve` and open http://127.0.0.1:8600. It is read-only,
+so it is safe to leave open during an incident.
+
 If the last audit entry is a deploy from minutes ago, the deploy is your
 prime suspect — go to [`rollback.md`](rollback.md).
 

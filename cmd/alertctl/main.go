@@ -13,6 +13,7 @@
 //	alertctl rollback -service NAME       return to the last good ref
 //	alertctl render -service NAME         print the unit and env that would be written
 //	alertctl history [-service NAME]      read the audit log
+//	alertctl serve [-addr HOST:PORT]      read-only operator console
 package main
 
 import (
@@ -43,6 +44,7 @@ Commands:
   rollback    Roll a service back to its last successful ref
   render      Print the systemd unit and environment for a service
   history     Print audit log entries
+  serve       Serve the read-only operator console (loopback by default)
 
 Common flags:
   -root PATH      Repo root (default ".")
@@ -79,6 +81,8 @@ func main() {
 		err = cmdRender(args)
 	case "history":
 		err = cmdHistory(args)
+	case "serve":
+		err = cmdServe(args)
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return
@@ -550,7 +554,8 @@ func rewriteRef(specPath, ref string) error {
 	if !changed {
 		return fmt.Errorf("no `ref:` line found in %s", specPath)
 	}
-	return os.WriteFile(specPath, []byte(strings.Join(lines, "\n")), 0o644)
+	// 0644: this is a spec file in the repo, tracked in git and read by CI.
+	return os.WriteFile(specPath, []byte(strings.Join(lines, "\n")), 0o644) //nolint:gosec
 }
 
 func orDash(s string) string {
