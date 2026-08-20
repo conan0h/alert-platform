@@ -70,7 +70,16 @@ func (s *SSHRunner) Run(cmd string) (Result, error) {
 		"-o", "ConnectTimeout=10",
 		s.target(), cmd,
 	}
-	return runLocal("ssh", args, s.Timeout, cmd)
+	res, err := runLocal("ssh", args, s.Timeout, cmd)
+	// ssh reserves 255 for its own failures (DNS, refused, auth) as opposed
+	// to the remote command's exit code. The Runner contract says those are
+	// errors, not results — otherwise an unreachable host reads as an empty
+	// one and plan proposes creating a fleet that already exists.
+	if err == nil && res.ExitCode == 255 {
+		return res, fmt.Errorf("ssh to %s failed: %s",
+			s.Describe(), strings.TrimSpace(res.Stderr))
+	}
+	return res, err
 }
 
 func (s *SSHRunner) WriteFile(path, content string, mode os.FileMode) error {
