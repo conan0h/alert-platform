@@ -33,27 +33,20 @@ Source tiers:
     Tier 3 — Financial press   [~10 min] NYT, MarketWatch, CNBC, SeekingAlpha
 """
 
-import os
-import re
-import time
-import sqlite3
-import logging
 import hashlib
 import html
-from datetime import datetime, timezone
+import re
+import sqlite3
+import time
 from dataclasses import dataclass, field
-from typing import Optional, List, Tuple, Dict
+from datetime import datetime, timezone
 
 import feedparser
 import requests
 
-
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-
-
-
 # ---------------------------------------------------------------------------
 # Platform runtime
 # ---------------------------------------------------------------------------
@@ -387,11 +380,11 @@ TICKER_RE = re.compile(
 @dataclass
 class DealFacts:
     """Enriched facts extracted from PR text."""
-    offer_price: Optional[float] = None
-    offer_price_currency: Optional[str] = None
-    deal_structure: Optional[str] = None       # "cash", "stock", "cash-and-stock"
-    premium_pct: Optional[float] = None        # Only if stated in PR; not computed
-    total_deal_size: Optional[str] = None      # "$43B", "$850M"
+    offer_price: float | None = None
+    offer_price_currency: str | None = None
+    deal_structure: str | None = None       # "cash", "stock", "cash-and-stock"
+    premium_pct: float | None = None        # Only if stated in PR; not computed
+    total_deal_size: str | None = None      # "$43B", "$850M"
 
 
 @dataclass
@@ -402,8 +395,8 @@ class Hit:
     link: str
     summary: str
     published: str
-    ticker: Optional[str] = None
-    matched_phrase: Optional[str] = None
+    ticker: str | None = None
+    matched_phrase: str | None = None
     facts: DealFacts = field(default_factory=DealFacts)
 
     def fingerprint(self) -> str:
@@ -446,7 +439,7 @@ def mark_seen(conn, hit: Hit):
 # ---------------------------------------------------------------------------
 
 
-def classify(text: str) -> Tuple[Optional[str], Optional[str]]:
+def classify(text: str) -> tuple[str | None, str | None]:
     for cat in CATEGORIES:
         if cat["_re"] is None:
             continue
@@ -456,14 +449,14 @@ def classify(text: str) -> Tuple[Optional[str], Optional[str]]:
     return None, None
 
 
-def category_meta(name: str) -> Dict:
+def category_meta(name: str) -> dict:
     for cat in CATEGORIES:
         if cat["name"] == name:
             return cat
     return {"emoji": "📢", "label": name, "urgency": "STANDARD"}
 
 
-def extract_ticker(text: str) -> Optional[str]:
+def extract_ticker(text: str) -> str | None:
     m = TICKER_RE.search(text or "")
     return m.group(1).upper() if m else None
 
@@ -570,7 +563,7 @@ def extract_facts(text: str) -> DealFacts:
     return facts
 
 
-def fetch_pr_body(url: str) -> Optional[str]:
+def fetch_pr_body(url: str) -> str | None:
     """
     Fetch and clean PR body. Hard timeout + size cap. Never raises.
     """
@@ -647,8 +640,8 @@ def enrich_hit(hit: Hit) -> None:
 # ---------------------------------------------------------------------------
 
 
-def fetch_feed(name: str, url: str, headers: Optional[Dict] = None, limit: int = 50) -> List[Hit]:
-    hits: List[Hit] = []
+def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50) -> list[Hit]:
+    hits: list[Hit] = []
     try:
         resp = requests.get(url, headers=headers or HTTP_HEADERS_DEFAULT, timeout=20)
         resp.raise_for_status()
@@ -686,8 +679,8 @@ def fetch_feed(name: str, url: str, headers: Optional[Dict] = None, limit: int =
     return hits
 
 
-def fetch_edgar(name: str, url: str, form_type: str) -> List[Hit]:
-    hits: List[Hit] = []
+def fetch_edgar(name: str, url: str, form_type: str) -> list[Hit]:
+    hits: list[Hit] = []
     try:
         headers = {"User-Agent": EDGAR_USER_AGENT, "Accept": "application/atom+xml"}
         resp = requests.get(url, headers=headers, timeout=25)
@@ -736,19 +729,6 @@ def fetch_edgar(name: str, url: str, form_type: str) -> List[Hit]:
 def send_telegram(text: str) -> bool:
     """Delivery via the platform client (rate limit, retries, metrics)."""
     return SVC.telegram.send(text)
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    try:
-        resp = requests.post(
-            url,
-            json={"chat_id": TELEGRAM_CHAT_ID, "text": text,
-                  "parse_mode": "HTML", "disable_web_page_preview": False},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        return True
-    except Exception as e:
-        log.error("Telegram send failed: %s", e)
-        return False
 
 
 def _format_facts_block(facts: DealFacts) -> str:
@@ -807,7 +787,7 @@ def format_alert(hit: Hit) -> str:
 _URGENCY_ORDER = {"CRITICAL": 0, "HIGH": 1, "STANDARD": 2}
 
 
-def _process_hits(conn, hits: List[Hit]) -> int:
+def _process_hits(conn, hits: list[Hit]) -> int:
     SVC.metrics.inc("alert_items_seen_total", len(hits))
     hits_sorted = sorted(
         hits,

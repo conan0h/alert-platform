@@ -22,27 +22,20 @@ against using it to issue alerts. It can be added later as an NDC
 enrichment layer.
 """
 
-import os
-import re
-import time
-import sqlite3
-import logging
 import hashlib
 import html
+import re
+import sqlite3
+import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from dataclasses import dataclass, field
-from typing import Optional, List, Tuple, Dict
 
 import feedparser
 import requests
 
-
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-
-
-
 # ---------------------------------------------------------------------------
 # Platform runtime
 # ---------------------------------------------------------------------------
@@ -347,8 +340,8 @@ class Hit:
     link: str
     summary: str
     published: str
-    ticker: Optional[str] = None
-    matched_phrase: Optional[str] = None
+    ticker: str | None = None
+    matched_phrase: str | None = None
 
     def fingerprint(self) -> str:
         # Fingerprint on (source, category, link) so the same PR picked up
@@ -397,7 +390,7 @@ def mark_seen(conn, hit: Hit):
 # ---------------------------------------------------------------------------
 
 
-def classify(text: str) -> Tuple[Optional[str], Optional[str]]:
+def classify(text: str) -> tuple[str | None, str | None]:
     """Return (category_name, matched_phrase) for first matching category."""
     for cat in CATEGORIES:
         if cat["_re"] is None:
@@ -408,14 +401,14 @@ def classify(text: str) -> Tuple[Optional[str], Optional[str]]:
     return None, None
 
 
-def category_meta(name: str) -> Dict:
+def category_meta(name: str) -> dict:
     for cat in CATEGORIES:
         if cat["name"] == name:
             return cat
     return {"emoji": "📢", "label": name, "urgency": "STANDARD"}
 
 
-def extract_ticker(text: str) -> Optional[str]:
+def extract_ticker(text: str) -> str | None:
     m = TICKER_RE.search(text or "")
     return m.group(1).upper() if m else None
 
@@ -446,9 +439,9 @@ def _fmt_published(entry) -> str:
 # ---------------------------------------------------------------------------
 
 
-def fetch_feed(name: str, url: str, headers: Optional[Dict] = None, limit: int = 50) -> List[Hit]:
+def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50) -> list[Hit]:
     """Generic RSS/Atom fetcher with classification."""
-    hits: List[Hit] = []
+    hits: list[Hit] = []
     try:
         resp = requests.get(url, headers=headers or HTTP_HEADERS_DEFAULT, timeout=20)
         resp.raise_for_status()
@@ -482,12 +475,12 @@ def fetch_feed(name: str, url: str, headers: Optional[Dict] = None, limit: int =
     return hits
 
 
-def fetch_edgar_8k(name: str, url: str) -> List[Hit]:
+def fetch_edgar_8k(name: str, url: str) -> list[Hit]:
     """
     EDGAR 8-K current feed. Unlike v2, we classify by keyword content —
     a plain 8-K filing is too noisy to alert on without an FDA keyword match.
     """
-    hits: List[Hit] = []
+    hits: list[Hit] = []
     try:
         headers = {"User-Agent": EDGAR_USER_AGENT, "Accept": "application/atom+xml"}
         resp = requests.get(url, headers=headers, timeout=25)
@@ -531,24 +524,6 @@ def send_telegram(text: str) -> bool:
     """Delivery via the platform client (rate limit, retries, metrics)."""
     return SVC.telegram.send(text)
 
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    try:
-        resp = requests.post(
-            url,
-            json={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": False,
-            },
-            timeout=15,
-        )
-        resp.raise_for_status()
-        return True
-    except Exception as e:
-        log.error("Telegram send failed: %s", e)
-        return False
-
 
 def format_alert(hit: Hit) -> str:
     meta = category_meta(hit.category)
@@ -588,7 +563,7 @@ def format_alert(hit: Hit) -> str:
 _URGENCY_ORDER = {"CRITICAL": 0, "HIGH": 1, "STANDARD": 2}
 
 
-def _process_hits(conn, hits: List[Hit]) -> int:
+def _process_hits(conn, hits: list[Hit]) -> int:
     SVC.metrics.inc("alert_items_seen_total", len(hits))
     # Sort by urgency before sending
     hits_sorted = sorted(
