@@ -11,7 +11,7 @@ kind: Fleet
 metadata:
   name: market-alert-suite
   owner: conan
-  repo: https://github.com/conanohara/alert-platform
+  repo: https://github.com/conan0h/alert-platform
 
 # Where services run. Phase 1 models the current world (one EC2 host).
 # The apply engine in Phase 2 reads this to know where to act.

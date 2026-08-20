@@ -8,7 +8,7 @@ metadata:
 
 spec:
   source:
-    repo: https://github.com/conanohara/alert-platform
+    repo: https://github.com/conan0h/alert-platform
     path: services/fda_catalysts
     ref: v0.1.0
     entrypoint: main.py
