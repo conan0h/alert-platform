@@ -98,7 +98,7 @@ class ServiceConfig:
     _secrets: dict[str, str] = field(default_factory=dict, repr=False)
 
     @classmethod
-    def from_env(cls) -> "ServiceConfig":
+    def from_env(cls) -> ServiceConfig:
         polling: dict[str, Any] = {}
         secrets: dict[str, str] = {}
         for key, value in os.environ.items():

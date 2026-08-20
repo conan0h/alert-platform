@@ -20,24 +20,20 @@ Run after form4_backfill.py + form4_scorer.py have populated the leaderboard.
 
 from __future__ import annotations
 
-import os
 import html
-import time
 import sqlite3
-import feedparser
+import time
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Tuple
 
-import requests
-
+import feedparser
 import form4_common
-from form4_common import init_db, edgar_get, fetch_price_history
-from form4_backfill import parse_form4_xml, fetch_primary_xml, _ACCESSION_RE
 
 # ---------------------------------------------------------------------------
 # Platform runtime
 # ---------------------------------------------------------------------------
 from alertlib import Service, get_logger
+from form4_backfill import _ACCESSION_RE, fetch_primary_xml, parse_form4_xml
+from form4_common import edgar_get, init_db
 
 SVC: Service = None          # bound in main()
 log = get_logger("form4-insider")
@@ -58,7 +54,7 @@ CURRENT_FORM4_URL = (
 # ---------------------------------------------------------------------------
 # Leaderboard cutoff
 # ---------------------------------------------------------------------------
-def get_alpha_cutoff(conn: sqlite3.Connection, min_n_trades: int = 5) -> Optional[float]:
+def get_alpha_cutoff(conn: sqlite3.Connection, min_n_trades: int = 5) -> float | None:
     """
     Return the 90-day alpha threshold for the 75th percentile of insiders
     with at least `min_n_trades` scored trades. Used to decide if an insider
@@ -76,7 +72,7 @@ def get_alpha_cutoff(conn: sqlite3.Connection, min_n_trades: int = 5) -> Optiona
     return values[idx]
 
 
-def get_insider_stats(conn: sqlite3.Connection, insider_cik: str) -> Optional[Dict]:
+def get_insider_stats(conn: sqlite3.Connection, insider_cik: str) -> dict | None:
     row = conn.execute(
         """SELECT name, n_trades, alpha_30, alpha_90, alpha_180, total_buy_usd, total_sell_usd
              FROM insiders WHERE insider_cik = ?""",
@@ -98,7 +94,7 @@ def get_insider_stats(conn: sqlite3.Connection, insider_cik: str) -> Optional[Di
 # ---------------------------------------------------------------------------
 # Decision logic
 # ---------------------------------------------------------------------------
-def should_alert(tx: Dict, insider_stats: Optional[Dict], alpha_cutoff: Optional[float]) -> Tuple[bool, str]:
+def should_alert(tx: dict, insider_stats: dict | None, alpha_cutoff: float | None) -> tuple[bool, str]:
     """
     Returns (should_alert, reason).
 
@@ -139,14 +135,14 @@ def send_telegram(text: str) -> bool:
     return SVC.telegram.send(text)
 
 
-def _pct(v: Optional[float]) -> str:
+def _pct(v: float | None) -> str:
     if v is None:
         return "—"
     return f"{v:+.1%}"
 
 
-def format_alert(parsed: Dict, tx: Dict, accession: str,
-                 insider_stats: Optional[Dict], reason: str) -> str:
+def format_alert(parsed: dict, tx: dict, accession: str,
+                 insider_stats: dict | None, reason: str) -> str:
     is_buy = tx["tx_code"] == "P"
     banner = "🟢 <b>INSIDER BUY</b>" if is_buy else "🔴 <b>INSIDER SELL</b>"
 
@@ -184,7 +180,7 @@ def format_alert(parsed: Dict, tx: Dict, accession: str,
 # ---------------------------------------------------------------------------
 # Fetch + process loop
 # ---------------------------------------------------------------------------
-def fetch_current_form4_entries() -> List[Tuple[str, str]]:
+def fetch_current_form4_entries() -> list[tuple[str, str]]:
     """
     Returns list of (accession, cik) from EDGAR's current Form 4 atom feed.
     Filter duplicates via DB state upstream.
@@ -192,7 +188,7 @@ def fetch_current_form4_entries() -> List[Tuple[str, str]]:
     resp = edgar_get(CURRENT_FORM4_URL, timeout=30,
                      extra_headers={"Accept": "application/atom+xml"})
     feed = feedparser.parse(resp.content)
-    out: List[Tuple[str, str]] = []
+    out: list[tuple[str, str]] = []
     for entry in getattr(feed, "entries", []):
         link = (getattr(entry, "link", "") or "").strip()
         # Example: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001234567&...
@@ -226,7 +222,7 @@ def mark_alerted(conn: sqlite3.Connection, accession: str):
     conn.commit()
 
 
-def process_filing(conn: sqlite3.Connection, accession: str, cik: str, alpha_cutoff: Optional[float]) -> int:
+def process_filing(conn: sqlite3.Connection, accession: str, cik: str, alpha_cutoff: float | None) -> int:
     """Fetch the XML, parse transactions, alert on any that qualify. Returns number of alerts sent."""
     if is_already_alerted(conn, accession):
         return 0
@@ -246,7 +242,6 @@ def process_filing(conn: sqlite3.Connection, accession: str, cik: str, alpha_cut
     insider_stats = get_insider_stats(conn, parsed["insider_cik"])
 
     sent = 0
-    alerted_this_filing = False
     for tx in parsed["transactions"]:
         ok, reason = should_alert(tx, insider_stats, alpha_cutoff)
         if not ok:
@@ -256,7 +251,6 @@ def process_filing(conn: sqlite3.Connection, accession: str, cik: str, alpha_cut
         msg = format_alert(parsed, tx, accession, insider_stats, reason)
         if send_telegram(msg):
             sent += 1
-            alerted_this_filing = True
             log.info("Alert sent: %s %s [%s] %s $%.0f",
                      parsed.get("ticker"), tx["tx_code"],
                      parsed["insider_name"][:30], reason, tx["usd_value"])

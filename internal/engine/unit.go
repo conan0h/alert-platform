@@ -20,8 +20,8 @@ const (
 	EnvDir      = "/etc/alert-platform"
 )
 
-func UnitName(service string) string   { return "alert-" + service + ".service" }
-func UnitPath(service string) string   { return UnitDir + "/" + UnitName(service) }
+func UnitName(service string) string    { return "alert-" + service + ".service" }
+func UnitPath(service string) string    { return UnitDir + "/" + UnitName(service) }
 func ServiceRoot(service string) string { return InstallRoot + "/" + service }
 func ReleaseDir(service, ref string) string {
 	return ServiceRoot(service) + "/releases/" + ref

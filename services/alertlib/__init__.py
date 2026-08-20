@@ -26,7 +26,7 @@ Typical use:
             svc.sleep_until_next_poll()
 """
 
-from .config import ServiceConfig, ConfigError
+from .config import ConfigError, ServiceConfig
 from .health import HealthServer, Metrics
 from .log import configure_logging, get_logger
 from .service import Service

@@ -40,11 +40,11 @@ func TestRenderUnitAppliesFleetDefaultsAndOverrides(t *testing.T) {
 	unit := RenderUnit(eff, target)
 
 	for _, want := range []string{
-		"User=svc-alerts",                       // fleet default, never root
-		"Restart=on-failure",                    // fleet default, not the old Restart=always
+		"User=svc-alerts",    // fleet default, never root
+		"Restart=on-failure", // fleet default, not the old Restart=always
 		"RestartSec=10",
 		"MemoryMax=256M",
-		"StandardOutput=journal",                // not a log file next to the code
+		"StandardOutput=journal", // not a log file next to the code
 		"EnvironmentFile=/etc/alert-platform/form4-insider.env",
 		"WorkingDirectory=/opt/alert-platform/form4-insider/current",
 		"NoNewPrivileges=true",
@@ -89,9 +89,9 @@ func TestUnitHashChangesWithConfig(t *testing.T) {
 func TestRenderEnvMatchesTheAlertlibContract(t *testing.T) {
 	_, eff, _ := load(t)
 	env := RenderEnv(eff, "v2.0.1", map[string]string{
-		"tg_bot_token":      "123:secret",
-		"tg_chat_form4":     "-1001",
-		"edgar_user_agent":  "alert-platform ops@example.com",
+		"tg_bot_token":     "123:secret",
+		"tg_chat_form4":    "-1001",
+		"edgar_user_agent": "alert-platform ops@example.com",
 	})
 
 	for _, want := range []string{
@@ -371,7 +371,7 @@ func TestApplyWritesEnvFileWithSecretsButPlanDoesNot(t *testing.T) {
 	applier := &Applier{
 		Repo: repo, Runner: runner, Resolver: StubResolver{Value: "SUPERSECRET"},
 		Audit: log, Target: target,
-		Opts:  Options{DryRun: true, SkipGates: true, AutoApprove: true},
+		Opts: Options{DryRun: true, SkipGates: true, AutoApprove: true},
 	}
 	if err := applier.applyService(plan, plan.Services[0]); err != nil {
 		t.Fatal(err)

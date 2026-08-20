@@ -24,14 +24,11 @@ a local snapshot DB, fire Telegram alerts on meaningful transitions.
 Run: python ct_bot.py
 """
 
-import os
-import re
-import time
-import sqlite3
-import logging
 import json
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+import re
+import sqlite3
+import time
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -128,7 +125,7 @@ def init_db() -> sqlite3.Connection:
     return conn
 
 
-def get_trial(conn: sqlite3.Connection, nct_id: str) -> Optional[dict]:
+def get_trial(conn: sqlite3.Connection, nct_id: str) -> dict | None:
     cur = conn.execute(
         "SELECT nct_id, status, has_results, last_updated, sponsor, title, phases, first_seen, alerted_status FROM trials WHERE nct_id = ?",
         (nct_id,),
@@ -137,7 +134,7 @@ def get_trial(conn: sqlite3.Connection, nct_id: str) -> Optional[dict]:
     if not row:
         return None
     keys = ["nct_id", "status", "has_results", "last_updated", "sponsor", "title", "phases", "first_seen", "alerted_status"]
-    return dict(zip(keys, row))
+    return dict(zip(keys, row, strict=True))
 
 
 def upsert_trial(conn: sqlite3.Connection, trial: dict):
@@ -227,7 +224,7 @@ def fetch_recent_changes(days_back: int = 2):
     log.info("Streamed %d recently-updated trials from ClinicalTrials.gov", total_yielded)
 
 
-def parse_trial(raw: dict) -> Optional[dict]:
+def parse_trial(raw: dict) -> dict | None:
     """Extract the fields we care about from a raw API response study."""
     try:
         proto = raw.get("protocolSection", {})
@@ -269,7 +266,7 @@ def parse_trial(raw: dict) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 # Signal detection
 # ---------------------------------------------------------------------------
-def detect_signal(prev: Optional[dict], curr: dict) -> Optional[tuple[str, str, str, str]]:
+def detect_signal(prev: dict | None, curr: dict) -> tuple[str, str, str, str] | None:
     """
     Returns (signal_name, emoji, description, direction) if a tradeable
     event is detected, else None.

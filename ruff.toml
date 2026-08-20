@@ -1,0 +1,22 @@
+# Lint policy for the Python side (services + tools).
+#
+# The selection is deliberate rather than "select everything":
+#   E4/E7/E9, F   correctness — undefined names, unused imports, real bugs
+#   I             deterministic import order, so diffs stay about the change
+#   B             bugbear: mutable defaults, silent exception traps
+#   UP            keep syntax at the interpreter the fleet actually pins
+#
+# F821 (undefined name) has already paid for itself here: it caught dead
+# pre-migration delivery code left below an early return, still referencing
+# globals that no longer exist.
+
+target-version = "py310"   # matches defaults.runtime.interpreter in fleet.yaml
+line-length = 100
+
+[lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+
+[lint.per-file-ignores]
+# Service modules keep heavy imports (feedparser, requests) at module scope
+# so the bootstrap test proves the whole dependency closure imports cleanly.
+"services/tests/*" = ["E731"]

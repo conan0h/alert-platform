@@ -21,13 +21,16 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import time
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
 
 from form4_common import (
-    init_db, make_logger, bootstrap_job, fetch_price_history, compute_forward_return,
+    bootstrap_job,
+    compute_forward_return,
+    fetch_price_history,
+    init_db,
+    make_logger,
 )
 
 log = make_logger("form4_scorer", "form4_scorer.log")
@@ -35,7 +38,7 @@ log = make_logger("form4_scorer", "form4_scorer.log")
 SPY_TICKER = "SPY"
 
 
-def tickers_needing_scoring(conn: sqlite3.Connection, rescore: bool) -> List[str]:
+def tickers_needing_scoring(conn: sqlite3.Connection, rescore: bool) -> list[str]:
     if rescore:
         cur = conn.execute(
             "SELECT DISTINCT ticker FROM transactions WHERE ticker IS NOT NULL ORDER BY ticker"
@@ -49,13 +52,13 @@ def tickers_needing_scoring(conn: sqlite3.Connection, rescore: bool) -> List[str
     return [r[0] for r in cur.fetchall() if r[0]]
 
 
-def load_spy_series(conn: sqlite3.Connection, oldest: str, newest_plus_buffer: str) -> Dict[str, float]:
+def load_spy_series(conn: sqlite3.Connection, oldest: str, newest_plus_buffer: str) -> dict[str, float]:
     start = datetime.fromisoformat(oldest)
     end = datetime.fromisoformat(newest_plus_buffer)
     return fetch_price_history(SPY_TICKER, start, end, cache_conn=conn)
 
 
-def score_ticker(conn: sqlite3.Connection, ticker: str, spy_prices: Dict[str, float], rescore: bool):
+def score_ticker(conn: sqlite3.Connection, ticker: str, spy_prices: dict[str, float], rescore: bool):
     """Fetch prices for this ticker, then update every transaction's forward returns."""
     # Trades for this ticker
     rows = conn.execute(
@@ -206,7 +209,7 @@ def main():
     t0 = time.time()
     for i, ticker in enumerate(tickers, 1):
         try:
-            n = score_ticker(conn, ticker, spy_prices, args.rescore)
+            score_ticker(conn, ticker, spy_prices, args.rescore)
             if i % 50 == 0:
                 elapsed = time.time() - t0
                 rate = i / elapsed if elapsed > 0 else 0

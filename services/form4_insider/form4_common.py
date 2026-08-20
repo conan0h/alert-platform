@@ -12,13 +12,12 @@ Used by form4_backfill.py, form4_scorer.py, and form4_bot.py.
 
 from __future__ import annotations
 
-import os
-import time
-import sqlite3
 import logging
+import os
+import sqlite3
 import threading
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Tuple, List
+import time
+from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
 import requests
@@ -177,7 +176,7 @@ _edgar_lock = threading.Lock()
 _edgar_last = [0.0]
 
 
-def edgar_get(url: str, timeout: int = 30, extra_headers: Optional[Dict] = None) -> requests.Response:
+def edgar_get(url: str, timeout: int = 30, extra_headers: dict | None = None) -> requests.Response:
     """
     EDGAR-compliant GET:
       - User-Agent header with contact info (SEC requires)
@@ -219,7 +218,7 @@ def _yahoo_history_url(ticker: str, start_unix: int, end_unix: int) -> str:
 
 
 def fetch_price_history(ticker: str, start: datetime, end: datetime,
-                        cache_conn: Optional[sqlite3.Connection] = None) -> Dict[str, float]:
+                        cache_conn: sqlite3.Connection | None = None) -> dict[str, float]:
     """
     Returns {YYYY-MM-DD: adj_close} for the ticker between start and end (inclusive).
     Uses SQLite cache if provided, so repeated calls for the same ticker don't hammer Yahoo.
@@ -227,7 +226,7 @@ def fetch_price_history(ticker: str, start: datetime, end: datetime,
     ticker = ticker.upper().strip()
 
     # Check cache first
-    cached: Dict[str, float] = {}
+    cached: dict[str, float] = {}
     if cache_conn is not None:
         rows = cache_conn.execute(
             "SELECT date, close FROM price_cache WHERE ticker = ? AND date >= ? AND date <= ?",
@@ -251,7 +250,7 @@ def fetch_price_history(ticker: str, start: datetime, end: datetime,
         if len(lines) < 2:
             return cached
         # CSV: Date,Open,High,Low,Close,Adj Close,Volume
-        result: Dict[str, float] = {}
+        result: dict[str, float] = {}
         for line in lines[1:]:
             parts = line.split(",")
             if len(parts) < 6:
@@ -276,7 +275,7 @@ def fetch_price_history(ticker: str, start: datetime, end: datetime,
         return cached
 
 
-def price_on_or_after(prices: Dict[str, float], target_date: str) -> Optional[Tuple[str, float]]:
+def price_on_or_after(prices: dict[str, float], target_date: str) -> tuple[str, float] | None:
     """Find the first available trading-day price on or after target_date."""
     if not prices:
         return None
@@ -288,7 +287,7 @@ def price_on_or_after(prices: Dict[str, float], target_date: str) -> Optional[Tu
     return None
 
 
-def compute_forward_return(prices: Dict[str, float], trade_date: str, days_forward: int) -> Optional[float]:
+def compute_forward_return(prices: dict[str, float], trade_date: str, days_forward: int) -> float | None:
     """
     Percent return from the first trading-day price on/after trade_date
     to the first trading-day price on/after (trade_date + days_forward).

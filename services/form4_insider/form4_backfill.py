@@ -24,17 +24,19 @@ Options:
 from __future__ import annotations
 
 import argparse
-import io
 import re
+import sqlite3
 import sys
 import time
-import sqlite3
-from datetime import datetime, timezone, timedelta
-from typing import Iterator, List, Tuple, Optional
+from collections.abc import Iterator
+from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree as ET
 
 from form4_common import (
-    init_db, edgar_get, make_logger, bootstrap_job,
+    bootstrap_job,
+    edgar_get,
+    init_db,
+    make_logger,
 )
 
 log = make_logger("form4_backfill", "form4_backfill.log")
@@ -46,9 +48,9 @@ CHECKPOINT_EVERY = 1000          # log progress every N filings
 # ---------------------------------------------------------------------------
 # Walk EDGAR quarterly index
 # ---------------------------------------------------------------------------
-def quarters_since(years: int, start_override: Optional[str] = None) -> List[Tuple[int, int]]:
+def quarters_since(years: int, start_override: str | None = None) -> list[tuple[int, int]]:
     """Generate list of (year, quarter) tuples to crawl, newest first."""
-    out: List[Tuple[int, int]] = []
+    out: list[tuple[int, int]] = []
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=365 * years)
 
@@ -70,7 +72,7 @@ def quarters_since(years: int, start_override: Optional[str] = None) -> List[Tup
     return out
 
 
-def iter_form4_index(year: int, quarter: int) -> Iterator[Tuple[str, str, str, str]]:
+def iter_form4_index(year: int, quarter: int) -> Iterator[tuple[str, str, str, str]]:
     """
     Stream Form 4 entries from an EDGAR form.idx for a given quarter.
     Yields (cik, company, date_filed, filename) per row.
@@ -108,7 +110,7 @@ def iter_form4_index(year: int, quarter: int) -> Iterator[Tuple[str, str, str, s
 # ---------------------------------------------------------------------------
 # Parse Form 4 XML
 # ---------------------------------------------------------------------------
-def _txt(el: Optional[ET.Element]) -> Optional[str]:
+def _txt(el: ET.Element | None) -> str | None:
     if el is None:
         return None
     v = el.findtext("value")
@@ -117,7 +119,7 @@ def _txt(el: Optional[ET.Element]) -> Optional[str]:
     return v.strip() if isinstance(v, str) else None
 
 
-def parse_form4_xml(xml_bytes: bytes) -> Optional[dict]:
+def parse_form4_xml(xml_bytes: bytes) -> dict | None:
     """
     Parse a Form 4 XML document into a structured dict.
     Returns None if the doc isn't a parseable Form 4.
@@ -153,7 +155,7 @@ def parse_form4_xml(xml_bytes: bytes) -> Optional[dict]:
     rel = owner.find("reportingOwnerRelationship")
     relationship = _build_relationship(rel) if rel is not None else None
 
-    transactions: List[dict] = []
+    transactions: list[dict] = []
     ndt = root.find("nonDerivativeTable")
     if ndt is not None:
         for tx in ndt.findall("nonDerivativeTransaction"):
@@ -186,7 +188,7 @@ def _build_relationship(rel: ET.Element) -> str:
     return ", ".join(parts) if parts else "Insider"
 
 
-def _parse_non_derivative_tx(tx: ET.Element) -> Optional[dict]:
+def _parse_non_derivative_tx(tx: ET.Element) -> dict | None:
     date = _txt(tx.find("transactionDate"))
     tx_coding = tx.find("transactionCoding")
     if tx_coding is None:
@@ -233,7 +235,7 @@ def _parse_non_derivative_tx(tx: ET.Element) -> Optional[dict]:
 _ACCESSION_RE = re.compile(r"(\d{10}-\d{2}-\d{6})")
 
 
-def index_row_to_xml_urls(cik: str, filename: str) -> List[str]:
+def index_row_to_xml_urls(cik: str, filename: str) -> list[str]:
     """
     Given an index row, try to locate the primary Form 4 XML document.
     form.idx gives us a .txt path; the primary XML lives alongside it
@@ -252,7 +254,7 @@ def index_row_to_xml_urls(cik: str, filename: str) -> List[str]:
     return [f"{base}/index.json", f"{base}/{accession}-index.htm"]
 
 
-def fetch_primary_xml(cik: str, filename: str) -> Optional[Tuple[str, bytes]]:
+def fetch_primary_xml(cik: str, filename: str) -> tuple[str, bytes] | None:
     """
     Return (accession, xml_bytes) or None. Tries the index.json route first.
     """
@@ -300,7 +302,7 @@ def fetch_primary_xml(cik: str, filename: str) -> Optional[Tuple[str, bytes]]:
 # ---------------------------------------------------------------------------
 # Main backfill
 # ---------------------------------------------------------------------------
-def _upsert_filing(conn: sqlite3.Connection, rows: List[tuple]):
+def _upsert_filing(conn: sqlite3.Connection, rows: list[tuple]):
     conn.executemany(
         "INSERT OR IGNORE INTO filings (accession, filed_at, cik, ticker, processed) VALUES (?, ?, ?, ?, 0)",
         rows,
@@ -315,8 +317,8 @@ def _upsert_insider(conn: sqlite3.Connection, insider_cik: str, name: str):
 
 
 def _insert_transactions(conn: sqlite3.Connection, accession: str, insider_cik: str,
-                         ticker: Optional[str], relationship: Optional[str],
-                         txs: List[dict]):
+                         ticker: str | None, relationship: str | None,
+                         txs: list[dict]):
     if not txs:
         return
     rows = [
@@ -332,20 +334,20 @@ def _insert_transactions(conn: sqlite3.Connection, accession: str, insider_cik: 
     )
 
 
-def _mark_processed(conn: sqlite3.Connection, accessions: List[str]):
+def _mark_processed(conn: sqlite3.Connection, accessions: list[str]):
     conn.executemany(
         "UPDATE filings SET processed = 1 WHERE accession = ?",
         [(a,) for a in accessions],
     )
 
 
-def download_indices(conn: sqlite3.Connection, years: int, start_override: Optional[str]):
+def download_indices(conn: sqlite3.Connection, years: int, start_override: str | None):
     """Phase 1 — populate filings table from quarterly indices."""
     discovered = 0
     for (y, q) in quarters_since(years, start_override):
         try:
             rows = []
-            for cik, company, date_filed, filename in iter_form4_index(y, q):
+            for cik, _company, date_filed, filename in iter_form4_index(y, q):
                 m = _ACCESSION_RE.search(filename)
                 if not m:
                     continue
@@ -373,7 +375,7 @@ def process_filings(conn: sqlite3.Connection):
     log.info("Phase 2: %d filings to process", total_pending)
 
     processed_n = 0
-    batch_processed: List[str] = []
+    batch_processed: list[str] = []
     t0 = time.time()
 
     while True:

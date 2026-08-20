@@ -16,7 +16,21 @@ help:
 
 .PHONY: deps
 deps: ## Install Python dependencies for tooling and services
-	$(PY) -m pip install --quiet pyyaml jsonschema pytest -r services/requirements.txt
+	$(PY) -m pip install --quiet pyyaml jsonschema pytest ruff -r services/requirements.txt
+
+.PHONY: lint
+lint: lint-go lint-py ## Lint both planes
+
+.PHONY: lint-go
+lint-go: ## golangci-lint + canonical formatting
+	@command -v golangci-lint >/dev/null || { \
+	  echo "golangci-lint not installed: https://golangci-lint.run/welcome/install/"; exit 1; }
+	golangci-lint run ./...
+	@test -z "$$(gofmt -l cmd internal)" || { echo "gofmt -w these:"; gofmt -l cmd internal; exit 1; }
+
+.PHONY: lint-py
+lint-py: ## ruff over services and tools
+	$(PY) -m ruff check services tools
 
 .PHONY: validate
 validate: ## Schema + fleet invariants (the first gate of every deploy)
@@ -42,12 +56,16 @@ observability: ## Regenerate Prometheus and Grafana config from the specs
 	$(PY) tools/gen_observability.py
 
 .PHONY: check
-check: validate test ## Everything CI runs
+check: lint validate test ## Everything CI runs
 	$(PY) tools/gen_observability.py --check
 
 .PHONY: plan
 plan: build validate ## Plan against the production target
 	./bin/alertctl plan -out plan.json
+
+.PHONY: console
+console: build ## Read-only operator console on http://127.0.0.1:8600
+	./bin/alertctl serve
 
 .PHONY: status
 status: build ## What is deployed right now

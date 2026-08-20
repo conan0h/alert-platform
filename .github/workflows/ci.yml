@@ -18,7 +18,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install pyyaml jsonschema
+      - run: pip install pyyaml jsonschema ruff
+      - name: Lint (ruff)
+        run: ruff check services tools
       - name: Validate specs and fleet invariants
         run: python3 tools/validate.py
       - name: Observability config is up to date with the specs
@@ -33,6 +35,13 @@ jobs:
         with:
           go-version: '1.22'
       - run: go vet -mod=vendor ./...
+      - name: Lint (golangci-lint)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.59.1
+          args: --timeout 3m
+      - name: Formatting is canonical
+        run: test -z "$(gofmt -l cmd internal)" || { gofmt -l cmd internal; exit 1; }
       - run: go test -mod=vendor ./... -race
       - run: go build -mod=vendor -o bin/alertctl ./cmd/alertctl
       - uses: actions/upload-artifact@v4

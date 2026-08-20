@@ -23,11 +23,10 @@ sys.path.insert(0, str(SERVICES))
 
 from alertlib import Service, ServiceConfig  # noqa: E402
 from alertlib.config import ConfigError  # noqa: E402
-from alertlib.health import Heartbeat, HealthServer, Metrics  # noqa: E402
+from alertlib.health import HealthServer, Heartbeat, Metrics  # noqa: E402
 from alertlib.log import JsonFormatter  # noqa: E402
 from alertlib.state import state_path  # noqa: E402
 from alertlib.telegram import _TokenBucket  # noqa: E402
-
 
 BASE_ENV = {
     "ALERT_SERVICE_NAME": "edgar-mna",

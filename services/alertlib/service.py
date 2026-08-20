@@ -17,7 +17,7 @@ from __future__ import annotations
 import contextlib
 import signal
 import time
-from typing import Iterator
+from collections.abc import Iterator
 
 from .config import ServiceConfig
 from .health import HealthServer, Heartbeat, Metrics
@@ -44,7 +44,7 @@ class Service:
         self._cycle = 0
 
     @classmethod
-    def from_env(cls) -> "Service":
+    def from_env(cls) -> Service:
         return cls(ServiceConfig.from_env())
 
     # -- delivery ---------------------------------------------------------
@@ -82,7 +82,7 @@ class Service:
         return state_path(self.cfg.state_dir, filename)
 
     # -- lifecycle --------------------------------------------------------
-    def __enter__(self) -> "Service":
+    def __enter__(self) -> Service:
         signal.signal(signal.SIGTERM, self._on_signal)
         signal.signal(signal.SIGINT, self._on_signal)
         self.health.start()
