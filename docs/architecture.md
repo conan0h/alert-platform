@@ -4,6 +4,11 @@ How the pieces fit, and why the seams are where they are.
 
 ## Two planes
 
+![Control plane and data plane](img/architecture.svg)
+
+<details>
+<summary>Same diagram as text</summary>
+
     ┌──────────────────────────── control plane (Go) ──────────────────────────┐
     │                                                                          │
     │   fleet/fleet.yaml ─┐                                                     │
@@ -27,6 +32,8 @@ How the pieces fit, and why the seams are where they are.
     │                                                                          │
     │   stdout (JSON) ─> journald        :91xx /healthz  /metrics               │
     └──────────────────────────────────────────────────────────────────────────┘
+
+</details>
 
 The control plane never contains business logic and the data plane never
 contains deployment logic. The only thing crossing the boundary is an
@@ -75,6 +82,8 @@ through a bad day, few enough not to fill the volume, and older tags are
 always re-fetchable from the repo.
 
 ## Deploy lifecycle
+
+![Deploy lifecycle: three pre-flight gates, sequential deploy, post-deploy health gate, and the rollback branch](img/deploy-lifecycle.svg)
 
 1. **`plan`** — validate, resolve effective config, read `deployed.json` and
    `systemctl show` from the host, diff, fingerprint the result.
@@ -125,6 +134,84 @@ roll forward again — reintroducing the outage.
 The distinction in the last two rows is the one worth keeping: a polling
 service that sees an upstream error is doing its job; a service that cannot
 deliver is silently useless, which is worse than being obviously down.
+
+## The operator console
+
+`alertctl serve` puts a read-only web view on the same engine the CLI drives.
+
+![The operator console: fleet overview, live change set, and audit trail](img/console.png)
+
+It exists to answer the question a terminal answers badly — *what is the state
+of the whole fleet right now* — and it is built under two constraints:
+
+- **No second source of truth.** Every panel calls `fleet.Load`,
+  `engine.Observe`, `engine.BuildPlan` or `audit.History`. There is no
+  console-specific data model and nothing to keep in sync; if the console and
+  the CLI ever disagree, one of them has a bug, which is a better failure mode
+  than a cache that is quietly wrong.
+- **No write path.** Non-`GET` methods are refused at the boundary, and no
+  handler reaches mutating code. Changes go through `plan` → review →
+  `apply`, where the confirmation prompt, the gates and the audit record
+  live. A browser button that deploys would have to reproduce all of that, or
+  quietly skip it.
+
+It degrades in the direction that keeps it honest. Desired state comes from
+the specs and renders with no target at all; observed state appears when the
+host is reachable and turns into an explicit banner when it is not. The
+console never draws a healthy-looking fleet it cannot see:
+
+![The same console with the target unreachable: specs still render, observed state is replaced by an explicit banner](img/console-unreachable.png)
+
+Note what the panels say rather than show. "Plan needs a reachable target to
+diff against" is a different statement from an empty diff, and an empty audit
+trail says where entries will come from. A dashboard that renders blank on
+failure is indistinguishable from one reporting that nothing is wrong.
+
+It binds to loopback and has no authentication, which is deliberate — for a
+remote target, forward it over the transport the platform already trusts:
+
+    ssh -L 8600:127.0.0.1:8600 ec2-alerts-prod
+
+## Portability: what the platform actually assumes
+
+The platform targets systemd over SSH and nothing narrower. It shells out to
+`systemctl`, `journalctl`, `install`, `git` and `curl`; it writes unit files
+to `/etc/systemd/system` and reads `systemctl show`. Nothing in the control
+plane is Debian- or Ubuntu-specific: there are no `apt` calls, no
+distribution-specific paths, and no assumptions about the init system beyond
+systemd itself.
+
+Moving the fleet to RHEL, or onto KVM guests rather than EC2 instances, is
+therefore a change to `targets` in `fleet.yaml` and to
+`defaults.runtime.interpreter` — not a change to the engine. The one thing
+that would need attention is SELinux: RHEL enforces contexts on files under
+`/etc/systemd/system` and `/opt`, so the unit and env writes would need
+`restorecon` (or correct contexts at install time) added to the deploy steps.
+That is a known, bounded addition to `applyService`, and it is called out here
+rather than discovered later.
+
+Virtualization is deliberately outside the platform's scope. `targets` names
+hosts; how those hosts come to exist — EC2, KVM, bare metal — is a layer
+below, and the platform is better for not having an opinion about it.
+
+## Log and metric shipping
+
+Services log JSON to stdout and systemd routes it to journald. That choice was
+made with shipping in mind: journald is a single, structured, queryable source
+that every log shipper already knows how to read, so attaching one is a host
+concern rather than a service change.
+
+Concretely, a Splunk universal forwarder or a Humio/Falcon LogScale shipper
+reads the journal directly (or `journalctl -o json` piped to it) and gets
+per-service structured fields — `service`, `level`, `event`, `ref` — without
+any service being rebuilt, redeployed, or even restarted. The same is true in
+reverse: the platform does not need to know which shipper is in use.
+
+Metrics take the other path. Each service exposes `/metrics` on a port its own
+spec declares, `tools/gen_observability.py` derives the scrape targets and
+alert rules from those specs, and CI fails if the generated config has drifted
+from them. Swapping Prometheus for another scraper means changing the
+generator, not the services.
 
 ## What is still deliberately absent
 
