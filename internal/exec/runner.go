@@ -118,11 +118,39 @@ func (l *LocalRunner) Run(cmd string) (Result, error) {
 }
 
 func (l *LocalRunner) WriteFile(path, content string, mode os.FileMode) error {
-	full := l.resolve(path)
-	if err := os.MkdirAll(dir(full), 0o755); err != nil {
+	if l.Root != "" {
+		full := l.resolve(path)
+		if err := os.MkdirAll(dir(full), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(full, []byte(content), mode)
+	}
+	tmp, err := os.CreateTemp("", ".alertctl-*")
+	if err != nil {
+		return fmt.Errorf("stage %s: %w", path, err)
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
 		return err
 	}
-	return os.WriteFile(full, []byte(content), mode)
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	res, err := l.Run(fmt.Sprintf("sudo install -m %o %s %s",
+		mode.Perm(), shellQuote(tmp.Name()), shellQuote(path)))
+	if err != nil {
+		return err
+	}
+	if !res.OK() {
+		return fmt.Errorf("install %s: exit %d: %s",
+			path, res.ExitCode, strings.TrimSpace(res.Stderr))
+	}
+	return nil
 }
 
 func (l *LocalRunner) resolve(path string) string {

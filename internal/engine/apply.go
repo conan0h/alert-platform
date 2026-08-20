@@ -198,7 +198,8 @@ func (a *Applier) applyService(plan Plan, sp ServicePlan) error {
 			eff.String("source.repo", a.Repo.Fleet.Metadata.Repo), release)},
 
 		{"verify checkout matches the tag", fmt.Sprintf(
-			"cd %s && test \"$(git describe --tags --exact-match 2>/dev/null)\" = %q", release, ref)},
+			"test \"$(sudo -u %s git -C %s describe --tags --exact-match 2>/dev/null)\" = %q",
+			eff.String("runtime.user", "svc-alerts"), release, ref)},
 
 		{"build virtualenv", fmt.Sprintf(
 			"sudo -u %s %s -m venv %s/venv && sudo -u %s %s/venv/bin/pip install --quiet --upgrade pip && "+
