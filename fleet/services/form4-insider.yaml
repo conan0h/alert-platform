@@ -10,7 +10,7 @@ spec:
   source:
     repo: https://github.com/conan0h/alert-platform
     path: services/form4_insider
-    ref: v0.1.0
+    ref: v0.1.2
     entrypoint: main.py
 
   polling:

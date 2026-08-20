@@ -10,7 +10,7 @@ spec:
   source:
     repo: https://github.com/conan0h/alert-platform
     path: services/clinical_trials
-    ref: v0.1.0                       # post-migration baseline; see docs/migration.md
+    ref: v0.1.2                       # post-migration baseline; see docs/migration.md
     entrypoint: main.py
 
   polling:

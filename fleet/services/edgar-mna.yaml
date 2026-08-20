@@ -14,7 +14,7 @@ spec:
   source:
     repo: https://github.com/conan0h/alert-platform
     path: services/edgar_mna
-    ref: v0.1.0                       # git tag; apply engine refuses branches in prod
+    ref: v0.1.2                       # git tag; apply engine refuses branches in prod
     entrypoint: main.py
 
   # How it behaves. Only fields that DIFFER from fleet defaults appear here.
