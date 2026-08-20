@@ -71,13 +71,18 @@ func (s *SSHRunner) Run(cmd string) (Result, error) {
 		s.target(), cmd,
 	}
 	res, err := runLocal("ssh", args, s.Timeout, cmd)
-	// ssh reserves 255 for its own failures (DNS, refused, auth) as opposed
-	// to the remote command's exit code. The Runner contract says those are
-	// errors, not results — otherwise an unreachable host reads as an empty
-	// one and plan proposes creating a fleet that already exists.
+	return checkSSHResult(res, err, s.Describe())
+}
+
+// checkSSHResult enforces the Runner contract at the ssh boundary. ssh
+// reserves exit 255 for its own failures (DNS, refused, auth) rather than
+// the remote command's exit code, so 255 must surface as an error —
+// otherwise an unreachable host reads as an empty one and plan proposes
+// creating a fleet that already exists.
+func checkSSHResult(res Result, err error, target string) (Result, error) {
 	if err == nil && res.ExitCode == 255 {
 		return res, fmt.Errorf("ssh to %s failed: %s",
-			s.Describe(), strings.TrimSpace(res.Stderr))
+			target, strings.TrimSpace(res.Stderr))
 	}
 	return res, err
 }
