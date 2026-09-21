@@ -558,15 +558,15 @@ Format:
   documents and the deploy role, so it can widen what a deploy may do. That is
   inherent in owning the infrastructure that defines the deploy, and the
   compensating control is the audit trail, not the policy.
-- Handoff issue **#27** filed: four steps in CloudShell plus one repository
+- Handoff **issue #27** filed: four steps in CloudShell plus one repository
   variable. It is the last handoff of this kind. Verification is an `infra.yml`
   plan reporting no changes, since the account will already match.
-- Once it is done, #27's `alerts` verb and #32's `--since` both stop being
+- Once it is done, the `alerts` verb and #32's `--since` both stop being
   handoffs — both are SSM document changes.
 - Production untouched this entry. `form4-insider` remains at `v0.2.0` from the
   earlier deploy, all four healthy, drift clean.
 - Next run: read the alerts first (CLAUDE.md §5.3) and settle whether the
-  duplication stopped; then #32, then #27's alert archive.
+  duplication stopped; then #32, then the alert archive (backlog #27).
 - Catch-up: the AWS side is written, reviewed and merged. One CloudShell session
   turns it on, and after that the only thing I still cannot do is cut a release
   tag.
