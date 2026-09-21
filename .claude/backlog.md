@@ -9,7 +9,7 @@ items with a one-line "why".
 ## P0 — Green, reachable, deployed (in this order)
 
 1. **Make `main` green: decouple engine tests from live fleet refs.**
-   `in-pr #1`
+   `done (#1)`
    CI has been red since `e44bd09`. `engine_test.go` asserted
    `git clone --depth 1 --branch v0.1.0` and `rollback_test.go` pinned
    `nextRef = "v0.1.0"`, but both loaded the real `fleet/` specs (now
@@ -18,8 +18,8 @@ items with a one-line "why".
    `TestLiveFleetSpecsRenderAndStayDeployable` keeps the real specs covered
    without naming a version, port, service or count. `$id` is now the URN
    `urn:alertplatform:v1:service`, verified against both resolver
-   generations. Full suite green locally and in CI. Still to do: add the CI
-   badge now that `main` is green.
+   generations. Merged as #1; CI run #15 on `main` is green, the first since
+   2026-08-20. README carries the CI badge.
 
 2. **Fix the Go module path `conanohara` → `conan0h`.** `todo`
    `go install github.com/conan0h/alert-platform/cmd/alertctl@latest` fails
@@ -185,4 +185,7 @@ items with a one-line "why".
 
 ## Done
 
-(move items here with the PR number)
+- **#1 — Make `main` green.** Two independent failures: engine tests coupled
+  to live fleet refs, and a relative schema `$id` that old `jsonschema`
+  resolvers dereference as a URL. Merged 2026-09-21; CI run #15 on `main`
+  green. Also restored `.claude/` to git and added the CI badge.

@@ -51,7 +51,11 @@ Format:
   least trustworthy. Third commit restores
   `.claude/` (backlog, log, learnings) into git, where a fresh clone can see
   it, and drops the 1.9 MB `alert-platform-launchpad.zip` that carried it.
-- PR: #1, opened on `claude/awesome-pasteur-jzcf56`, auto-merge on squash.
+- PR: #1, **merged** (squash). Auto-merge is not enabled on this repository
+  (Settings → General → Allow auto-merge), and CLAUDE.md §2 forbids changing
+  repo settings, so it was merged by hand once all four checks were green —
+  never on a pending or failing check. CI run #15 on `main` is green, the
+  first since 2026-08-20.
   Blocked for part of the run: `git push` returned 403 and the GitHub API
   refused branch, PR *and issue* creation with "Resource not accessible by
   integration", while every read succeeded — so the §7 handoff could not be
@@ -77,14 +81,18 @@ Format:
   deploying until that pipeline and its handoff are done, so nothing was
   deployed and no release was tagged. Nothing in the docs should claim
   otherwise.
-- Next: confirm #1 merged and `main` green, then P0 #2 (module path
+- Next: P0 #2 (module path
   `conanohara` → `conan0h`) and P0 #3 (the OIDC → IAM → SSM pipeline), which
-  is what unblocks every production claim in this repo.
+  is what unblocks every production claim in this repo. Also worth an early
+  look: new backlog item 8a, pinning the validator's Python dependencies so
+  the apply gate cannot fail on whatever `jsonschema` the host has.
 - Notes: `rollback_test.go` skips when `pyyaml`/`jsonschema` are absent, so
   half of backlog #1 was invisible locally. Separately, the check-runs API
   reported the failing `alertctl` job as still running for ~9 minutes after
   it had failed; reading the job logs gave the truth. Both in learnings,
   along with the `$id` lesson and "one red check can hide another".
+  Enabling auto-merge would remove a manual step from every future run, but
+  it is Conan's call: it is a repo setting, which §2 puts out of bounds.
 - Catch-up: `main` had been red since 2026-08-20 for two unrelated reasons,
   not one — PR #1 fixes both, and future releases can no longer break the
   engine tests. Still no production access, so this run makes no claims about
