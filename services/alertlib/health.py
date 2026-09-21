@@ -54,6 +54,8 @@ class Metrics:
         self.declare_counter("alert_items_seen_total", "Upstream items examined.")
         self.declare_counter("alert_alerts_sent_total", "Alerts delivered successfully.")
         self.declare_counter("alert_delivery_failures_total", "Delivery attempts that failed.")
+        self.declare_counter("alert_sends_refused_total",
+                             "Sends withheld because the dedup record would not persist.")
         self.declare_gauge("alert_last_success_timestamp_seconds",
                            "Unix time of the last fully successful poll cycle.")
         self.declare_gauge("alert_last_poll_duration_seconds",

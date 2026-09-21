@@ -6,217 +6,150 @@ Statuses: `todo`, `in-pr #N`, `done`, `needs-conan`, `blocked: <reason>`.
 Each item is a milestone; note slices where one run can't finish it. Add
 items with a one-line "why".
 
-## P0 — Green, reachable, deployed (in this order)
+**Reprioritised 2026-09-21** around the goal in CLAUDE.md §1: alerts that
+indicate a market move. Signal quality and the ability to measure it come
+first; the deploy machinery is largely built and now serves that work rather
+than being the work. Three of the four P0 items below came from one reading of
+`observe.yml verb=logs` — the first time anyone had looked at what the bots
+actually emit.
 
-1. **Make `main` green: decouple engine tests from live fleet refs.**
-   `done (#1)`
-   CI has been red since `e44bd09`. `engine_test.go` asserted
-   `git clone --depth 1 --branch v0.1.0` and `rollback_test.go` pinned
-   `nextRef = "v0.1.0"`, but both loaded the real `fleet/` specs (now
-   `v0.1.2`). Engine tests now load `internal/engine/testdata/fleet`, four
-   fictional services pinned at `v1.0.0` that never move;
-   `TestLiveFleetSpecsRenderAndStayDeployable` keeps the real specs covered
-   without naming a version, port, service or count. `$id` is now the URN
-   `urn:alertplatform:v1:service`, verified against both resolver
-   generations. Merged as #1; CI run #15 on `main` is green, the first since
-   2026-08-20. README carries the CI badge.
+## P0 — Stop the noise, then measure it
 
-2. **Fix the Go module path `conanohara` → `conan0h`.** `done (#3)`
-   `go.mod` and all 13 importing files now say `github.com/conan0h/…`.
-   `vendor/modules.txt` lists dependencies only, so nothing there named the
-   main module and no vendor regeneration was needed.
-   Follow-up, deliberately not done here: `go install
-   github.com/conan0h/alert-platform/cmd/alertctl@latest` resolves to the
-   newest *tag*, and `v0.1.0`–`v0.1.2` all carry the old path — so it keeps
-   failing until a release is cut from this commit or later. Cutting that tag
-   belongs with the next change that actually warrants a release, not with a
-   rename.
+25. **`form4-insider` is re-sending the same alerts in a loop.**
+    `slices (a) and (b) done; (c) and (d) open`
+    **Live incident.** Found 2026-09-21 in journald. The same DELL insider
+    sales are sent every ~20s: `$1,119,426`, `$1,411,252`, `$1,828,658`,
+    `$4,209,497` … then the identical sequence again two minutes later.
+    Interleaved with:
 
-3. **Deploy and observe pipeline: GitHub OIDC → IAM → SSM.** `read path done`
-   Merged as #4; handoff #5 applied by Conan on 2026-09-21. The read path
-   now works end to end against the real host — `status`, `drift`,
-   `history` and `health` have all run and their output is the first
-   Production report in the log. Six follow-up PRs (#8–#13) were needed to
-   get there; see learnings. **Remaining:** one more `bootstrap-host.sh`
-   run on the host (the three before #13 all died before installing the
-   wrapper and the sudo rule), after which the write path can be tried.
-   Code complete and tested; slices (a), (b) and (c) all landed together with
-   ADR 0001. **Nothing has run against a real host**, and cannot until the
-   one-time AWS apply and host bootstrap are done — see the Handoff issue.
-   `alertctl` learned `ALERTCTL_ACTOR` so an automated apply is attributed to
-   its workflow run rather than to the shared `alert-ops` account.
-   The only path from this repo to production (CLAUDE.md §6). Slices:
-   (a) `infra/terraform/`: GitHub OIDC provider; a deploy role trusted only
-   for `repo:conan0h/alert-platform:ref:refs/heads/main`, allowed
-   `ssm:SendCommand` for two SSM documents on this one instance plus reading
-   the command output; the two documents (`AlertPlatform-Observe`,
-   `AlertPlatform-Deploy`). `fmt`, `validate`, `tflint` in CI, never apply.
-   (b) `deploy/ops/`: an idempotent host bootstrap creating the `alert-ops`
-   user, a sudoers drop-in limited to the wrapper, and the wrapper
-   `/usr/local/sbin/alert-deploy` with strict argument validation. Must pass
-   `shellcheck` in CI, with tests for the validation.
-   (c) `.github/workflows/observe.yml` (hourly and `workflow_dispatch`) and
-   `deploy.yml` (`workflow_dispatch`, `concurrency: production`), passing
-   `ALERTCTL_ACTOR=gha:${{ github.run_id }}`. Teach `alertctl` to prefer that
-   env var for the audit `actor`, with a test.
-   ADR: why OIDC plus SSM rather than SSH keys in CI, and why the agent never
-   holds credentials. Handoff: CloudShell `terraform apply`, confirming the
-   SSM agent is online (`aws ssm describe-instance-information`), and the host
-   bootstrap via Session Manager.
+        sqlite3.OperationalError: database is locked
+          mark_alerted(conn, accession)   main.py:222
 
-4. **Instance role for secrets and SSM; retire root keys.** `needs-conan (#5)`
-   The Terraform landed in #4 (`aws_iam_role.instance`, its SSM/KMS policy and
-   the instance profile); attaching it is step 6 of handoff #5. Closing port 22
-   and deleting the root keys stay open until an `observe` run proves the
-   replacement path works — a follow-up handoff, not this one.
-   Same Terraform: instance role and profile with
-   `AmazonSSMManagedInstanceCore`, `ssm:GetParameter(s)` on
-   `arn:aws:ssm:us-east-1:<acct>:parameter/alert-platform/prod/*`, and
-   `kms:Decrypt` constrained by `kms:ViaService`. This unblocks the
-   secret-resolution gate. Handoff: attach the profile, verify from the host
-   without printing values, delete the root access keys, then close port 22
-   in the security group. Runbook in `docs/runbooks/`.
+    Cause, visible in the code and not a guess: `process_filing` sends every
+    qualifying Telegram alert for a filing and calls `mark_alerted` afterwards.
+    Any failure after the first send leaves the filing unmarked, so the next
+    poll re-sends all of them, and does so for as long as the failure persists.
+    The lock error is the trigger; the ordering is the defect. `v0.1.0` already
+    sets `timeout=30.0` and WAL, so a missing busy timeout is not the
+    explanation — something holds the write lock longer than 30s, plausibly
+    `form4_scorer` or `form4_backfill`, which open the same database.
+    Fix: claim the filing before sending. Mark first; if marking fails, send
+    nothing. That converts a duplicate storm into silence plus an error and a
+    metric, which is the right failure for an alert feed — one missed alert
+    costs less than a channel nobody reads.
+    Slices: (a) mark-before-send with a regression test that fails on the
+    current ordering — **done**, five tests in
+    `services/tests/test_form4_dedup.py`, two of which fail on the old
+    ordering; (b) `alert_sends_refused_total` and an error log — **done**;
+    (c) find the actual lock holder from the host and fix that separately —
+    open, needs host evidence; (d) incident write-up — **done**,
+    `docs/incidents/2026-09-21-form4-duplicate-alerts.md`.
+    **Deploying the fix needs #20 cleared first** (§2 forbids a deploy while a
+    previous deploy's failure is uninvestigated), which makes #20 urgent rather
+    than tidy.
 
-5. **Capture the host-side `form4_insider` edit into git.** `todo`
-   (needs #3.) Add a read-only `diff-release` verb to the wrapper,
-   diff the deployed release directory against `v0.1.2`, bring the change into git with a test, and release it as
-   `v0.1.3`. Record it as the first real instance of content drift, which
-   motivates P1 #7.
+26. **`fda-catalysts` has two dead sources and nothing notices.** `todo`
+    Every poll cycle logs, at WARNING:
 
-6. **First production deploy through the gates.** `todo`
-   (needs #3 and #4.) Deploy the latest release to all four services via
-   plan → apply; full verification per CLAUDE.md §6. Then rewrite the README
-   "Status" section from your own observations, and replace
-   `docs/img/console.png` with a real capture. Hand off the capture
-   to Conan: Session Manager port forwarding to 127.0.0.1:8600, then a
-   screenshot.
+        Failed to fetch FiercePharma: 403 Client Error: Forbidden for url: https://www.fiercepharma.com/rss/xml
+        Failed to fetch EndpointsNews: 403 Client Error: Forbidden for url: https://endpoints.news/feed/
 
-6a. **Document the agentic operating model.** `todo` (with or right after #3)
-   `docs/operating-model.md`: who operates the fleet (Conan as owner, the
-   agent as autonomous operator acting through `deploy.yml`/`observe.yml`),
-   the permission boundary (OIDC trust, IAM, SSM documents, sudoers) and why
-   each line exists, the run loop, how auto-merge is
-   gated, how agent actions show up in the audit log and PRs, and a running
-   "what went wrong" section fed from incidents. README gets a short section
-   linking to it. Keep it factual; no hype.
+    Both 403, so the service has been running with a fraction of its intended
+    coverage for an unknown period while reporting healthy. 403 on an RSS feed
+    is usually bot filtering (no or default User-Agent) or a moved feed.
+    The gap is as much observability as fetching: a source that stops working
+    should degrade the service's health or fire an alert, not log a warning
+    forever. Slices: (a) identify why each 403 happens and fix or drop the
+    source, (b) per-source success metric, (c) a health signal or alert when a
+    declared source has failed for N consecutive cycles.
 
-8a. **Pin the validator's Python dependencies for the host.** `todo`
-   Gate 1 of every apply shells out to `tools/validate.py` using whatever
-   `python3` and `jsonschema` the host happens to have. The `$id` bug found
-   on 2026-09-21 was one way that bites; a resolver old enough to differ in
-   *any* behaviour is another. Either vendor the validator's deps alongside
-   the release or state a minimum version and check it at gate time, so a
-   deploy cannot fail on the host's library versions. Slices: (a) decide
-   vendor vs. version check, ADR if it changes the gate's contract,
-   (b) implement with a test that the gate refuses an unsupported resolver.
+27. **Alert content is not persisted anywhere.** `todo`
+    Alerts exist only as a Telegram message and a journald line. There is no
+    record to query, so "is this signal any good" cannot be answered, and the
+    website in CLAUDE.md §1 has nothing to render.
+    This is the prerequisite for priority 1 and 2 and for the website, and it
+    should be built before more filtering work, so that filtering can be judged
+    against recorded output rather than impressions.
+    Design sketch: an append-only table per service in the existing SQLite
+    state, or one shared alerts database — every alert with source, ticker,
+    payload, dedup key, reason it fired, and send outcome. Then an `alerts`
+    read verb, and a console panel. Keep the schema boring; it is going to be
+    read by a website later.
+    Slices: (a) schema and `alertlib` write path with tests, (b) record from all
+    four services, (c) `alerts` verb in the wrapper and SSM document — note the
+    document's `allowedValues` is Terraform, so this is the first thing to use
+    #28's self-service infra, (d) console panel.
+
+28. **Own the AWS infrastructure: remote state and an `infra.yml` workflow.**
+    `todo`
+    Granted by the owner on 2026-09-21. Terraform state is local today, so
+    nothing but a human's CloudShell can apply it, and every SSM-document or IAM
+    change is a handoff. #27 needs a document change immediately.
+    Slices: (a) S3 state bucket with versioning and a DynamoDB lock table,
+    written as Terraform, plus the backend block; (b) an `alert-platform-infra`
+    role with a permissions boundary, explicitly denied from modifying its own
+    role, its own policies, the boundary, or deleting named stateful resources;
+    (c) `infra.yml` with `step=plan` and `step=apply`, same read-the-plan
+    discipline as `deploy.yml`; (d) one handoff issue for the bootstrap apply —
+    the agent cannot grant itself access, so exactly one manual apply remains;
+    (e) after it is proven, delete the root access keys and close port 22.
+    The guardrails are the point. An IAM-capable role is close to account
+    admin, so the boundary and the self-modification denies are what make this
+    defensible rather than a shrug.
 
 20. **The audit log records rollbacks as `failed` when they appear to have
-    worked.** `todo`
-    From the first Production report: both `v0.1.2` rollbacks of
-    `clinical-trials` on 2026-08-20 are logged `failed`, but the service is
-    active and healthy at `v0.1.0`, which is exactly what those rollbacks were
-    meant to restore. Either the rollback path misreports its own outcome, or
-    it genuinely failed and the service recovered some other way — and the two
-    have very different consequences. The audit log is the evidence behind
-    every production claim this repo makes, and this field is the one that
-    says whether the safety mechanism worked, so it cannot be left ambiguous.
-    Do this **before** the first deploy through the pipeline: it is the field
-    that will report on whether that deploy was safe. Slices: (a) read the
-    rollback path and work out which statuses it can emit and when,
-    (b) reproduce with a rollback forced to fail and one forced to succeed,
-    (c) fix, with a test pinning each outcome to its status, (d) if the August
-    rollbacks really did fail, an incident write-up.
+    worked.** `todo` — **now urgent: it blocks the #25 fix from shipping.**
+    Both `v0.1.2` rollbacks of `clinical-trials` on 2026-08-20 are logged
+    `failed`, but the service is active and healthy at `v0.1.0`, which is
+    exactly what those rollbacks were meant to restore. Either the rollback
+    path misreports its outcome, or it genuinely failed and the service
+    recovered another way.
+    Slices: (a) read the rollback path and establish which statuses it can emit
+    and when, (b) reproduce with a rollback forced to fail and one forced to
+    succeed, (c) fix, with a test pinning each outcome to its status, (d) if the
+    August rollbacks really did fail, an incident write-up.
 
-21. **`observe.yml` cannot tell a finding from a failure.** `done (#15), verified in production`
-    `alertctl drift` exits 1 to mean "drift found" — that is its contract. The
-    composite action treats any non-`Success` SSM status as a workflow
-    failure, so "the fleet has drifted" and "the host is unreachable" produce
-    an identical red run. The hourly schedule is red right now and stays red
-    until the fleet is deployed, which trains the only person who reads it to
-    ignore it. That is alert fatigue, in the observability path, in a repo
-    whose pitch includes symptom-based alerting. The verb's exit codes should
-    be interpreted per verb: a finding annotates the run, an operational
-    failure fails it. Slices: (a) give the wrapper's read-only verbs a
-    documented exit-code contract, (b) have the action distinguish the two and
-    annotate rather than fail on a finding, with tests for both,
-    (c) state the contract in the runbook.
-    Done, and deeper than filed: the ambiguity was inside `alertctl` too, not
-    just in the workflow. `drift` used exit 1 for a finding and the error path
-    also used 1, so a finding and a failed drift were indistinguishable at the
-    source. `alertctl` now has four named exit codes (0/1/2/3) with drift's
-    finding at 3, `ssm-run` takes `finding-exit-codes` and `observe.yml`
-    passes 3 while `deploy.yml` passes nothing. ADR 0002. The verdict logic
-    moved out of `action.yml` into `verdict.sh` so CI can test it — 16 cases,
-    including that TimedOut with no exit code is never excused by a finding
-    set.
-22. **End-to-end test target.** `todo` (larger; slice it) — **raised from P2
-    on 2026-09-21, with evidence.**
-    A container with sshd + a systemd stand-in that `alertctl` can target in
-    CI, proving plan → apply → drift → rollback against a real SSH transport,
-    and running `bootstrap-host.sh` for real.
-    Why it moved: eight bugs in the deploy path in one week, seven of them
-    found by hitting them in production rather than in CI. #6 (only `plan`
-    built the binary), #7 (`go build` from the wrong cwd) and #13 (bootstrap
-    killed by its own post-build check) would each have been caught outright
-    by a target that actually runs the script. The pattern is not carelessness;
-    it is that PR #4 shipped a deploy path whose locally-testable half had 45
-    tests and whose AWS-and-host half had none, so the only way to exercise it
-    was to run it against production. Every run that starts before this lands
-    pays for it again.
+29. **Release and first deploy through the pipeline.** `blocked: #20, #25`
+    The fleet runs `v0.1.0`; specs pin `v0.1.2`; no tag contains ADR 0002's exit
+    codes. `deploy.yml` has planned successfully (`4 to change, 0 unchanged`,
+    plan `a7d096877d55`) and never applied. Sequence: clear #20, land #25, cut a
+    release, roll the specs, then apply and verify.
+
+## P0 — Carried forward
+
+21. **`observe.yml` cannot tell a finding from a failure.**
+    `done (#15), verified in production`
+    Four named exit codes in `alertctl`, `drift`'s finding is 3, `ssm-run` takes
+    `finding-exit-codes`, ADR 0002. Verified by observe run 12: host exit 3,
+    annotated, job green, drift still reported.
+
+22. **End-to-end test target.** `todo` (larger; slice it)
+    A container with sshd and a systemd stand-in that `alertctl` can target in
+    CI, proving plan → apply → drift → rollback against a real transport, and
+    running `bootstrap-host.sh` for real.
+    Raised from P2 on evidence: eight deploy-path bugs in one week, seven found
+    by hitting them in production. #6, #7 and #13 would each have been caught
+    by a target that actually ran the scripts.
 
 23. **`observe` cannot tell you which `alertctl` the host is running.** `todo`
-    Found immediately after #15, by trying to verify it. The exit-code change
-    merged, `observe.yml` ran `drift`, and the host reported **exit 1** — the
-    old code. Read verbs call `ensure_binary`, which builds only when the
-    binary is missing and never syncs the checkout; only `plan` does that.
-    Deliberate (a read verb must not mutate the checkout) and correct, but the
-    consequence is that a control-plane change does not reach the host until a
-    `plan` or a bootstrap re-run, and **nothing in the observe output says
-    so**. The report looks current and is not.
-    The fix is a version stamp, not a rebuild-on-read: `-ldflags -X` the commit
-    into `alertctl` at build time, have the wrapper print it, and include it in
-    `status` and in the workflow summary. Then a stale control plane is visible
-    in the same report that is being misread because of it.
-    Slices: (a) stamp the commit and expose `alertctl version`, with a test
-    that an unstamped build says "unknown" rather than lying, (b) wrapper verb
-    or suffix on existing output, (c) surface in `observe.yml`'s summary,
-    (d) note in the deploy runbook that a control-plane change needs a `plan`
-    or bootstrap before read verbs reflect it.
+    Read verbs never rebuild the binary, so a control-plane change is invisible
+    until a `plan`. Nothing says so, and a stale answer reads as current; this
+    already misled one verification. Fix is a build-time commit stamp surfaced
+    in `status` and the workflow summary, not a rebuild on read.
 
-24. **Proposal for Conan: should `plan` adopt a new wrapper from the
-    checkout?** `needs-conan — decision, not work`
-    The sudo rule names `/usr/local/sbin/alert-deploy`, a copy, so a fix to
-    `deploy/ops/alert-deploy` does not reach the host until someone re-runs
-    `bootstrap-host.sh` as root. Three wrapper bugs landed in one week (#10,
-    #11, #13) and each waited on that. It is the last recurring reason the agent
-    needs a human for host work.
-    **The proposal:** `plan` already syncs the checkout to `origin/main` and
-    rebuilds `alertctl`; it could also install the wrapper from that checkout,
-    gated on the candidate passing `alert-deploy_test.sh` (56 cases) on the host
-    first, installed by temp-file-and-rename so the running script's inode is
-    never truncated. No new verb, so no SSM document change and no Terraform —
-    which is why `plan` rather than a `self-update` verb.
-    **The argument for:** the trust root does not change. `plan` already resets
-    the checkout to `origin/main` and builds and runs `alertctl` from it as
-    root, so main-derived code already executes as root on that host. Pinning
-    the wrapper while rebuilding `alertctl` from main every plan is inconsistent.
-    And the human step it replaces is a delay, not a review — nobody reads the
-    wrapper diff at bootstrap time, and nobody runs its tests there either.
-    **The argument against, which is why this is a proposal:** the wrapper is
-    the allowlist. It is the file that decides what the agent may cause on that
-    host. Letting it adopt itself means the agent's own commits change the
-    agent's own permissions with no human in the loop — categorically different
-    from its commits changing what `alertctl` does, even though both come from
-    main. It also removes a real circuit breaker: when the agent shipped three
-    broken wrappers, the host went on running a known-good one.
-    **Recommendation:** Conan decides. An agent should not widen its own
-    boundary on its own authority, and the convenience gained is one manual step
-    per wrapper change, which is not much. If he declines, the cheaper
-    mitigation is #23's version stamp extended to the wrapper, so at least a
-    stale wrapper is visible rather than silent.
-    Attempted on 2026-09-21 and correctly refused by the sandbox as a
-    security-weakening change; see `.claude/learnings.md`.
+24. **Proposal for Conan: should `plan` adopt a new wrapper from the checkout?**
+    `needs-conan — decision, not work`
+    The sudo rule names a copy of the wrapper, so a wrapper fix waits on a root
+    re-run of `bootstrap-host.sh`. Full argument both ways in the entry below;
+    unchanged by the 2026-09-21 grant of AWS ownership, because the wrapper is
+    the allowlist rather than a resource.
 
+5. **Capture the host-side `form4_insider` edit into git.** `todo`
+    Confirmed still real: the traceback in #25 puts `mark_alerted`'s
+    `conn.execute` at `main.py:222`, where the repo has it at 218. The host is
+    running code that is not in version control, in the same file as the live
+    incident. Recover it before changing that file, or the fix will silently
+    revert someone's patch.
 
 ## P1 — Close the documented gaps (strong design-review material)
 
