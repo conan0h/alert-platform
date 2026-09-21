@@ -164,6 +164,25 @@ items with a one-line "why".
     was to run it against production. Every run that starts before this lands
     pays for it again.
 
+23. **`observe` cannot tell you which `alertctl` the host is running.** `todo`
+    Found immediately after #15, by trying to verify it. The exit-code change
+    merged, `observe.yml` ran `drift`, and the host reported **exit 1** — the
+    old code. Read verbs call `ensure_binary`, which builds only when the
+    binary is missing and never syncs the checkout; only `plan` does that.
+    Deliberate (a read verb must not mutate the checkout) and correct, but the
+    consequence is that a control-plane change does not reach the host until a
+    `plan` or a bootstrap re-run, and **nothing in the observe output says
+    so**. The report looks current and is not.
+    The fix is a version stamp, not a rebuild-on-read: `-ldflags -X` the commit
+    into `alertctl` at build time, have the wrapper print it, and include it in
+    `status` and in the workflow summary. Then a stale control plane is visible
+    in the same report that is being misread because of it.
+    Slices: (a) stamp the commit and expose `alertctl version`, with a test
+    that an unstamped build says "unknown" rather than lying, (b) wrapper verb
+    or suffix on existing output, (c) surface in `observe.yml`'s summary,
+    (d) note in the deploy runbook that a control-plane change needs a `plan`
+    or bootstrap before read verbs reflect it.
+
 
 ## P1 — Close the documented gaps (strong design-review material)
 
