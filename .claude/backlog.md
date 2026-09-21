@@ -98,18 +98,36 @@ actually emit.
     defensible rather than a shrug.
 
 20. **The audit log records rollbacks as `failed` when they appear to have
-    worked.** `todo` — **now urgent: it blocks the #25 fix from shipping.**
-    Both `v0.1.2` rollbacks of `clinical-trials` on 2026-08-20 are logged
-    `failed`, but the service is active and healthy at `v0.1.0`, which is
-    exactly what those rollbacks were meant to restore. Either the rollback
-    path misreports its outcome, or it genuinely failed and the service
-    recovered another way.
-    Slices: (a) read the rollback path and establish which statuses it can emit
-    and when, (b) reproduce with a rollback forced to fail and one forced to
-    succeed, (c) fix, with a test pinning each outcome to its status, (d) if the
-    August rollbacks really did fail, an incident write-up.
+    worked.** `done — no defect; the log was correct`
+    Resolved 2026-09-21 by reading the code path rather than inferring from the
+    outcome. `applyService` resolves secrets before its first mutating step, and
+    `rollbackTo` calls the same `applyService`. So the August apply failed at the
+    gate having changed nothing, the rollback failed at the same gate having
+    changed nothing, and `clinical-trials` stayed on `v0.1.0` because nothing
+    ever moved it. Both `failed` statuses were accurate. The faulty step was my
+    inference from "healthy at the previous ref" to "the rollback worked".
+    Durations agree: 1.5–3.5s, far too short to clone a tag and build a venv.
+    Pinned by `internal/engine/secretgate_test.go` — resolver called twice, both
+    entries `failed`, no mutating command on either pass. Removing the gate's
+    `return` makes it fail. Write-up:
+    `docs/incidents/2026-08-20-v0.1.2-apply-blocked-by-secret-gate.md`.
+    Consequence: **the deploy path is unblocked**, and an apply is safe to
+    attempt even if the gate is still broken, because that failure mutates
+    nothing.
 
-29. **Release and first deploy through the pipeline.** `blocked: #20, #25`
+30. **The audit log cannot distinguish "refused before acting" from "failed
+    while acting".** `todo`
+    Both are `failed`, which is what made #20 take a month to read. A pre-flight
+    refusal leaves the host untouched; a failure during a restart may not. An
+    operator reading `rollback failed` cannot tell which they have without
+    reading the engine source.
+    Fix: either a distinct `refused` outcome, or a `mutated: bool` detail set
+    once the first mutating step runs. Prefer the detail field — it is additive,
+    and it answers the question that actually matters ("is the host in a state
+    someone needs to fix"). Slices: (a) thread it through `applyService`,
+    (b) surface it in `history` and the console, (c) test both paths.
+
+29. **Release and first deploy through the pipeline.** `unblocked`
     The fleet runs `v0.1.0`; specs pin `v0.1.2`; no tag contains ADR 0002's exit
     codes. `deploy.yml` has planned successfully (`4 to change, 0 unchanged`,
     plan `a7d096877d55`) and never applied. Sequence: clear #20, land #25, cut a
