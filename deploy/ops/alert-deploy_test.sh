@@ -120,10 +120,10 @@ expect 2 "a negative line count is refused" -- history --lines -5
 # exercise argument parsing and never asked whether the command could run.
 
 for verb in status drift history; do
-  expect_output "go build -o" "read-only verb '$verb' makes sure the binary exists first" -- "$verb"
+  expect_output "go build -C" "read-only verb '$verb' makes sure the binary exists first" -- "$verb"
 done
-expect_output "go build -o" "apply makes sure the binary exists first" -- apply 0123456789ab
-expect_output "go build -o" "plan builds the binary" -- plan
+expect_output "go build -C" "apply makes sure the binary exists first" -- apply 0123456789ab
+expect_output "go build -C" "plan builds the binary" -- plan
 
 # Only plan may move the checkout. If a read-only verb synced first, `status`
 # would report against a tree nobody asked it to fetch, and the plan `apply`
@@ -137,6 +137,42 @@ for verb in status drift history; do
     pass=$((pass + 1))
   fi
 done
+
+# -- the build actually works from somewhere else ---------------------------
+#
+# Every dry-run case above passed while the build was broken, because they
+# print the command and never run it. The bug: `go build -o out /abs/path/pkg`
+# resolves the package against the module owning the *current directory*, so
+# it fails with "go.mod file not found" for any caller outside the checkout —
+# which is every real caller, since the wrapper runs under sudo from an
+# arbitrary cwd and bootstrap runs from /tmp.
+#
+# So this one compiles for real, from a directory that is not the checkout.
+REPO=$(cd "$HERE/../.." && pwd)
+if [[ ! -f $REPO/go.mod ]]; then
+  printf 'FAIL: expected a go.mod at %s\n' "$REPO" >&2
+  fail=$((fail + 1))
+elif ! command -v go >/dev/null 2>&1; then
+  # Loud, not silent. A skipped check that looks like a pass is how the
+  # ref-coupling bug survived in internal/engine; CI installs Go for this job
+  # so this branch means a local run, not a green build.
+  printf 'NOTE: go not installed — the build check did not run\n' >&2
+else
+  build_tmp=$(mktemp -d)
+  if ( cd "$build_tmp" && env GOFLAGS=-mod=vendor go build -C "$REPO" -o "$build_tmp/alertctl" ./cmd/alertctl ) 2>"$build_tmp/err"; then
+    if [[ -x $build_tmp/alertctl ]]; then
+      pass=$((pass + 1))
+    else
+      fail=$((fail + 1))
+      printf 'FAIL: build reported success but produced no binary\n' >&2
+    fi
+  else
+    fail=$((fail + 1))
+    printf 'FAIL: alertctl does not build from a cwd outside the checkout\n  %s\n' \
+      "$(cat "$build_tmp/err")" >&2
+  fi
+  rm -rf "$build_tmp"
+fi
 
 # -- the commands it actually builds ---------------------------------------
 

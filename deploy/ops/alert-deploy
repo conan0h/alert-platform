@@ -170,7 +170,12 @@ build_binary() {
   run install -d -o root -g root -m 0755 "${BIN%/*}"
   # Vendored deps mean this needs no network, which is the point of vendoring
   # them: it still works during the incident that took the network away.
-  run env GOFLAGS=-mod=vendor go build -o "$BIN" "$CHECKOUT/cmd/alertctl"
+  # -C, not an absolute package path. `go build /abs/path/to/pkg` resolves the
+  # package against whatever module the *current directory* belongs to, so it
+  # fails with "go.mod file not found" for any caller outside the checkout —
+  # which is every caller here, since this runs under sudo from an arbitrary
+  # cwd. -o stays absolute and is honoured after the chdir.
+  run env GOFLAGS=-mod=vendor go build -C "$CHECKOUT" -o "$BIN" ./cmd/alertctl
 }
 
 # Build only if absent. Deliberately does NOT sync the checkout first: only
