@@ -2,9 +2,10 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 	"testing"
 )
 
@@ -18,32 +19,39 @@ import (
 // in-process test can observe, and the thing worth pinning is what a caller
 // sees anyway.
 
-var (
-	buildOnce sync.Once
-	binPath   string
-	buildErr  error
-)
+// binPath is the CLI, built once for this package's tests by TestMain.
+//
+// TestMain rather than a sync.Once around t.TempDir(): that directory belongs
+// to whichever test happened to call the helper first and is removed when that
+// test ends, which would leave a later test pointing at a binary that is no
+// longer there.
+var binPath string
 
-// alertctlBinary builds the CLI once per test binary and returns its path.
-func alertctlBinary(t *testing.T) string {
-	t.Helper()
-	buildOnce.Do(func() {
-		dir := t.TempDir()
-		binPath = filepath.Join(dir, "alertctl")
-		out, err := exec.Command("go", "build", "-o", binPath, ".").CombinedOutput()
-		if err != nil {
-			buildErr = errors.New(string(out))
-		}
-	})
-	if buildErr != nil {
-		t.Fatalf("building alertctl: %v", buildErr)
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "alertctl-exitcode")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "creating temp dir: %v\n", err)
+		os.Exit(1)
 	}
-	return binPath
+	// No defer: every exit from TestMain goes through os.Exit, which does not
+	// run them. The cleanup is therefore spelled out on each path.
+
+	binPath = filepath.Join(dir, "alertctl")
+	// -mod=vendor explicitly: the deps are vendored so this build needs no
+	// network, and CI sets that per-command rather than in the environment,
+	// so it is not inherited here.
+	if out, err := exec.Command("go", "build", "-mod=vendor", "-o", binPath, ".").CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "building alertctl: %v\n%s", err, out)
+		os.RemoveAll(dir)
+		os.Exit(1)
+	}
+
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 func TestExitCodes(t *testing.T) {
-	bin := alertctlBinary(t)
-
 	// The fixture fleet, not the live one: a test about exit codes must not
 	// start failing because someone rolled a release ref.
 	fixture := filepath.Join("..", "..", "internal", "engine", "testdata")
@@ -77,7 +85,7 @@ func TestExitCodes(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := exec.Command(bin, tc.args...).Run()
+			err := exec.Command(binPath, tc.args...).Run()
 			got := exitOK
 			var ee *exec.ExitError
 			if errors.As(err, &ee) {
