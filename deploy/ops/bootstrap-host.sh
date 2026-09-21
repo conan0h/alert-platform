@@ -158,8 +158,25 @@ log "building alertctl"
 # -C, because this script runs from /tmp and `go build /abs/path/to/pkg`
 # resolves the package against the current directory's module.
 env GOFLAGS=-mod=vendor go build -C "$CHECKOUT" -o "$BIN_DIR/alertctl" ./cmd/alertctl
-"$BIN_DIR/alertctl" 2>&1 | head -n 1
-log "alertctl built and runnable"
+
+# >>> verify-binary (deploy/ops/alert-deploy_test.sh runs these exact lines)
+# Prove it runs, not just that it linked. Two traps in one line, both hit:
+#
+#   - alertctl with no arguments prints usage and exits 2, which is correct
+#     for a CLI and is not a build failure, so `set -e` must not see it.
+#   - `cmd | head -1` closes the pipe after one line; under `set -o pipefail`
+#     the resulting SIGPIPE becomes the pipeline's status and kills the
+#     script. That is what happened here: the banner printed and bootstrap
+#     stopped dead, one line short of installing the wrapper.
+#
+# So: capture, tolerate a non-zero exit, and take the first line in the shell.
+banner=$("$BIN_DIR/alertctl" 2>&1) || true
+if [[ -z $banner ]]; then
+  echo "FAILED: $BIN_DIR/alertctl built but produced no output when run" >&2
+  exit 1
+fi
+log "alertctl built and runnable: ${banner%%$'\n'*}"
+# <<< verify-binary
 
 # --- the wrapper -----------------------------------------------------------
 # Copied out of the checkout rather than symlinked into it: a symlink would

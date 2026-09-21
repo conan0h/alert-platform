@@ -174,6 +174,71 @@ else
   rm -rf "$build_tmp"
 fi
 
+# -- bootstrap's post-build check does not kill bootstrap --------------------
+#
+# The bug: the check was `"$BIN/alertctl" 2>&1 | head -n 1`. alertctl with no
+# arguments prints usage and exits 2, head closes the pipe after one line, and
+# under `set -euo pipefail` that pipeline's non-zero status ended the script —
+# after the banner had printed, so it looked like it had worked. Bootstrap
+# stopped one line short of installing the wrapper, three times.
+#
+# These lines are extracted from bootstrap-host.sh rather than copied, so the
+# test cannot pass against a stanza the script no longer has.
+bootstrap_tmp=$(mktemp -d)
+sed -n '/^# >>> verify-binary/,/^# <<< verify-binary/p' "$HERE/bootstrap-host.sh" \
+  > "$bootstrap_tmp/stanza.sh"
+
+if [[ ! -s $bootstrap_tmp/stanza.sh ]]; then
+  fail=$((fail + 1))
+  printf 'FAIL: no verify-binary stanza found in bootstrap-host.sh\n' >&2
+else
+  # Stand in for alertctl: prints its banner, then exits 2 as the real one does.
+  mkdir -p "$bootstrap_tmp/bin"
+  cat > "$bootstrap_tmp/bin/alertctl" <<'STUB'
+#!/usr/bin/env bash
+echo "alertctl — control plane for the market alert suite"
+echo "usage: alertctl <command>"
+exit 2
+STUB
+  chmod +x "$bootstrap_tmp/bin/alertctl"
+
+  {
+    cat <<'PREAMBLE'
+set -euo pipefail
+log() { printf '==> %s\n' "$*"; }
+PREAMBLE
+    echo "BIN_DIR=$bootstrap_tmp/bin"
+    cat "$bootstrap_tmp/stanza.sh"
+    echo 'echo REACHED_THE_WRAPPER_INSTALL'
+  } > "$bootstrap_tmp/run.sh"
+
+  out=$(bash "$bootstrap_tmp/run.sh" 2>&1); rc=$?
+  if [[ $rc -eq 0 && $out == *REACHED_THE_WRAPPER_INSTALL* ]]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+    printf 'FAIL: bootstrap stops at the post-build check instead of continuing\n  exit %d\n  output: %s\n' \
+      "$rc" "$out" >&2
+  fi
+
+  # And it must still fail loudly on a binary that produces nothing at all,
+  # which is the failure the check exists to catch.
+  cat > "$bootstrap_tmp/bin/alertctl" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$bootstrap_tmp/bin/alertctl"
+  out=$(bash "$bootstrap_tmp/run.sh" 2>&1); rc=$?
+  if [[ $rc -ne 0 && $out == *"produced no output"* ]]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+    printf 'FAIL: a silent alertctl is reported as a successful build\n  exit %d\n  output: %s\n' \
+      "$rc" "$out" >&2
+  fi
+fi
+rm -rf "$bootstrap_tmp"
+
 # -- the commands it actually builds ---------------------------------------
 
 expect_output "-target local" "alertctl is driven against the local host, not over ssh" -- status
