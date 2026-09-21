@@ -35,7 +35,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # This workflow is on an hourly schedule, and the AWS side of the
+      # pipeline is applied by hand (see the Handoff issue). Between those two
+      # facts there is a window where every run would fail on a missing role
+      # ARN — an hourly red X that teaches everyone to ignore red Xs. So the
+      # window is reported once, as a notice, and the job stops cleanly.
+      - name: Is the pipeline configured yet?
+        id: configured
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ -n "${{ vars.AWS_DEPLOY_ROLE_ARN }}" ]] || missing+=(AWS_DEPLOY_ROLE_ARN)
+          [[ -n "${{ vars.AWS_REGION }}" ]]          || missing+=(AWS_REGION)
+          [[ -n "${{ vars.ALERT_INSTANCE_ID }}" ]]   || missing+=(ALERT_INSTANCE_ID)
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::notice::Deploy pipeline not configured yet — missing repository variables: ${missing[*]}. Nothing observed. See the Handoff issue."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Assume the deploy role via OIDC
+        if: steps.configured.outputs.ready == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
@@ -43,6 +64,7 @@ jobs:
           role-session-name: observe-${{ github.run_id }}
 
       - name: Run the read-only verb on the host
+        if: steps.configured.outputs.ready == 'true'
         uses: ./.github/actions/ssm-run
         with:
           document: AlertPlatform-Observe

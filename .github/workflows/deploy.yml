@@ -45,6 +45,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Unlike observe, this one is only ever run on purpose, so an
+      # unconfigured pipeline is an error with an explanation rather than a
+      # quiet skip — and a far better error than whatever OIDC would say
+      # about an empty role ARN.
+      - name: Is the pipeline configured yet?
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ -n "${{ vars.AWS_DEPLOY_ROLE_ARN }}" ]] || missing+=(AWS_DEPLOY_ROLE_ARN)
+          [[ -n "${{ vars.AWS_REGION }}" ]]          || missing+=(AWS_REGION)
+          [[ -n "${{ vars.ALERT_INSTANCE_ID }}" ]]   || missing+=(ALERT_INSTANCE_ID)
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::error::Missing repository variables: ${missing[*]}."
+            echo "The AWS side of the pipeline has not been applied yet. Work through the Handoff issue first."
+            exit 1
+          fi
+
       - name: Refuse an apply with no plan id
         if: inputs.step == 'apply'
         run: |
