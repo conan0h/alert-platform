@@ -127,7 +127,7 @@ items with a one-line "why".
     (c) fix, with a test pinning each outcome to its status, (d) if the August
     rollbacks really did fail, an incident write-up.
 
-21. **`observe.yml` cannot tell a finding from a failure.** `todo`
+21. **`observe.yml` cannot tell a finding from a failure.** `done (#15)`
     `alertctl drift` exits 1 to mean "drift found" — that is its contract. The
     composite action treats any non-`Success` SSM status as a workflow
     failure, so "the fleet has drifted" and "the host is unreachable" produce
@@ -140,6 +140,15 @@ items with a one-line "why".
     documented exit-code contract, (b) have the action distinguish the two and
     annotate rather than fail on a finding, with tests for both,
     (c) state the contract in the runbook.
+    Done, and deeper than filed: the ambiguity was inside `alertctl` too, not
+    just in the workflow. `drift` used exit 1 for a finding and the error path
+    also used 1, so a finding and a failed drift were indistinguishable at the
+    source. `alertctl` now has four named exit codes (0/1/2/3) with drift's
+    finding at 3, `ssm-run` takes `finding-exit-codes` and `observe.yml`
+    passes 3 while `deploy.yml` passes nothing. ADR 0002. The verdict logic
+    moved out of `action.yml` into `verdict.sh` so CI can test it — 16 cases,
+    including that TimedOut with no exit code is never excused by a finding
+    set.
 22. **End-to-end test target.** `todo` (larger; slice it) — **raised from P2
     on 2026-09-21, with evidence.**
     A container with sshd + a systemd stand-in that `alertctl` can target in

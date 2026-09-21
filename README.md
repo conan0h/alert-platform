@@ -123,7 +123,7 @@ instead of executing it.
 | `alertctl plan` | diff desired against observed, fingerprinted |
 | `alertctl apply` | reconcile, with gates, audit, and auto-rollback |
 | `alertctl status` | what is deployed, and is it running |
-| `alertctl drift` | non-zero exit if the host no longer matches the specs |
+| `alertctl drift` | exit 3 if the host no longer matches the specs ([exit codes](docs/adr/0002-exit-codes.md)) |
 | `alertctl rollback` | rewrite a spec to its last successful ref |
 | `alertctl render` | print the unit and env a service would get |
 | `alertctl history` | read the audit log |
@@ -204,7 +204,7 @@ host, and the run logs are the record.
 
 All four bots are up and answering their health endpoints. All four are also
 **two releases behind their specs**, which pin `v0.1.2`, so `alertctl drift`
-reports all four as drifted and exits non-zero. That is the platform working:
+reports all four as drifted and exits 3. That is the platform working:
 the drift is real and it is being named.
 
 The audit log says how it got that way. On 2026-08-20 the `v0.1.2` apply was

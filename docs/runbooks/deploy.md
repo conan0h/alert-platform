@@ -62,8 +62,28 @@ services are never touched.
 ## Verify
 
     ./bin/alertctl status
-    ./bin/alertctl drift        # exit 0 means the host matches the specs
+    ./bin/alertctl drift        # 0 matches the specs, 3 drifted, 1 could not tell
     journalctl -u alert-clinical-trials -n 50 -o cat | jq
+
+`drift`'s exit codes are a contract, not a convenience — 3 means it ran and
+found drift, 1 means it could not find out. Read them that way in anything
+scheduled; see [ADR 0002](../adr/0002-exit-codes.md).
+
+### Reading an `observe.yml` run
+
+The observe workflow annotates rather than fails when the host reports a
+finding, so:
+
+- **green, no annotation** — nothing to report.
+- **green with a `::warning`** — the host answered and found something. For
+  `drift` that means the fleet no longer matches its specs. Read the host
+  output in the run log; this is a finding to act on, not an outage.
+- **red** — the observation itself failed: unreachable host, a wedged
+  checkout, a `drift` that could not run. This one is an outage.
+
+One wrinkle: SSM has only "succeeded" and "failed", so a finding invocation is
+recorded as `Failed` in the AWS console even though the workflow passed. The
+run log prints `status: Failed (host exit 3)` and is the accurate view.
 
 Confirm an alert actually arrives in the Telegram channel. Every service
 sends a startup message; if it does not appear, delivery is broken even

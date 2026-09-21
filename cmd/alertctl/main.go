@@ -9,7 +9,7 @@
 //	alertctl plan [-service NAME]         show what would change
 //	alertctl apply -plan FILE             reconcile, with gates and rollback
 //	alertctl status                       what is deployed right now
-//	alertctl drift                        exit 1 if the host has drifted
+//	alertctl drift                        exit 3 if the host has drifted
 //	alertctl rollback -service NAME       return to the last good ref
 //	alertctl render -service NAME         print the unit and env that would be written
 //	alertctl history [-service NAME]      read the audit log
@@ -40,7 +40,7 @@ Commands:
   plan        Compute the change set between desired and observed state
   apply       Execute a plan (gates, sequential deploy, audit, auto-rollback)
   status      Show what is deployed on the target
-  drift       Exit non-zero if the target has drifted from desired state
+  drift       Exit 3 if the target has drifted from desired state
   rollback    Roll a service back to its last successful ref
   render      Print the systemd unit and environment for a service
   history     Print audit log entries
@@ -54,10 +54,25 @@ Common flags:
 Run 'alertctl <command> -h' for command flags.
 `
 
+// Exit codes. These are a contract: `observe.yml` reads them to tell a
+// finding from a failure, and anything scheduled against this CLI will grow
+// to depend on them, so they are named here rather than spelled inline.
+//
+// The distinction that matters is exitFinding vs exitError. "The fleet has
+// drifted" and "I could not find out whether the fleet has drifted" are
+// different events with different responses, and a single non-zero code
+// forces the caller to guess.
+const (
+	exitOK      = 0 // success, and nothing to report
+	exitError   = 1 // the command failed to do its job
+	exitUsage   = 2 // the caller asked for something that is not a command
+	exitFinding = 3 // the command worked and found what it looks for
+)
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
+		os.Exit(exitUsage)
 	}
 
 	cmd := os.Args[1]
@@ -88,12 +103,12 @@ func main() {
 		return
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", cmd, usage)
-		os.Exit(2)
+		os.Exit(exitUsage)
 	}
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
-		os.Exit(1)
+		os.Exit(exitError)
 	}
 }
 
@@ -380,10 +395,13 @@ func cmdDrift(args []string) error {
 	var b strings.Builder
 	plan.Render(&b)
 	fmt.Print(b.String())
-	// Non-zero exit so a scheduled run can page. Drift is not an error in
-	// the CLI sense — it is a finding — but exit codes are the only thing a
-	// cron job or CI check reliably reads.
-	os.Exit(1)
+	// A finding, not an error, and the two get different codes on purpose.
+	// Drift still exits non-zero so a scheduled run can page on it, but
+	// exitFinding is distinguishable from the exitError that a failed drift
+	// *run* produces — an unreachable host, a spec that will not load. A
+	// caller that cannot tell those apart either treats every drift as an
+	// outage or learns to ignore both. See docs/adr/0002-exit-codes.md.
+	os.Exit(exitFinding)
 	return nil
 }
 

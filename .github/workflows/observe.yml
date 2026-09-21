@@ -71,3 +71,10 @@ jobs:
           instance-id: ${{ vars.ALERT_INSTANCE_ID }}
           parameters: verb=${{ inputs.verb || 'status' }},actor=gha:${{ github.run_id }}
           timeout-seconds: '300'
+          # 3 is alertctl's "I found what I look for" — drift found drift. It
+          # annotates the run instead of failing it, because an hourly job that
+          # is red for as long as the fleet is behind its specs is a job nobody
+          # reads by the time it goes red for a real reason. An unreachable
+          # host or a drift that could not run still fails, loudly, which is
+          # the whole point of separating the two. See docs/adr/0002.
+          finding-exit-codes: '3'
