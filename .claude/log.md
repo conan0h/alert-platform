@@ -356,3 +356,43 @@ Format:
 - Catch-up: the whole deploy lifecycle is mine to drive and now proven so, plan
   included. The one thing left that needs Conan on a recurring basis is adopting
   a new wrapper, and whether to automate that is his call to make, not mine.
+
+## 2026-09-21 (fourth session, user-directed) — goal shift, and what the bots
+## are actually emitting
+- Conan redirected the project: the agent takes over Terraform and AWS, gains
+  visibility into bot output, the end goal becomes a website over the four
+  feeds, and the documentation gets drier. CLAUDE.md rewritten accordingly.
+- **Production report — `observe.yml verb=logs`, the first time anyone read the
+  bots' output rather than their health.** Three findings, all new:
+  **(1) `form4-insider` is in a duplicate-alert loop.** The same nine DELL
+  insider sales are sent every ~20 seconds, interleaved with
+  `sqlite3.OperationalError: database is locked` from `mark_alerted`. Cause is
+  in the code: `process_filing` sends all alerts for a filing and marks it
+  afterwards, so any failure after the first send re-sends everything next
+  poll, indefinitely. The lock is the trigger, the ordering is the defect.
+  `v0.1.0` already sets `timeout=30.0` and WAL, so this is not a missing busy
+  timeout. Incident write-up in `docs/incidents/`; backlog #25.
+  **(2) `fda-catalysts` has two dead sources.** FiercePharma and EndpointsNews
+  both return 403 every cycle, logged at WARNING, for an unknown period. The
+  service reports healthy the whole time. Backlog #26.
+  **(3) The alerts that do fire are the wrong ones.** Every alert in the window
+  was Silver Lake Partners / SL SPV-2 selling DELL — a private-equity sponsor
+  distributing a position, which is scheduled and uninformative, not an insider
+  acting on knowledge. `should_alert` lets large trades bypass the leaderboard
+  entirely. Filed under #26's sibling work; the precise filter is the Form 4
+  reporting-owner relationship, since a sponsor is `isTenPercentOwner` and not
+  an officer or director.
+- Nothing deployed. The #25 fix cannot ship until #20 clears, because §2 forbids
+  a deploy while a previous deploy's failure is uninvestigated. #20 moves from
+  tidy to urgent as a result.
+- Backlog restructured around CLAUDE.md §1's priority order: signal quality,
+  then measurability, then safety of change, then the website. Three of the four
+  new P0 items came from that one log read.
+- Notes: health checks were accurate and useless. `status` and `/healthz` both
+  reported `form4-insider` healthy throughout, because the process was running
+  and polling on schedule. Liveness said nothing about whether the output was
+  worth reading. CLAUDE.md §5.3 now makes reading the alerts a step in every
+  run.
+- Catch-up: the bots are up and the channel is being spammed with duplicate
+  alerts about a PE fund selling DELL. The platform works; what it is carrying
+  does not. That is now the priority order in the repo.

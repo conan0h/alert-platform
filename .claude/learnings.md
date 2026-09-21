@@ -215,3 +215,24 @@ Two rules from it:
   run: `git branch --show-current`. It costs one line and it is the only thing
   standing between a chained command and a rule violation. `git commit` is
   perfectly happy to put work on `main`.
+
+## Liveness is not usefulness
+*Learned 2026-09-21.*
+
+For four sessions the Production report was `status`, `drift`, `health` and
+`history`. All four were green or explained. `form4-insider` was `active` and
+answering `/healthz` the whole time, and both facts were true: the process was
+running and polling on schedule.
+
+It was also re-sending the same nine alerts every twenty seconds.
+
+Every signal being watched was a signal about the platform. None was about the
+product. A health endpoint that probes "is the loop running" cannot detect "the
+loop is running and emitting garbage", and no amount of deploy-path rigour
+substitutes for reading the output.
+
+The habit to keep: each run, look at what the system produced, not only at
+whether it is up. For this repo that is `observe.yml verb=logs` and, once
+backlog #27 lands, the alert archive. It took one command to find a live
+incident, two dead data sources, and a filter that alerts on private-equity
+distributions as if they were insider signals.
