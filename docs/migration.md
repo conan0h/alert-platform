@@ -130,8 +130,9 @@ ever been shared, rotation is the only remedy.
 
 ## Before the first deploy
 
-The migration is code-complete and tested, but four things need a real host
-and real credentials:
+The migration is code-complete and tested. Of the four things below, only the
+tag can be confirmed from this repository; the rest need a real host and real
+credentials, and nothing in git can tell you whether they have been done:
 
 1. **Rotate the leaked Telegram token.** Everything else can wait; this
    cannot.
@@ -140,9 +141,9 @@ and real credentials:
    `tg_chat_trials`, `tg_chat_form4`, `edgar_user_agent`. Names must match
    the specs exactly — `alertctl` fails loudly on a missing one rather than
    deploying a service that cannot deliver.
-3. **Cut the baseline tag.** `git tag -a v0.1.0 -m "post-migration baseline"`
-   and push it. The pre-flight gate refuses to deploy a ref that does not
-   exist.
+3. ~~**Cut the baseline tag.**~~ **Done.** `v0.1.0` exists, and the fleet has
+   since moved on to `v0.1.2`. The pre-flight gate refuses to deploy a ref
+   that does not exist, so every later roll needs its own tag first.
 4. **Prepare the host once.** Create the `svc-alerts` user, grant the
    instance role `ssm:GetParameter` on `/alert-platform/prod/*`, and ensure
    `svc-deploy` can `sudo systemctl` and `sudo install`. See

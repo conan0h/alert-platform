@@ -321,11 +321,14 @@ Conan catches up afterwards. Write them for someone reading ten on a Sunday.
 
 ## 10. Current state (as of 2026-09-21; verify and update as you learn)
 
-- `main` = `e44bd09` "fleet: roll all four services to v0.1.2". Tags
-  `v0.1.0`, `v0.1.1`, `v0.1.2` (`v0.1.2` → `800b942`).
-- **CI on `main` is red:** two engine tests hardcode `v0.1.0` while loading the
-  live `fleet/` specs, which `e44bd09` moved to `v0.1.2`. Everything else
-  passes.
+- `main` = `7882c15` plus this run's work. Tags `v0.1.0`, `v0.1.1`, `v0.1.2`
+  (`v0.1.2` → `800b942`); all four specs pin `v0.1.2`.
+- **CI on `main` is green** as of run #15, the first since 2026-08-20. It had
+  been red for two independent reasons, both now fixed and pinned by tests:
+  engine tests hardcoded release refs while loading the live `fleet/` specs
+  (they now load `internal/engine/testdata/fleet`), and `schema/`'s `$id` was
+  a relative path that old `jsonschema` resolvers dereference as a URL (now a
+  URN). See `.claude/learnings.md` before touching either.
 - `go.mod` module path is `github.com/conan0h/alert-platform`, matching the
   GitHub owner. Tags `v0.1.0`–`v0.1.2` predate the rename and still carry
   `conanohara`, so `go install …@latest` needs a newer tag to work.
@@ -336,8 +339,20 @@ Conan catches up afterwards. Write them for someone reading ten on a Sunday.
   deployed. A host-side edit in `services/form4_insider/main.py`
   (`alerted_this_filing`) is not in git. `alertctl` runs on the VM itself,
   over a loopback SSH alias, and needs `sudo`.
-- The README "Status" section predates the production rollout. Rewrite it
-  from your own observations once you have access, not before.
+- The README "Status" section no longer claims anything about production. It
+  now states outright that the repo has no read path to the host and so
+  reports no evidence. Fill it in from your own observations once §6's
+  pipeline exists — not from the reported state above, which you have not
+  verified.
 - Documented gaps: content drift (in-place edits inside a release directory
   are invisible to `drift`); `dedup.keys` declared but not consumed;
   `state.backup` declared with no job behind it.
+- Environment, learned the hard way (details in `.claude/backlog.md`):
+  there is no `gh` CLI — use the GitHub MCP tools; the system `python3` has
+  none of `pyyaml`/`jsonschema`/`ruff`/`pytest`, so build a 3.12 venv first;
+  `golangci-lint` in the image is v2.5.0 against a v1-format config, so it
+  only runs in CI; and repository auto-merge is **off**, so a PR is merged by
+  hand once every check is green (never on a pending or failing one).
+  Check GitHub write access early in a run: it has been read-only before, and
+  that blocks the §7 handoff route too, since issue creation is refused with
+  it.
