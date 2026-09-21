@@ -200,3 +200,36 @@ Format:
   healthy bots running code two releases behind their specs, last touched by
   hand in August. Re-run the bootstrap script once and the write path is ready
   to try.
+
+## 2026-09-21 (third session, continued) — P0 #21: a finding is not a failure
+- Did: PR **#15**. `alertctl` gained four named exit codes (0 nothing, 1 the
+  command failed, 2 bad arguments, 3 the command worked and found something) and
+  `drift`'s finding moved to 3. The ambiguity turned out to start inside
+  `alertctl`, not in the workflow: `drift` exited 1 for a finding and the error
+  path exited 1 too, so "the fleet has drifted" and "I could not find out
+  whether the fleet has drifted" were the same code at the source. Callers now
+  declare which codes are findings — `ssm-run` takes `finding-exit-codes`,
+  `observe.yml` passes 3 and annotates instead of failing, `deploy.yml` passes
+  nothing so the write path is unchanged. ADR 0002.
+  The verdict logic moved out of `action.yml` into `verdict.sh`, which is the
+  week's lesson applied rather than recorded: a script on the path to production
+  that CI cannot run is untested. It also stops the finding set being spliced
+  into a shell by `${{ }}`.
+- Verification: gofmt clean, `go vet` clean, `go test ./... -race` all six
+  packages, wrapper suite 56/56, new `verdict_test.sh` 16/16 — including that a
+  declared finding passes while the same verb's exit 1 still fails, that codes
+  compare exactly (30 does not match a finding set of 3), and that TimedOut
+  with no exit code is never excused. Both suites wired into the `deploy path`
+  CI job. `exitcode_test.go` runs the built binary per code.
+- Notes: PR #15 opened `mergeable_state: dirty` and **CI never ran on it**,
+  because six PRs this run went through one branch and each squash-merge left
+  the pre-squash commit behind. Rebased onto `main` and force-pushed. Durable
+  lesson in learnings, including the diagnostic: no CI runs at all means read
+  `mergeable_state`, not the check-runs endpoint.
+- Next: **#20**, the rollback status recorded `failed` on a rollback that looks
+  to have worked. Then a release and the first deploy through the pipeline, in
+  that order — #20 is the field that will report on whether that deploy was
+  safe. `alertctl`'s exit codes changed, so the deploy needs a release tag.
+- Catch-up: the hourly observe job will now be green with a warning while the
+  fleet is behind its specs, and red only when the observation itself fails —
+  which is the difference between a signal and noise.
