@@ -61,4 +61,19 @@ rewrite history.
   a bare distro Python — which is the closest thing in CI to how the gate
   actually runs on the host. That is a feature. Installing the dependency
   there would have hidden the bug rather than fixed it.
+- **Check what the repo claims about itself, not just what it does.** The
+  README asserted production state the repo had no way to observe, and gave a
+  pre-deploy instruction that had been completed weeks earlier. Neither was
+  caught by any test, because neither is testable. Re-read the front page
+  against reality whenever the project's actual state moves.
+- **A local `terraform fmt -check` is not validation.** It proves the HCL
+  parses; it says nothing about whether a provider argument exists. Only
+  `init` + `validate` with the provider downloaded does that, and this
+  session's egress policy blocks the registry — so infra changes must be
+  pushed and checked by CI, the same shape as `golangci-lint`.
+- **Give a security wrapper a help verb that exits 0.** The first draft of
+  `bootstrap-host.sh` inferred "sudo permitted this" from the wrapper's exit
+  code, which conflated a sudo refusal with the wrapper rejecting arguments —
+  different failures, different fixes. `sudo -n -l <cmd>` asks the real
+  question without running anything.
 

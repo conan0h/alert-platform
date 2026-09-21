@@ -98,3 +98,40 @@ Format:
   engine tests. Still no production access, so this run makes no claims about
   the host.
 
+## 2026-09-21 (second session, user-directed) — P0 #2, docs cleanup, P0 #3
+- Did: three merged PRs.
+  **#3** fixed the Go module path (`conanohara` → `conan0h`, 13 files) and
+  retired documentation that had stopped being true: the README claimed
+  phases 2–7 "have not yet run against the production host", which this repo
+  cannot know either way, and told readers to cut a tag that has existed for
+  weeks. It now states plainly that it reports no evidence about production
+  and names the host's own status/drift/audit log as the sources of truth.
+  **#4** built the whole deploy pipeline (P0 #3): Terraform for the OIDC
+  provider, deploy role, instance role and two SSM documents; the host
+  wrapper `deploy/ops/alert-deploy` with 45 tests for what it refuses;
+  `bootstrap-host.sh`; `observe.yml` and `deploy.yml` with a shared composite
+  action; ADR 0001; and two new CI jobs (shellcheck + wrapper tests,
+  terraform fmt/validate). `alertctl` learned `ALERTCTL_ACTOR`.
+- PR: #3 and #4, both merged after all checks green. Handoff issue **#5**
+  filed — the first time the §7 route has actually worked, since issue
+  creation was 403 in the previous session.
+- Verification: green throughout. Notably `terraform validate` could not run
+  locally (`registry.terraform.io` is 403 at this session's egress proxy), so
+  I pushed and let the new CI job do it: it reported "Success! The
+  configuration is valid" against the real AWS provider schema, which is the
+  check that matters. Local `terraform fmt -check` only proves the HCL parses.
+- Production report: **none, again, and now for the last time by design.**
+  The pipeline exists as code but has never run against a host; that is
+  blocked on handoff #5. Nothing in this run touched production.
+- Next: when #5 is done, trigger `observe.yml` with `verb=status` — read-only
+  by construction, so it proves the chain in the direction that cannot break
+  anything — then `drift` and `health`, and write the first real Production
+  report. Only then consider a deploy. After that: P0 #5 (the host-side
+  form4_insider edit) and P1 #7 (content drift).
+- Notes: the repo cleanup the user asked about turned out to be mostly done —
+  the launchpad zip went in #1. Everything else in the tree is referenced or
+  gitignored; the real staleness was in the docs.
+- Catch-up: the deploy pipeline is built and merged, but it is code only.
+  Issue #5 is the twenty minutes of CloudShell and Session Manager work that
+  turns it on, and nothing about production can be verified until then.
+

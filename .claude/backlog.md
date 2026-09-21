@@ -32,7 +32,9 @@ items with a one-line "why".
    belongs with the next change that actually warrants a release, not with a
    rename.
 
-3. **Deploy and observe pipeline: GitHub OIDC → IAM → SSM.** `in-pr #4` → `needs-conan`
+3. **Deploy and observe pipeline: GitHub OIDC → IAM → SSM.** `needs-conan (#5)`
+   Merged as #4. Handoff issue #5 has the CloudShell and Session Manager
+   steps. Until it is done the pipeline exists only as code.
    Code complete and tested; slices (a), (b) and (c) all landed together with
    ADR 0001. **Nothing has run against a real host**, and cannot until the
    one-time AWS apply and host bootstrap are done — see the Handoff issue.
@@ -57,7 +59,11 @@ items with a one-line "why".
    SSM agent is online (`aws ssm describe-instance-information`), and the host
    bootstrap via Session Manager.
 
-4. **Instance role for secrets and SSM; retire root keys.** `todo` → `needs-conan`
+4. **Instance role for secrets and SSM; retire root keys.** `needs-conan (#5)`
+   The Terraform landed in #4 (`aws_iam_role.instance`, its SSM/KMS policy and
+   the instance profile); attaching it is step 6 of handoff #5. Closing port 22
+   and deleting the root keys stay open until an `observe` run proves the
+   replacement path works — a follow-up handoff, not this one.
    Same Terraform: instance role and profile with
    `AmazonSSMManagedInstanceCore`, `ssm:GetParameter(s)` on
    `arn:aws:ssm:us-east-1:<acct>:parameter/alert-platform/prod/*`, and
