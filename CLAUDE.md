@@ -360,14 +360,18 @@ hand, in August. `deploy.yml` has run `plan` successfully (`4 to change, 0
 unchanged`, plan `a7d096877d55`) but has never applied.
 
 **Open production questions.**
-1. Both `v0.1.2` rollbacks on 2026-08-20 are logged `failed`, although
-   `clinical-trials` is active and healthy at `v0.1.0` — the ref they were
-   restoring. Backlog #20. This goes before the first deploy: it is the field
-   that would report whether that deploy was safe.
-2. The cause of the original `v0.1.2` failure is on the host, not here. It was
-   reported as the secret-resolution gate failing for want of an IAM instance
-   role. The instance now has a role, so that blocker may be gone. Unverified;
-   do not assume it.
+1. Whether secret resolution works now. The August `v0.1.2` apply failed at that
+   gate, reportedly because the instance had no IAM role; it has one today, but
+   nothing has re-tested it. Unverified; do not assume it. The next apply
+   establishes it either way, and does so safely — see below.
+2. Resolved 2026-09-21: the August rollbacks logged `failed` were accurate.
+   `applyService` resolves secrets before its first mutating step and
+   `rollbackTo` calls the same `applyService`, so both passes returned having
+   changed nothing, and the service stayed on `v0.1.0` because nothing moved it.
+   Pinned by `internal/engine/secretgate_test.go`; write-up in
+   `docs/incidents/2026-08-20-v0.1.2-apply-blocked-by-secret-gate.md`.
+   **A secret-resolution failure mutates nothing on either pass**, so attempting
+   an apply costs a no-op and two accurate `failed` entries.
 
 **Known gaps.** Content drift: in-place edits inside a release directory are
 invisible to `drift`. `dedup.keys` is declared but not consumed. `state.backup`

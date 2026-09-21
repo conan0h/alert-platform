@@ -396,3 +396,36 @@ Format:
 - Catch-up: the bots are up and the channel is being spammed with duplicate
   alerts about a PE fund selling DELL. The platform works; what it is carrying
   does not. That is now the priority order in the repo.
+
+## 2026-09-21 (fourth session, continued) — #20 resolved: the audit log was right
+- Did: investigated the August rollback statuses and found no defect. PR follows.
+- `applyService` resolves secrets as its first action, before any mutating step,
+  and `rollbackTo` rebuilds the plan with the previous ref and calls the same
+  `applyService`. So on 2026-08-20 the apply failed at the gate having changed
+  nothing, the rollback failed at the same gate having changed nothing, and
+  `clinical-trials` stayed on `v0.1.0` because nothing ever moved it off. Both
+  `failed` entries were accurate.
+  Durations corroborate: 3.5s and 1.5s for the applies, ~2s and 1.5s for the
+  rollbacks. Cloning a tag and building a virtualenv does not finish in two
+  seconds — I had that evidence in the first Production report and did not use it.
+- Pinned by `internal/engine/secretgate_test.go`: a refusing resolver driven
+  through a real `Apply`, asserting the resolver is called twice, both audit
+  entries read `failed`, and no mutating command is issued on either pass.
+  Verified against a regression — replacing the gate's `return` with a fallback
+  to empty secrets makes it fail. Write-up in
+  `docs/incidents/2026-08-20-v0.1.2-apply-blocked-by-secret-gate.md`.
+- Consequences: **the deploy path is unblocked.** §2's bar was an uninvestigated
+  failure, and it is now investigated. Better, the test establishes that a
+  secret-resolution failure mutates nothing, so attempting an apply is safe even
+  if the gate is still broken: the cost is a no-op and two accurate `failed`
+  entries.
+- New backlog #30: the audit log cannot distinguish "refused before acting" from
+  "failed while acting". Both are `failed`, which is why this took a month to
+  read. A `mutated: bool` detail is the additive fix and answers the question
+  that matters — is the host in a state someone needs to repair.
+- Next: cut a release from `main` (it carries ADR 0002's exit codes and the #25
+  duplicate-alert fix), roll the four specs to it, plan, read the plan, apply,
+  verify. That deploy is what actually stops the spam.
+- Catch-up: nothing was broken in the audit log; my reading of it was wrong.
+  The deploy that stops the duplicate alerts is now permitted, and safe to
+  attempt regardless of whether the secret gate has been fixed.

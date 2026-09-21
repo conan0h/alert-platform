@@ -236,3 +236,29 @@ whether it is up. For this repo that is `observe.yml verb=logs` and, once
 backlog #27 lands, the alert archive. It took one command to find a live
 incident, two dead data sources, and a filter that alerts on private-equity
 distributions as if they were insider signals.
+
+## Read the code path before inferring from the outcome
+*Learned 2026-09-21, three times in one day.*
+
+Three times I reasoned from a plausible chain to a confident conclusion, and was
+wrong twice:
+
+| Inference | Reality |
+|---|---|
+| "Bootstrap died before line N, so line N never ran" | An earlier run had already done it; the wrapper was installed all along |
+| "The service is healthy at the ref the rollback targeted, so the rollback worked" | Neither the apply nor the rollback ever mutated anything; the service never left that ref |
+| "The instance has an IAM role now, so the secret gate is fixed" | Still unverified, and now flagged in bold as such |
+
+The shape is identical each time: a mechanism I had not read, an outcome
+consistent with the story I formed, and no check of the step in between. Each
+was cheap to settle — the third took reading one line of `applyService` and
+noticing that a 2-second rollback cannot have cloned a tag.
+
+The durations were in the first Production report I wrote. I had the
+disconfirming evidence and did not look at it, because the story already
+explained the facts I was attending to.
+
+So: when a conclusion rests on "X must have happened", find the code or the
+timing that says whether it did. Prefer a test that pins the answer, because the
+next reader will otherwise re-derive the same wrong inference — which is exactly
+what the write-up in `docs/incidents/` and `secretgate_test.go` exist to prevent.
