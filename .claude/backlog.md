@@ -32,9 +32,14 @@ items with a one-line "why".
    belongs with the next change that actually warrants a release, not with a
    rename.
 
-3. **Deploy and observe pipeline: GitHub OIDC → IAM → SSM.** `needs-conan (#5)`
-   Merged as #4. Handoff issue #5 has the CloudShell and Session Manager
-   steps. Until it is done the pipeline exists only as code.
+3. **Deploy and observe pipeline: GitHub OIDC → IAM → SSM.** `read path done`
+   Merged as #4; handoff #5 applied by Conan on 2026-09-21. The read path
+   now works end to end against the real host — `status`, `drift`,
+   `history` and `health` have all run and their output is the first
+   Production report in the log. Six follow-up PRs (#8–#13) were needed to
+   get there; see learnings. **Remaining:** one more `bootstrap-host.sh`
+   run on the host (the three before #13 all died before installing the
+   wrapper and the sudo rule), after which the write path can be tried.
    Code complete and tested; slices (a), (b) and (c) all landed together with
    ADR 0001. **Nothing has run against a real host**, and cannot until the
    one-time AWS apply and host bootstrap are done — see the Handoff issue.
@@ -105,6 +110,52 @@ items with a one-line "why".
    vendor vs. version check, ADR if it changes the gate's contract,
    (b) implement with a test that the gate refuses an unsupported resolver.
 
+20. **The audit log records rollbacks as `failed` when they appear to have
+    worked.** `todo`
+    From the first Production report: both `v0.1.2` rollbacks of
+    `clinical-trials` on 2026-08-20 are logged `failed`, but the service is
+    active and healthy at `v0.1.0`, which is exactly what those rollbacks were
+    meant to restore. Either the rollback path misreports its own outcome, or
+    it genuinely failed and the service recovered some other way — and the two
+    have very different consequences. The audit log is the evidence behind
+    every production claim this repo makes, and this field is the one that
+    says whether the safety mechanism worked, so it cannot be left ambiguous.
+    Do this **before** the first deploy through the pipeline: it is the field
+    that will report on whether that deploy was safe. Slices: (a) read the
+    rollback path and work out which statuses it can emit and when,
+    (b) reproduce with a rollback forced to fail and one forced to succeed,
+    (c) fix, with a test pinning each outcome to its status, (d) if the August
+    rollbacks really did fail, an incident write-up.
+
+21. **`observe.yml` cannot tell a finding from a failure.** `todo`
+    `alertctl drift` exits 1 to mean "drift found" — that is its contract. The
+    composite action treats any non-`Success` SSM status as a workflow
+    failure, so "the fleet has drifted" and "the host is unreachable" produce
+    an identical red run. The hourly schedule is red right now and stays red
+    until the fleet is deployed, which trains the only person who reads it to
+    ignore it. That is alert fatigue, in the observability path, in a repo
+    whose pitch includes symptom-based alerting. The verb's exit codes should
+    be interpreted per verb: a finding annotates the run, an operational
+    failure fails it. Slices: (a) give the wrapper's read-only verbs a
+    documented exit-code contract, (b) have the action distinguish the two and
+    annotate rather than fail on a finding, with tests for both,
+    (c) state the contract in the runbook.
+22. **End-to-end test target.** `todo` (larger; slice it) — **raised from P2
+    on 2026-09-21, with evidence.**
+    A container with sshd + a systemd stand-in that `alertctl` can target in
+    CI, proving plan → apply → drift → rollback against a real SSH transport,
+    and running `bootstrap-host.sh` for real.
+    Why it moved: eight bugs in the deploy path in one week, seven of them
+    found by hitting them in production rather than in CI. #6 (only `plan`
+    built the binary), #7 (`go build` from the wrong cwd) and #13 (bootstrap
+    killed by its own post-build check) would each have been caught outright
+    by a target that actually runs the script. The pattern is not carelessness;
+    it is that PR #4 shipped a deploy path whose locally-testable half had 45
+    tests and whose AWS-and-host half had none, so the only way to exercise it
+    was to run it against production. Every run that starts before this lands
+    pays for it again.
+
+
 ## P1 — Close the documented gaps (strong design-review material)
 
 7. **Content-drift detection.** `todo`
@@ -159,9 +210,6 @@ items with a one-line "why".
     critical-tier services deploy, with re-check of health. Spec, schema,
     engine, tests, docs.
 
-17. **End-to-end test target.** `todo` (larger; slice it)
-    A container with sshd + a systemd stand-in that `alertctl` can target in
-    CI, proving plan → apply → drift → rollback against a real SSH transport.
 
 ## P3 — Presentation and frontend
 
