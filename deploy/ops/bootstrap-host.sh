@@ -108,6 +108,15 @@ chmod -R go-w "$CHECKOUT"
 install -d -o root -g root -m 0755 "$BIN_DIR"
 install -d -o root -g root -m 0750 "$PLAN_DIR"
 
+# Build alertctl here, so the host is usable the moment this script finishes
+# rather than only after its first plan. It also turns the Go check above from
+# "the version string looks right" into "this toolchain compiles this module",
+# which is the thing actually being relied on.
+log "building alertctl"
+env GOFLAGS=-mod=vendor go build -o "$BIN_DIR/alertctl" "$CHECKOUT/cmd/alertctl"
+"$BIN_DIR/alertctl" 2>&1 | head -n 1
+log "alertctl built and runnable"
+
 # --- the wrapper -----------------------------------------------------------
 # Copied out of the checkout rather than symlinked into it: a symlink would
 # mean "whatever the checkout currently says" and the sudo rule would no

@@ -155,6 +155,33 @@ run() {
   "$@"
 }
 
+# alertctl is built from the checkout rather than shipped as an artifact, so
+# there is nothing to trust between the commit and the binary — see ADR 0001.
+# The cost is that the binary is a derived file which may simply not be there:
+# on a host bootstrapped but never planned, or if someone cleared /usr/local.
+# Every verb needs it, not just plan, so every verb makes sure of it.
+build_binary() {
+  # Resolved rather than assumed: this runs under sudo with env_reset, so PATH
+  # is secure_path, and a bare `go` that is not on it fails mid-deploy with
+  # "command not found" rather than here with a sentence that says what to do.
+  if [[ -z ${ALERT_DEPLOY_DRYRUN:-} ]]; then
+    command -v go >/dev/null 2>&1 || die "go is not on PATH ($PATH); re-run deploy/ops/bootstrap-host.sh"
+  fi
+  run install -d -o root -g root -m 0755 "${BIN%/*}"
+  # Vendored deps mean this needs no network, which is the point of vendoring
+  # them: it still works during the incident that took the network away.
+  run env GOFLAGS=-mod=vendor go build -o "$BIN" "$CHECKOUT/cmd/alertctl"
+}
+
+# Build only if absent. Deliberately does NOT sync the checkout first: only
+# `plan` may move it, and that is what lets `apply` apply what was planned.
+ensure_binary() {
+  if [[ -z ${ALERT_DEPLOY_DRYRUN:-} && -x $BIN ]]; then
+    return 0
+  fi
+  build_binary
+}
+
 if [[ -z ${ALERT_DEPLOY_DRYRUN:-} ]]; then
   assert_not_writable_by_others /usr/local/sbin/alert-deploy
   assert_not_writable_by_others "$CHECKOUT"
@@ -169,17 +196,9 @@ case $verb in
     # restricts the workflow to, so nothing unreviewed can arrive here.
     run git -C "$CHECKOUT" fetch --quiet --tags origin main
     run git -C "$CHECKOUT" reset --quiet --hard origin/main
-    # Vendored deps mean this build needs no network, which is the point of
-    # vendoring them: it still works during the incident that took the
-    # network away.
-    # Resolved rather than assumed: this runs under sudo with env_reset, so
-    # PATH is secure_path, and a bare `go` that is not on it fails halfway
-    # through a deploy with "command not found" rather than here with a
-    # sentence that says what to do. bootstrap-host.sh installs it.
-    if [[ -z ${ALERT_DEPLOY_DRYRUN:-} ]]; then
-      command -v go >/dev/null 2>&1 || die "go is not on PATH ($PATH); re-run deploy/ops/bootstrap-host.sh"
-    fi
-    run env GOFLAGS=-mod=vendor go build -o "$BIN" "$CHECKOUT/cmd/alertctl"
+    # Always, not just when missing: the checkout just moved, so whatever was
+    # built before this line describes a different commit.
+    build_binary
     run mkdir -p "$PLAN_DIR"
     tmp="$PLAN_DIR/.pending.json"
     run "$BIN" plan -root "$CHECKOUT" -target local -out "$tmp"
@@ -191,15 +210,16 @@ case $verb in
     fi
     ;;
   apply)
+    ensure_binary
     plan_file="$PLAN_DIR/$plan_id.json"
     if [[ -z ${ALERT_DEPLOY_DRYRUN:-} && ! -f $plan_file ]]; then
       die "no such plan '$plan_id' — run 'alert-deploy plan' first"
     fi
     run "$BIN" apply -root "$CHECKOUT" -target local -plan "$plan_file" -auto-approve
     ;;
-  status)  run "$BIN" status  -root "$CHECKOUT" -target local ;;
-  drift)   run "$BIN" drift   -root "$CHECKOUT" -target local ;;
-  history) run "$BIN" history -root "$CHECKOUT" -target local -n "$lines" ;;
+  status)  ensure_binary; run "$BIN" status  -root "$CHECKOUT" -target local ;;
+  drift)   ensure_binary; run "$BIN" drift   -root "$CHECKOUT" -target local ;;
+  history) ensure_binary; run "$BIN" history -root "$CHECKOUT" -target local -n "$lines" ;;
   logs)    run journalctl --no-pager --unit 'alert-*' --since "$since" ;;
   health)
     # Ports come from the rendered environment files rather than the specs, so

@@ -110,6 +110,34 @@ expect 0 "a line count is accepted" -- history --lines 50
 expect 2 "a non-numeric line count is refused" -- history --lines abc
 expect 2 "a negative line count is refused" -- history --lines -5
 
+# -- every verb can actually run --------------------------------------------
+#
+# The gap that produced the bug these cover: alertctl is a derived file, built
+# from the checkout rather than shipped, and the build lived inside `plan`
+# alone. On a host that had been bootstrapped but never planned, every
+# read-only verb died with "No such file or directory" — found by running
+# `observe` against the real host, not here, because the cases above only
+# exercise argument parsing and never asked whether the command could run.
+
+for verb in status drift history; do
+  expect_output "go build -o" "read-only verb '$verb' makes sure the binary exists first" -- "$verb"
+done
+expect_output "go build -o" "apply makes sure the binary exists first" -- apply 0123456789ab
+expect_output "go build -o" "plan builds the binary" -- plan
+
+# Only plan may move the checkout. If a read-only verb synced first, `status`
+# would report against a tree nobody asked it to fetch, and the plan `apply`
+# validates would no longer describe what is on disk.
+for verb in status drift history; do
+  out=$(ALERT_DEPLOY_DRYRUN=1 "$WRAPPER" "$verb" 2>&1)
+  if [[ $out == *"reset --hard"* || $out == *"fetch"* ]]; then
+    fail=$((fail + 1))
+    printf 'FAIL: read-only verb %s moved the checkout\n  output: %s\n' "$verb" "$out" >&2
+  else
+    pass=$((pass + 1))
+  fi
+done
+
 # -- the commands it actually builds ---------------------------------------
 
 expect_output "-target local" "alertctl is driven against the local host, not over ssh" -- status
