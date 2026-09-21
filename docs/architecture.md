@@ -127,7 +127,7 @@ roll forward again — reintroducing the outage.
 | Missing secret | resolver, before restart | deploy refused |
 | Service crash loop | post-deploy gate (`is-active`) | auto-rollback |
 | Process up, loop wedged | post-deploy gate (`/healthz` 503) | auto-rollback |
-| Manual edit on the host | `alertctl drift` | non-zero exit, alert |
+| Manual edit on the host | `alertctl drift` | exit 3, alert |
 | Upstream 502 in steady state | `alert_poll_errors_total` | dashboard, no page |
 | Telegram rejecting sends | `AlertDeliveryFailing` rule | page |
 

@@ -131,3 +131,32 @@ variable, tolerate the exit explicitly, and slice the first line in the shell:
 
 The general version: under `pipefail`, every `| head`, `| grep -q` and
 `| read` in a script is a place the script can exit. Audit them.
+
+## One long-lived branch across several squash-merged PRs starts every PR dirty
+*Learned 2026-09-21, three times in one session before it was named.*
+
+The session's branch is fixed, so this run put six PRs through the same
+`claude/…` ref. Each merged with squash, which rewrites the commits into one
+new commit on `main`. The branch still holds the originals, so the next push
+needs a force-push, and — the part that actually cost something — the next PR
+opened against `main` is immediately `mergeable_state: dirty`, because the
+branch carries both the pre-squash commit and its already-merged rewrite.
+
+PR #15 opened that way and **CI never ran on it at all**. Not a red run: no
+run. Fifteen minutes went into wondering why the runs list was stale before
+looking at `mergeable_state`, which said `dirty` the whole time.
+
+Two things to do differently:
+
+- **Reset the branch onto `main` immediately after each merge**, before
+  starting the next piece of work: `git fetch origin main && git checkout -B
+  <branch> origin/main`. It costs nothing and the divergence never
+  accumulates. CLAUDE.md's `claude/YYYY-MM-DD-<slug>` convention avoids this
+  by giving each change its own ref; when the branch name is fixed by the
+  session, resetting it is the equivalent.
+- **When CI seems not to have run, read `mergeable_state` before blaming the
+  API.** Absent checks and stale checks look identical from the check-runs
+  endpoint, which has been genuinely stale in this session too — so the
+  reflex is to wait it out. "No runs at all" is the tell: a real run appears
+  within a minute or two, and anything longer means GitHub is not going to
+  start one.

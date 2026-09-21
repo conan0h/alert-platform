@@ -84,9 +84,16 @@ jobs:
       # decided by this one script. A shell bug here is a production incident,
       # so it is linted and its argument validation is tested.
       - name: Lint (shellcheck)
-        run: shellcheck deploy/ops/alert-deploy deploy/ops/alert-deploy_test.sh deploy/ops/bootstrap-host.sh
+        run: |
+          shellcheck deploy/ops/alert-deploy deploy/ops/alert-deploy_test.sh deploy/ops/bootstrap-host.sh
+          shellcheck .github/actions/ssm-run/verdict.sh .github/actions/ssm-run/verdict_test.sh
       - name: The wrapper refuses what it should refuse
         run: ./deploy/ops/alert-deploy_test.sh
+      # The other half of the boundary: which host exit codes fail a run. SSM
+      # reports "drift found" and "host unreachable" identically, so this is
+      # the only place the difference is decided.
+      - name: A finding is not a failure
+        run: ./.github/actions/ssm-run/verdict_test.sh
 
   infra:
     name: terraform

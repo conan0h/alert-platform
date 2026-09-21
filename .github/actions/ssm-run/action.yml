@@ -20,6 +20,21 @@ inputs:
   timeout-seconds:
     description: How long the host may take.
     required: true
+  finding-exit-codes:
+    description: >-
+      Space-separated host exit codes that mean "the command worked and found
+      something", not "the command failed". These annotate the run and let it
+      pass. Anything else non-zero fails it. Empty means every non-zero exit is
+      a failure, which is the right default for a write path.
+    required: false
+    default: ''
+
+outputs:
+  finding:
+    description: >-
+      'true' when the host exited with one of finding-exit-codes — the command
+      worked and found something. Empty otherwise.
+    value: ${{ steps.send.outputs.finding }}
 
 runs:
   using: composite
@@ -40,6 +55,7 @@ runs:
         echo "SSM agent is Online."
 
     - name: Send and wait
+      id: send
       shell: bash
       run: |
         set -euo pipefail
@@ -80,10 +96,16 @@ runs:
           echo "----- host stderr -----"
           echo "$stderr"
         fi
-        echo "-----------------------"
-        echo "status: $status"
+        # SSM has no idea what the command meant; it only knows the exit
+        # code, and it calls every non-zero one Failed. verdict.sh is where
+        # that is turned back into a verdict, in its own file so CI can test
+        # it and so the finding set is passed as an argument rather than
+        # spliced into this shell.
+        code=$(echo "$invocation" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ResponseCode", ""))')
 
-        if [[ "$status" != "Success" ]]; then
-          echo "::error::$status on ${{ inputs.instance-id }} running ${{ inputs.document }}"
-          exit 1
-        fi
+        echo "-----------------------"
+        echo "status: $status (host exit ${code:-unknown})"
+
+        "$GITHUB_ACTION_PATH/verdict.sh" \
+          "$status" "$code" "${{ inputs.finding-exit-codes }}" \
+          '${{ inputs.document }}' '${{ inputs.instance-id }}'

@@ -19,6 +19,12 @@
 # So the rules it holds to:
 #
 #   - A fixed verb set. Anything else exits 2 without running.
+#
+# Exit codes are alertctl's, passed through unchanged, and they are a contract
+# the workflows read: 0 nothing to report, 1 the command failed, 2 the wrapper
+# or the CLI refused the arguments, 3 the command worked and found something
+# (`drift` finding drift). A caller that cannot tell 1 from 3 cannot tell an
+# unreachable host from a fleet that is behind — see docs/adr/0002-exit-codes.md.
 #   - Every argument is validated by shape before use, and is passed to
 #     alertctl as an argv element. Nothing reaches a shell word-split, an
 #     eval, or a command substitution.
@@ -56,7 +62,7 @@ usage: alert-deploy <verb> [options]
   plan   [--actor A]            refresh the checkout to origin/main, then plan
   apply  <plan-id> [--actor A]  apply a plan produced by `plan`
   status                        what is deployed, and is it running
-  drift                         non-zero if the host no longer matches the specs
+  drift                         exit 3 if the host no longer matches the specs
   history [--lines N]           audit log entries
   health                        per-service unit state and /healthz probe
   logs   [--since S]            journalctl for the alert-* units
