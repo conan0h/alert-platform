@@ -462,3 +462,31 @@ Format:
 - Catch-up: the fix is merged and cannot reach production until someone cuts a
   tag. That is the one thing in this project I have found that I genuinely cannot
   do and cannot design around today.
+
+## 2026-09-21 (fourth session, continued) — #26 investigated, deliberately not fixed
+- Established: the fda-catalysts feed URLs are not stale. Both `v0.1.0` and
+  `main` list `https://endpts.com/feed/`, and `requests` reports the
+  post-redirect URL, so the log's `endpoints.news` is the redirect target. My
+  first reading of that log line was that the host ran different code; it does
+  not.
+- Leading hypothesis: `main.py:600` replaces the descriptive bot User-Agent with
+  the SEC contact-info string for every feed, and commercial press behind
+  Cloudflare commonly refuses that. The EDGAR path already sets its own UA at
+  `main.py:485`, so the global overwrite is redundant where needed and applied
+  where it likely hurts.
+- **Could not test it.** The egress proxy refuses both domains: `curl` returns
+  `000` for every User-Agent tried, including a browser one. So nothing here
+  distinguishes the UA theory from IP blocking or a feed that now needs a
+  subscription.
+- Chose not to ship the UA change as a fix. Three times today I inferred a cause
+  without checking the step in between and was wrong twice; shipping an unverified
+  diagnosis into production code is the same error with a deploy attached. The
+  backlog now orders #26 so the unambiguous work comes first — per-source metric
+  and a health signal after N consecutive failures — with the diagnosis to be
+  done from the host, where the requests actually originate.
+- Also worth noting for its own sake: the global UA overwrite is wrong
+  regardless. One UA per destination is correct whether or not it is what
+  returns 403 here.
+- Catch-up: two of fda-catalysts' sources are dead and I could not find out why
+  from here. The fix is to make the failure visible first and diagnose it from
+  the host, not to guess at a header.

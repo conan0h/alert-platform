@@ -59,9 +59,30 @@ actually emit.
     is usually bot filtering (no or default User-Agent) or a moved feed.
     The gap is as much observability as fetching: a source that stops working
     should degrade the service's health or fire an alert, not log a warning
-    forever. Slices: (a) identify why each 403 happens and fix or drop the
-    source, (b) per-source success metric, (c) a health signal or alert when a
-    declared source has failed for N consecutive cycles.
+    forever.
+    **Investigated 2026-09-21, not fixed.** What was established:
+    - The URLs are not stale. Both `v0.1.0` and `main` list
+      `https://endpts.com/feed/`; `requests` reports the post-redirect URL, so
+      the log's `endpoints.news` is that redirect, not a host-code difference.
+    - **Leading hypothesis, unverified:** `main.py:600` does
+      `HTTP_HEADERS_DEFAULT["User-Agent"] = EDGAR_USER_AGENT`, replacing the
+      descriptive `FDA-CatalystBot/1.0` default with the SEC contact-info string
+      for *every* feed. Commercial press behind Cloudflare commonly refuses
+      that. The EDGAR path sets its own UA explicitly at `main.py:485`, so the
+      global overwrite is redundant where it is needed and applied where it
+      probably hurts.
+    - **It could not be tested from the agent's environment**: the egress proxy
+      refuses both domains outright (`curl` returns `000` for every UA tried),
+      so no measurement distinguishes the UA theory from IP blocking or a feed
+      that now requires a subscription. Do not ship the UA change as a fix on
+      this evidence alone.
+    Slices: (b) and (c) first, because they are unambiguous and independent of
+    the diagnosis — a per-source success metric, and a health signal or alert
+    once a declared source has failed for N consecutive cycles. Then (a): get a
+    real response from the host, where the requests actually originate, via a
+    one-off diagnostic rather than a speculative patch. (d) Separately, stop the
+    global UA overwrite on its own merits: one UA per destination is right
+    whether or not it is what 403s here.
 
 27. **Alert content is not persisted anywhere.** `todo`
     Alerts exist only as a Telegram message and a journald line. There is no
