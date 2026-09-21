@@ -1,6 +1,7 @@
 # 2026-09-21 — form4-insider re-sending the same alerts in a loop
 
-**Status:** open. Cause identified, fix not yet shipped.
+**Status:** fix merged, not yet deployed. The loop is still running in
+production; shipping needs backlog #20 cleared first (see Actions).
 **Impact:** the Telegram channel received the same insider-sale alerts
 repeatedly, roughly one message every two seconds, for an unknown duration.
 No data was lost and no service went down.
@@ -58,6 +59,12 @@ connection with `timeout=30.0` and `journal_mode=WAL`, so this is not a missing
 busy timeout — a writer held the lock for more than thirty seconds.
 `form4_scorer.py` and `form4_backfill.py` open the same database and are the
 obvious candidates. Determining which requires evidence from the host.
+
+One consequence of that timeout is worth recording, because it was found by
+writing the regression test rather than by reading the logs: every locked write
+blocks the poll loop for the full thirty seconds before raising. While the lock
+is held the service is not merely duplicating alerts, it is also stalled, which
+is why the repeats in the log are spaced as widely as they are.
 
 ## Fix
 

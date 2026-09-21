@@ -214,12 +214,29 @@ def is_already_alerted(conn: sqlite3.Connection, accession: str) -> bool:
     ).fetchone() is not None
 
 
-def mark_alerted(conn: sqlite3.Connection, accession: str):
-    conn.execute(
-        "INSERT OR IGNORE INTO alerted (accession, alerted_at) VALUES (?, ?)",
-        (accession, datetime.now(timezone.utc).isoformat()),
-    )
-    conn.commit()
+def mark_alerted(conn: sqlite3.Connection, accession: str) -> bool:
+    """Record the filing as handled. Returns False if that did not persist.
+
+    Callers must check the result before sending anything. An alert sent for a
+    filing that was not recorded is sent again on the next poll, and if the
+    write keeps failing the feed emits the same alerts indefinitely — see
+    docs/incidents/2026-09-21-form4-duplicate-alerts.md.
+    """
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO alerted (accession, alerted_at) VALUES (?, ?)",
+            (accession, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return True
+    except sqlite3.Error:
+        # Roll back so the connection is usable for the next filing; a failure
+        # here is about the database, not about this accession.
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
+        return False
 
 
 def process_filing(conn: sqlite3.Connection, accession: str, cik: str, alpha_cutoff: float | None) -> int:
@@ -229,7 +246,8 @@ def process_filing(conn: sqlite3.Connection, accession: str, cik: str, alpha_cut
 
     result = fetch_primary_xml(cik, accession)
     if result is None:
-        # Mark alerted to stop re-fetching; we'll never recover this one
+        # Mark to stop re-fetching; we will never recover this one. Nothing is
+        # sent on this path, so a failed write costs only a repeated fetch.
         mark_alerted(conn, accession)
         return 0
     _, xml_bytes = result
@@ -240,6 +258,20 @@ def process_filing(conn: sqlite3.Connection, accession: str, cik: str, alpha_cut
         return 0
 
     insider_stats = get_insider_stats(conn, parsed["insider_cik"])
+
+    # Claim the filing before sending, not after. Sending first and recording
+    # afterwards means any failure in between re-sends every alert for this
+    # filing on the next poll, for as long as the failure lasts; that is what
+    # produced the 2026-09-21 duplicate-alert incident. Refusing to send when
+    # the claim fails trades one missed filing for a bounded failure, which is
+    # the right direction for a feed a human reads.
+    if not mark_alerted(conn, accession):
+        log.error(
+            "could not record filing before sending; sending nothing",
+            extra={"accession": accession},
+        )
+        SVC.metrics.inc("alert_sends_refused_total")
+        return 0
 
     sent = 0
     for tx in parsed["transactions"]:
@@ -255,9 +287,6 @@ def process_filing(conn: sqlite3.Connection, accession: str, cik: str, alpha_cut
                      parsed.get("ticker"), tx["tx_code"],
                      parsed["insider_name"][:30], reason, tx["usd_value"])
 
-    # Mark the filing as alerted regardless of whether any tx fired — we've
-    # evaluated it and don't want to re-evaluate it on next poll.
-    mark_alerted(conn, accession)
     return sent
 
 

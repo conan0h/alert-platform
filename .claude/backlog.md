@@ -15,7 +15,8 @@ actually emit.
 
 ## P0 — Stop the noise, then measure it
 
-25. **`form4-insider` is re-sending the same alerts in a loop.** `todo`
+25. **`form4-insider` is re-sending the same alerts in a loop.**
+    `slices (a) and (b) done; (c) and (d) open`
     **Live incident.** Found 2026-09-21 in journald. The same DELL insider
     sales are sent every ~20s: `$1,119,426`, `$1,411,252`, `$1,828,658`,
     `$4,209,497` … then the identical sequence again two minutes later.
@@ -37,9 +38,12 @@ actually emit.
     metric, which is the right failure for an alert feed — one missed alert
     costs less than a channel nobody reads.
     Slices: (a) mark-before-send with a regression test that fails on the
-    current ordering, (b) a metric and a log line for a refused send, (c) find
-    the actual lock holder from the host and fix that separately, (d) incident
-    write-up in `docs/incidents/`.
+    current ordering — **done**, five tests in
+    `services/tests/test_form4_dedup.py`, two of which fail on the old
+    ordering; (b) `alert_sends_refused_total` and an error log — **done**;
+    (c) find the actual lock holder from the host and fix that separately —
+    open, needs host evidence; (d) incident write-up — **done**,
+    `docs/incidents/2026-09-21-form4-duplicate-alerts.md`.
     **Deploying the fix needs #20 cleared first** (§2 forbids a deploy while a
     previous deploy's failure is uninvestigated), which makes #20 urgent rather
     than tidy.
