@@ -541,3 +541,32 @@ Format:
 - Catch-up: the platform deployed to production by itself for the first time,
   one service, gated, audited, and rolled nothing back. Whether it fixed the
   alert spam is the one thing still unconfirmed.
+
+## 2026-09-21 (fourth session, continued) — AWS ownership merged, one apply left
+- Did: **#26** merged. `infra/bootstrap` creates the S3 state bucket and DynamoDB
+  lock table; `infra/terraform/iam_infra.tf` adds the `alert-platform-infra` role
+  with a permissions boundary and explicit denies; `infra.yml` plans then applies.
+  ADR 0003. CI validates both modules against the real provider schema, which is
+  the only validation available here — `registry.terraform.io` is blocked at this
+  session's proxy, so `terraform init` cannot fetch the provider locally and
+  `fmt` is all that runs.
+- The guardrails close three escalation routes in IAM rather than in prose: the
+  role cannot touch its own ARN, its own policies, the boundary or the OIDC
+  provider; a role it creates must carry the boundary; and the state bucket, lock
+  table, instance and volumes are denied outright.
+  ADR 0003 also states what is *not* closed — the role can change the SSM
+  documents and the deploy role, so it can widen what a deploy may do. That is
+  inherent in owning the infrastructure that defines the deploy, and the
+  compensating control is the audit trail, not the policy.
+- Handoff issue **#27** filed: four steps in CloudShell plus one repository
+  variable. It is the last handoff of this kind. Verification is an `infra.yml`
+  plan reporting no changes, since the account will already match.
+- Once it is done, #27's `alerts` verb and #32's `--since` both stop being
+  handoffs — both are SSM document changes.
+- Production untouched this entry. `form4-insider` remains at `v0.2.0` from the
+  earlier deploy, all four healthy, drift clean.
+- Next run: read the alerts first (CLAUDE.md §5.3) and settle whether the
+  duplication stopped; then #32, then #27's alert archive.
+- Catch-up: the AWS side is written, reviewed and merged. One CloudShell session
+  turns it on, and after that the only thing I still cannot do is cut a release
+  tag.
