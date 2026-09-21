@@ -27,19 +27,53 @@ readonly SVC_USER=svc-alerts
 readonly PLAN_DIR=/var/lib/alert-platform/plans
 readonly BIN_DIR=/usr/local/lib/alert-platform
 readonly SUDOERS=/etc/sudoers.d/alert-ops
+# Must track the `go` directive in go.mod.
+readonly GO_MIN_VERSION=1.22
 
 log() { printf '==> %s\n' "$*"; }
 
 [[ $EUID -eq 0 ]] || { echo "must run as root (sudo bash $0)" >&2; exit 1; }
 
 # --- packages --------------------------------------------------------------
-# git to move the checkout, golang to build alertctl from it, curl for the
-# health probe. Go is here rather than shipping a binary so the control plane
-# is built from the same commit it deploys, with no artifact to trust.
+# git to move the checkout, curl for the health probe.
 log "installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq git golang-go curl >/dev/null
+apt-get install -y -qq git curl >/dev/null
+
+# Go, to build alertctl from the same commit it deploys — no artifact to
+# trust, and the vendored deps mean that build needs no network.
+#
+# Not `apt-get install golang-go`: on 22.04 that is Go 1.18, and go.mod
+# requires 1.22, so the first `plan` would die on a toolchain error long after
+# this script reported success. Not a tarball from go.dev either, because then
+# this script is asserting a URL and a checksum nobody verified.
+#
+# The snap is the mechanism this host already runs (its SSM agent is one), and
+# /snap/bin is in sudo's secure_path on Ubuntu, so the wrapper can find it.
+log "installing Go"
+if ! command -v snap >/dev/null 2>&1; then
+  echo "FAILED: snap is not available; install Go >= $GO_MIN_VERSION another way and re-run" >&2
+  exit 1
+fi
+if ! command -v go >/dev/null 2>&1; then
+  snap install go --classic
+fi
+
+# Assert rather than assume. A Go too old to build the module is the failure
+# this whole block exists to prevent, and finding out here costs a minute
+# where finding out at deploy time costs an incident.
+go_version=$(go version 2>/dev/null | awk '{print $3}' | sed 's/^go//')
+if [[ -z $go_version ]]; then
+  echo "FAILED: go is installed but 'go version' produced nothing" >&2
+  exit 1
+fi
+if ! printf '%s\n%s\n' "$GO_MIN_VERSION" "$go_version" | sort -V -C; then
+  echo "FAILED: go $go_version is older than the $GO_MIN_VERSION that go.mod requires" >&2
+  echo "Try: snap refresh go --classic" >&2
+  exit 1
+fi
+log "Go $go_version (needs >= $GO_MIN_VERSION)"
 
 # --- accounts --------------------------------------------------------------
 # alert-ops owns nothing and runs nothing except through sudo. It exists so

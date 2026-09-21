@@ -172,6 +172,13 @@ case $verb in
     # Vendored deps mean this build needs no network, which is the point of
     # vendoring them: it still works during the incident that took the
     # network away.
+    # Resolved rather than assumed: this runs under sudo with env_reset, so
+    # PATH is secure_path, and a bare `go` that is not on it fails halfway
+    # through a deploy with "command not found" rather than here with a
+    # sentence that says what to do. bootstrap-host.sh installs it.
+    if [[ -z ${ALERT_DEPLOY_DRYRUN:-} ]]; then
+      command -v go >/dev/null 2>&1 || die "go is not on PATH ($PATH); re-run deploy/ops/bootstrap-host.sh"
+    fi
     run env GOFLAGS=-mod=vendor go build -o "$BIN" "$CHECKOUT/cmd/alertctl"
     run mkdir -p "$PLAN_DIR"
     tmp="$PLAN_DIR/.pending.json"
