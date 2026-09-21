@@ -32,7 +32,12 @@ items with a one-line "why".
    belongs with the next change that actually warrants a release, not with a
    rename.
 
-3. **Deploy and observe pipeline: GitHub OIDC → IAM → SSM.** `todo` → `needs-conan`
+3. **Deploy and observe pipeline: GitHub OIDC → IAM → SSM.** `in-pr #4` → `needs-conan`
+   Code complete and tested; slices (a), (b) and (c) all landed together with
+   ADR 0001. **Nothing has run against a real host**, and cannot until the
+   one-time AWS apply and host bootstrap are done — see the Handoff issue.
+   `alertctl` learned `ALERTCTL_ACTOR` so an automated apply is attributed to
+   its workflow run rather than to the shared `alert-ops` account.
    The only path from this repo to production (CLAUDE.md §6). Slices:
    (a) `infra/terraform/`: GitHub OIDC provider; a deploy role trusted only
    for `repo:conan0h/alert-platform:ref:refs/heads/main`, allowed
@@ -174,6 +179,12 @@ items with a one-line "why".
   <https://github.com/apps/claude/installations/select_target>. Cheap guard
   for a future run: try the write early rather than after the work.
 
+- **`terraform validate` cannot run locally.** `registry.terraform.io` is
+  refused by this session's egress policy (403 at the proxy), so the AWS
+  provider cannot be fetched and only `terraform fmt -check` runs here. CI
+  does the real `init -backend=false && validate`. Worth allowlisting the
+  registry if infra work continues, so a broken provider argument is caught
+  before a push rather than after.
 - **`golangci-lint` cannot run locally.** The image has v2.5.0;
   `.golangci.yml` is v1 format and CI pins v1.59.1, so the binary exits with
   "unsupported version of the configuration". Either pin v1.59.1 in the image

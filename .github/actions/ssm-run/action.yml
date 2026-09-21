@@ -1,0 +1,89 @@
+name: ssm-run
+description: Send one SSM document to the alert host, wait for it, and surface its output as this step's result.
+
+# Both workflows need the same thing: send a command, wait, print what the
+# host said, and fail the run if the host failed. Doing that in one place
+# means the observe path and the deploy path cannot drift apart in how they
+# report a failure — which matters, because "the deploy said nothing" and
+# "the deploy succeeded" must never look the same.
+
+inputs:
+  document:
+    description: SSM document name.
+    required: true
+  instance-id:
+    description: Target EC2 instance.
+    required: true
+  parameters:
+    description: Comma-separated key=value pairs for the document.
+    required: true
+  timeout-seconds:
+    description: How long the host may take.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check the host is reachable before sending anything
+      shell: bash
+      run: |
+        set -euo pipefail
+        ping_state=$(aws ssm describe-instance-information \
+          --filters "Key=InstanceIds,Values=${{ inputs.instance-id }}" \
+          --query 'InstanceInformationList[0].PingStatus' --output text 2>/dev/null || echo "None")
+        if [[ "$ping_state" != "Online" ]]; then
+          echo "::error::SSM agent on ${{ inputs.instance-id }} is '$ping_state', not Online."
+          echo "The host is unreachable, which is a different problem from a failed deploy."
+          echo "Check the instance is running and has the alert-platform-instance profile attached."
+          exit 1
+        fi
+        echo "SSM agent is Online."
+
+    - name: Send and wait
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        command_id=$(aws ssm send-command \
+          --document-name '${{ inputs.document }}' \
+          --instance-ids '${{ inputs.instance-id }}' \
+          --parameters '${{ inputs.parameters }}' \
+          --timeout-seconds '${{ inputs.timeout-seconds }}' \
+          --comment 'gha:${{ github.run_id }}' \
+          --query 'Command.CommandId' --output text)
+        echo "command-id: $command_id"
+
+        # Poll rather than `aws ssm wait`: the waiter gives up after its own
+        # fixed number of attempts, which is shorter than an apply.
+        deadline=$(( $(date +%s) + ${{ inputs.timeout-seconds }} + 60 ))
+        status=Pending
+        while [[ $(date +%s) -lt $deadline ]]; do
+          status=$(aws ssm get-command-invocation \
+            --command-id "$command_id" --instance-id '${{ inputs.instance-id }}' \
+            --query 'Status' --output text 2>/dev/null || echo Pending)
+          case "$status" in
+            Success|Failed|Cancelled|TimedOut) break ;;
+          esac
+          sleep 10
+        done
+
+        # Output first, verdict second: if this step fails, whoever reads the
+        # log wants what the host said, not just that it went wrong.
+        invocation=$(aws ssm get-command-invocation \
+          --command-id "$command_id" --instance-id '${{ inputs.instance-id }}' \
+          --output json)
+
+        echo "----- host stdout -----"
+        echo "$invocation" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("StandardOutputContent",""))'
+        stderr=$(echo "$invocation" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("StandardErrorContent",""))')
+        if [[ -n "${stderr// }" ]]; then
+          echo "----- host stderr -----"
+          echo "$stderr"
+        fi
+        echo "-----------------------"
+        echo "status: $status"
+
+        if [[ "$status" != "Success" ]]; then
+          echo "::error::$status on ${{ inputs.instance-id }} running ${{ inputs.document }}"
+          exit 1
+        fi

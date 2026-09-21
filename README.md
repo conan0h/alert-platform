@@ -94,7 +94,9 @@ reach a remote target the way the platform already does:
     services/tests/           unit, bootstrap, and cross-language contract tests
 
     deploy/                   generated scrape targets, alert rules, dashboard
-    docs/                     spec rationale, architecture, migration, runbooks
+    deploy/ops/               the host-side deploy wrapper and its bootstrap
+    infra/terraform/          OIDC provider, IAM roles, SSM documents (never applied by CI)
+    docs/                     spec rationale, architecture, migration, ADRs, runbooks
 
 ## Quick start
 
@@ -157,6 +159,9 @@ others) and `ruff`; both run in CI alongside a `gofmt` check.
 - [Spec design](docs/spec.md) — the six decisions that constrain every phase
 - [Migration record](docs/migration.md) — what moved, what the specs got wrong,
   and what to do before the first deploy
+- [ADR 0001](docs/adr/0001-oidc-ssm-over-ssh-keys.md) — why production is
+  reached over OIDC and SSM rather than an SSH key in CI, and why the agent
+  that operates this fleet holds no credentials at all
 
 ## Runbooks
 
@@ -179,12 +184,15 @@ Built and under test — all of it verifiable from this repository:
 - [x] Phase 6 — runbooks, drift detection, architecture docs
 - [x] Phase 7 — read-only operator console
 
-Not built yet:
+In progress:
 
-- [ ] Phase 8 — gated deploy pipeline: GitHub OIDC → IAM → SSM, so a deploy
+- [~] Phase 8 — gated deploy pipeline: GitHub OIDC → IAM → SSM, so a deploy
       runs from `main` with no stored credentials anywhere and every apply
-      lands in the audit log against the workflow run that caused it.
-      `.github/workflows/` contains `ci.yml` and nothing else.
+      lands in the audit log against the workflow run that caused it. The
+      code is written and tested — Terraform, the host wrapper and its
+      argument tests, and the two workflows — but the one-time AWS apply and
+      host bootstrap have not been done, so **nothing has run against a real
+      host yet.** See [ADR 0001](docs/adr/0001-oidc-ssm-over-ssh-keys.md).
 
 ### What this page does not tell you
 

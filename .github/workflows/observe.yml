@@ -1,0 +1,51 @@
+name: observe
+
+# Read-only. This workflow holds a permission that cannot change the host:
+# the SSM document it is allowed to send accepts only the read verbs, so a
+# mistake here is a bad report, never a bad deploy.
+#
+# It runs hourly as well as on demand, so there is a record of the fleet
+# between agent runs rather than only during them. That record is what makes
+# "it broke at some point last night" answerable.
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      verb:
+        description: What to ask the host
+        required: true
+        default: status
+        type: choice
+        options: [status, drift, history, health, logs]
+
+permissions:
+  id-token: write   # mint the OIDC token; this is what replaces stored keys
+  contents: read
+
+concurrency:
+  group: observe
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    name: ${{ inputs.verb || 'status' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assume the deploy role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: observe-${{ github.run_id }}
+
+      - name: Run the read-only verb on the host
+        uses: ./.github/actions/ssm-run
+        with:
+          document: AlertPlatform-Observe
+          instance-id: ${{ vars.ALERT_INSTANCE_ID }}
+          parameters: verb=${{ inputs.verb || 'status' }},actor=gha:${{ github.run_id }}
+          timeout-seconds: '300'
