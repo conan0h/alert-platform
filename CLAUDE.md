@@ -71,8 +71,12 @@ follow.
   protection or repository settings.
 - Check `git branch --show-current` immediately before committing. A denied or
   failed command leaves the shell wherever it was.
-- Release tags are yours to create. Never move or delete one; fix a bad release
-  with a new release.
+- **Release tags are NOT yours to create in this environment.** Verified
+  2026-09-21: `git push origin <tag>` returns 403, `POST /releases` returns
+  "Creating, editing, or deleting releases is not permitted for this session
+  type", and `POST /git/refs` returns "Write access to this GitHub API path is
+  not permitted through this proxy". Cutting a release is a handoff (§10). Do not
+  spend a run rediscovering this. Never move or delete an existing tag.
 - Force-push only your own branch.
 
 **Production**
@@ -224,11 +228,15 @@ refuse a surprising one.
 
 **Release.** When merged work changes anything that runs on the host:
 1. Confirm CI is green on the commit you will release.
-2. Tag it with semver — patch for fixes, minor for features or schema additions.
-   Tags go through the API; the cloud session can only push `claude/` branches.
-3. Open a PR rolling `source.ref` in the affected `fleet/services/*.yaml`, with
-   release notes in the body. Roll only services whose code or config changed,
-   unless a shared change to `alertlib` affects all four.
+2. **Ask Conan to cut the tag** — you cannot (§2). Give him the prefilled URL
+   `https://github.com/conan0h/alert-platform/releases/new?tag=vX.Y.Z&target=<sha>`,
+   which works on a phone, plus the release notes to paste. Semver: patch for
+   fixes, minor for features, schema additions, or a changed CLI contract.
+3. Once the tag exists, open a PR rolling `source.ref` in the affected
+   `fleet/services/*.yaml`. Roll only services whose code or config changed,
+   unless a shared change to `alertlib` affects all four. `source.ref` must match
+   `^v\d+\.\d+\.\d+$`; a branch or a SHA will not validate, and the deploy
+   clones with `--branch`, so a tag is the only workable ref.
 
 **Observe, every run.** `status` (each service active at its intended ref),
 `drift` (exit 0, or record exactly what drifted — exit 3 means drift found, see

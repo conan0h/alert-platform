@@ -133,6 +133,24 @@ actually emit.
     plan `a7d096877d55`) and never applied. Sequence: clear #20, land #25, cut a
     release, roll the specs, then apply and verify.
 
+31. **This session cannot cut a release tag.** `needs-conan — recurring`
+    Verified 2026-09-21 by trying all three routes: `git push origin v0.2.0` →
+    403; `POST /releases` → 403 "Creating, editing, or deleting releases is not
+    permitted for this session type"; `POST /git/refs` → 403 "Write access to
+    this GitHub API path is not permitted through this proxy". CLAUDE.md had
+    asserted the opposite and now records the truth.
+    This blocks every deploy, because `source.ref` must match
+    `^v\d+\.\d+\.\d+$` and the engine clones with `--branch`, so neither a
+    branch nor a SHA is a usable substitute. Loosening that pattern would weaken
+    a §2 guarantee to work around a permissions limit, which is not a trade to
+    make unilaterally.
+    Mitigation, not a fix: hand Conan the prefilled release URL, which is one tap
+    on a phone. A real fix would be a deploy-time mechanism that does not need a
+    human for each release — a signed artifact, or a bot token with `contents:
+    write` held by a workflow rather than by this session. Worth designing once
+    #28's infra ownership lands, since that is the same shape of problem.
+
+
 ## P0 — Carried forward
 
 21. **`observe.yml` cannot tell a finding from a failure.**
