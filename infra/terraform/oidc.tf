@@ -9,6 +9,15 @@
 
 data "aws_caller_identity" "current" {}
 
+locals {
+  # Exactly what an Actions run on main presents. Verified against a live run
+  # rather than assumed from documentation — see the note above.
+  oidc_subject_main = format(
+    "repo:%s@%s/%s@%s:ref:refs/heads/main",
+    var.github_owner, var.github_owner_id, var.github_repo_name, var.github_repo_id,
+  )
+}
+
 # GitHub publishes one OIDC issuer for all of Actions. The account may already
 # have this provider from another repository, in which case import it rather
 # than creating a second: AWS permits only one provider per issuer URL.
@@ -28,11 +37,20 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 # The subject condition is the whole security boundary for "what may deploy".
 #
-# `repo:<owner>/<name>:ref:refs/heads/main` matches a workflow run whose
-# triggering ref is main and nothing else: not a pull request, not a fork, not
-# a tag, not another repository that happens to be called the same thing. A
-# wildcard here (repo:owner/name:*) would let any PR branch assume the role,
-# which is the usual way this pattern is got wrong.
+# It matches a workflow run whose triggering ref is main and nothing else: not
+# a pull request, not a fork, not a tag, not another repository that happens to
+# be named the same. Two things make it tight:
+#
+#   - It is StringEquals against one exact string. A wildcard here
+#     (repo:owner/name:*) would let any PR branch assume the role, which is
+#     the usual way this pattern is got wrong. `StringLike` with a `*` after
+#     the owner would be worse still — `conan0h*` also matches `conan0hx`.
+#   - It carries the account and repository ids, because that is what GitHub
+#     actually sends. `repo:conan0h/alert-platform:...` — the form the docs
+#     show and the form this policy originally used — is rejected outright,
+#     which is how the mismatch was found: the first real `observe` run failed
+#     with "Not authorized to perform sts:AssumeRoleWithWebIdentity" against a
+#     policy that looked correct. See ADR 0001.
 data "aws_iam_policy_document" "deploy_assume_role" {
   statement {
     effect  = "Allow"
@@ -52,7 +70,7 @@ data "aws_iam_policy_document" "deploy_assume_role" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repo}:ref:refs/heads/main"]
+      values   = [local.oidc_subject_main]
     }
   }
 }
