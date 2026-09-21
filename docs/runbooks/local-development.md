@@ -45,6 +45,25 @@ anywhere. Substitute your test credentials for the `ALERT_SECRET_*` lines.
 skip. Those are the tests that catch a rename in one language breaking the
 other.
 
+### Writing a control-plane test
+
+`internal/engine` tests load `internal/engine/testdata/fleet`, **not** the
+repo's `fleet/`. The real specs record deployment decisions: rolling
+`source.ref` to a new release is routine, and when tests read those specs a
+release breaks tests that have nothing to do with it. The fixture pins
+`v1.0.0` for every service and never moves, so add or adjust a fixture spec
+when a test needs new inputs.
+
+Two things keep that honest:
+
+- `TestLiveFleetSpecsRenderAndStayDeployable` loads the real `fleet/` and
+  asserts only properties that hold for any valid fleet — every ref passes
+  the shape guard, every service renders a unit and an env, metrics ports are
+  unique. It never names a version, a port or a service.
+- The rollback test copies the fixture fleet into a throwaway git repo and
+  runs `tools/validate.py` against it as the real apply gate, so a malformed
+  fixture fails the suite rather than quietly weakening it.
+
 ## Before you push
 
     make check

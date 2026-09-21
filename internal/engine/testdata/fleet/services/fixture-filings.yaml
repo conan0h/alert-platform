@@ -1,0 +1,40 @@
+# Carries a resources override and a list-valued polling extension key: the
+# two spec features that only this service exercises.
+apiVersion: alertplatform/v1
+kind: Service
+
+metadata:
+  name: fixture-filings
+  description: Fixture service with a memory override and list-valued polling keys
+  tier: standard
+
+spec:
+  source:
+    repo: https://example.invalid/fixture/alert-platform
+    path: services/fixture_filings
+    ref: v1.0.0
+    entrypoint: main.py
+
+  polling:
+    interval_sec: 180
+    source_url: https://example.invalid/filings
+    # A list, so the env renderer has to JSON-encode it for the Python side.
+    forms: ["8-K", "10-K", "10-Q", "S-1", "424B4"]
+    lookback_hours: 24
+
+  dedup:
+    keys: [accession_number]
+    cross_source: true
+    retention_days: 180
+
+  delivery:
+    telegram_chat_secret: tg_chat_filings
+    bot_token_secret: tg_bot_token
+    rate_limit_per_min: 20
+
+  resources:
+    memory_max: 384M
+
+  health:
+    metrics:
+      port: 9111

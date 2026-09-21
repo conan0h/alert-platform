@@ -47,9 +47,15 @@ func (f *failOnce) WriteFile(path, content string, mode os.FileMode) error {
 
 func (f *failOnce) Describe() string { return f.inner.Describe() }
 
-// testRepo copies fleet/, schema/ and tools/ into a temp dir and makes it a
-// git repo with the tags the specs reference, so `checkRefExists` — gate 3 —
-// runs for real instead of being skipped.
+// testRepo assembles a throwaway repo that Apply can treat as a real
+// checkout: the package's fixture fleet as fleet/, the repo's real schema/
+// and tools/ (gate 1 shells out to tools/validate.py, and running the actual
+// validator is the point), and git tags so `checkRefExists` — gate 3 — runs
+// for real instead of being skipped.
+//
+// The fleet copied here is testdata/fleet, not the repo's own: the tags this
+// helper creates have to match the refs the specs pin, and a release that
+// rolls the real specs must not be able to invalidate that.
 func testRepo(t *testing.T, tags ...string) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -61,7 +67,10 @@ func testRepo(t *testing.T, tags ...string) string {
 
 	src := repoRoot(t)
 	dst := t.TempDir()
-	for _, d := range []string{"fleet", "schema", "tools"} {
+	if out, err := exec.Command("cp", "-r", filepath.Join(fixtureRoot(t), "fleet"), dst).CombinedOutput(); err != nil {
+		t.Fatalf("copy fixture fleet: %v: %s", err, out)
+	}
+	for _, d := range []string{"schema", "tools"} {
 		if out, err := exec.Command("cp", "-r", filepath.Join(src, d), dst).CombinedOutput(); err != nil {
 			t.Fatalf("copy %s: %v: %s", d, err, out)
 		}
@@ -103,15 +112,24 @@ func stubObserved(runner *pexec.DryRunner, service, prevRef string) {
 
 func TestFailedDeployRollsBackAutomaticallyAndAuditsBothOutcomes(t *testing.T) {
 	const (
-		service = "edgar-mna"
-		prevRef = "v0.0.9"
-		nextRef = "v0.1.0" // what the spec pins
+		service = "fixture-filings"
+		prevRef = "v0.9.0"   // what the host is running
+		nextRef = fixtureRef // what the fixture spec pins
 	)
 
 	root := testRepo(t, prevRef, nextRef)
 	repo, err := fleet.Load(root)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// If the fixture ever stops pinning nextRef this test would silently stop
+	// testing a ref change, so say so loudly instead.
+	svc, err := repo.Service(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fleet.Resolve(repo.Fleet, svc).String("source.ref", ""); got != nextRef {
+		t.Fatalf("fixture pins %q but this test assumes %q", got, nextRef)
 	}
 	target, _ := repo.DefaultTarget()
 

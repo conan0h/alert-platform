@@ -1,0 +1,69 @@
+# fleet.yaml — the engine package's own fleet, used by every test in this
+# package instead of the repo's real fleet/.
+#
+# Why a fixture at all: the real specs record deployment decisions. Rolling
+# `source.ref` to a new release is a routine, correct change, and it used to
+# break engine tests that had nothing to do with the release (the apply test
+# asserted a clone of v0.1.0; the rollback test tagged a temp repo with refs
+# the specs no longer pinned). Tests own their inputs, so the inputs live
+# here and never move.
+#
+# The shape mirrors fleet/fleet.yaml — same keys, same defaults — because
+# what these tests exercise is the merge and render behaviour those defaults
+# drive. The identities are deliberately fictional so nothing here can be
+# mistaken for a statement about production.
+#
+# This file is validated on every run of the rollback test: that test copies
+# this directory into a throwaway repo and runs tools/validate.py against it
+# as the real apply gate 1. A malformed fixture fails the suite.
+
+apiVersion: alertplatform/v1
+kind: Fleet
+
+metadata:
+  name: fixture-fleet
+  owner: engine-tests
+  repo: https://example.invalid/fixture/alert-platform
+
+targets:
+  default_host:
+    address: fixture-host
+    user: svc-deploy
+    platform: linux/amd64
+
+defaults:
+  runtime:
+    interpreter: python3.10
+    working_dir: /opt/alert-platform
+    restart_policy: on-failure
+    restart_sec: 10
+    memory_max: 256M
+    user: svc-alerts
+
+  logging:
+    format: json
+    level: INFO
+    destination: journald
+
+  state:
+    backend: sqlite
+    dir: /var/lib/alert-platform
+    backup:
+      enabled: true
+      interval: daily
+
+  health:
+    heartbeat_interval_sec: 300
+    startup_grace_sec: 60
+    metrics:
+      enabled: true
+
+  delivery:
+    channel_type: telegram
+    secrets_backend: aws_ssm
+    secrets_prefix: /alert-platform/fixture
+
+change_policy:
+  max_concurrent_deploys: 1
+  require_plan_before_apply: true
+  audit_log: /var/log/alert-platform/audit.jsonl

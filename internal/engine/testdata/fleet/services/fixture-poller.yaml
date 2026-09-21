@@ -1,0 +1,32 @@
+# The plain case: nothing overridden. Everything this service runs with comes
+# from fleet defaults, so it is the control in every merge assertion.
+apiVersion: alertplatform/v1
+kind: Service
+
+metadata:
+  name: fixture-poller
+  description: Fixture service that overrides nothing, exercising fleet defaults alone
+  tier: standard
+
+spec:
+  source:
+    repo: https://example.invalid/fixture/alert-platform
+    path: services/fixture_poller
+    ref: v1.0.0
+    entrypoint: main.py
+
+  polling:
+    interval_sec: 300
+    source_url: https://example.invalid/poller
+
+  dedup:
+    keys: [id]
+    retention_days: 90
+
+  delivery:
+    telegram_chat_secret: tg_chat_poller
+    bot_token_secret: tg_bot_token
+
+  health:
+    metrics:
+      port: 9110

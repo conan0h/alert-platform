@@ -1,0 +1,41 @@
+# The only critical-tier service in the fixture fleet, so tier ordering has
+# something to order. Also overrides a health default and references a third
+# secret, which is how the env-contract test sees more than one secret shape.
+apiVersion: alertplatform/v1
+kind: Service
+
+metadata:
+  name: fixture-insider
+  description: Fixture critical-tier service with health overrides and a third secret
+  tier: critical
+
+spec:
+  source:
+    repo: https://example.invalid/fixture/alert-platform
+    path: services/fixture_insider
+    ref: v1.0.0
+    entrypoint: main.py
+
+  polling:
+    interval_sec: 120
+    source_url: https://example.invalid/insider
+    # A secret referenced from outside spec.delivery, and numeric policy
+    # knobs that must reach the env file as ALERT_POLLING_* keys.
+    user_agent_secret: fixture_user_agent
+    min_transaction_value_usd: 100000
+    alpha_percentile_cutoff: 0.75
+
+  dedup:
+    keys: [accession_number]
+    cross_source: true
+    retention_days: 90
+
+  delivery:
+    telegram_chat_secret: tg_chat_insider
+    bot_token_secret: tg_bot_token
+    rate_limit_per_min: 30
+
+  health:
+    heartbeat_interval_sec: 120
+    metrics:
+      port: 9113
