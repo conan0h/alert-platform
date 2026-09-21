@@ -321,32 +321,60 @@ Conan catches up afterwards. Write them for someone reading ten on a Sunday.
 
 ## 10. Current state (as of 2026-09-21; verify and update as you learn)
 
-- `main` = `7882c15` plus this run's work. Tags `v0.1.0`, `v0.1.1`, `v0.1.2`
-  (`v0.1.2` → `800b942`); all four specs pin `v0.1.2`.
-- **CI on `main` is green** as of run #15, the first since 2026-08-20. It had
-  been red for two independent reasons, both now fixed and pinned by tests:
-  engine tests hardcoded release refs while loading the live `fleet/` specs
-  (they now load `internal/engine/testdata/fleet`), and `schema/`'s `$id` was
-  a relative path that old `jsonschema` resolvers dereference as a URL (now a
-  URN). See `.claude/learnings.md` before touching either.
+- `main` = `a4a04c0`. Tags `v0.1.0`, `v0.1.1`, `v0.1.2` (`v0.1.2` → `800b942`);
+  all four specs pin `v0.1.2`. **No tag yet contains the exit-code change**
+  (§below), so the next deploy needs a release first.
+- **CI on `main` is green** (run #44). It had been red for two independent
+  reasons, both fixed and pinned by tests: engine tests hardcoded release refs
+  while loading the live `fleet/` specs (they now load
+  `internal/engine/testdata/fleet`), and `schema/`'s `$id` was a relative path
+  that old `jsonschema` resolvers dereference as a URL (now a URN). See
+  `.claude/learnings.md` before touching either.
 - `go.mod` module path is `github.com/conan0h/alert-platform`, matching the
   GitHub owner. Tags `v0.1.0`–`v0.1.2` predate the rename and still carry
   `conanohara`, so `go install …@latest` needs a newer tag to work.
-- Production (reported by Conan, not yet verified by you): all four bots run on
-  `ec2-alerts-prod` (Ubuntu 22.04 ARM64, us-east-1). The `v0.1.2` apply failed
-  at the secret-resolution gate because the instance has no IAM instance role;
-  root account access keys are in use, which must end. `v0.1.1` was never
-  deployed. A host-side edit in `services/form4_insider/main.py`
-  (`alerted_this_filing`) is not in git. `alertctl` runs on the VM itself,
-  over a loopback SSH alias, and needs `sudo`.
-- The README "Status" section no longer claims anything about production. It
-  now states outright that the repo has no read path to the host and so
-  reports no evidence. Fill it in from your own observations once §6's
-  pipeline exists — not from the reported state above, which you have not
-  verified.
+- **The deploy pipeline exists and its read path works.** Conan applied the
+  Terraform and bootstrapped the host on 2026-09-21. `observe.yml` reaches
+  `i-06aaf8cca765d5352` over OIDC → IAM → SSM and has run `status`, `drift`,
+  `history` and `health` against it. The write path has never been used.
+- **Production, verified first-hand** (observe runs #6–#10, not reported):
+  all four bots are `active` and answer `/healthz`, all four are deployed at
+  **`v0.1.0`** while the specs pin `v0.1.2`, so `drift` reports all four. Every
+  audit entry says `by: ubuntu` — every change to production so far was made by
+  hand, in August. The `v0.1.2` apply was attempted twice on 2026-08-20, failed
+  both times on `clinical-trials`, and stopped there without touching the other
+  three. `v0.1.1` was never deployed.
+- **Two production facts are open, not resolved:**
+  (a) both `v0.1.2` rollbacks are logged `failed` although `clinical-trials` is
+  active and healthy at `v0.1.0`, the ref they were restoring — backlog #20,
+  and it goes *before* the first deploy, because it is the field that will
+  report on whether that deploy was safe;
+  (b) the cause of the original `v0.1.2` failure is recorded on the host, not
+  here. It was *reported* as the secret-resolution gate failing for want of an
+  IAM instance role. The instance now has a role, so that specific blocker may
+  be gone — **this is unverified; do not assume it.**
+- Still true and still unfixed: root account access keys are in use and must
+  end; a host-side edit in `services/form4_insider/main.py`
+  (`alerted_this_filing`) is not in git; `alertctl` runs on the VM itself over
+  a loopback SSH alias and needs `sudo`.
+- **The host's `alertctl` binary is stale, and that is the only thing known to
+  be wrong with the host.** `drift` returns exit 1, not the 3 the merged code
+  returns, so the binary predates #15. Read verbs never rebuild it (only `plan`
+  does), so a `bootstrap-host.sh` re-run or a `plan` is what refreshes it.
+  Note what is *not* wrong: the wrapper, the sudoers rule and the `alert-ops`
+  user are all installed and working — every observe run today went through
+  `runuser -u alert-ops -- sudo -n /usr/local/sbin/alert-deploy`. Bug #8 (a
+  `| head` under `pipefail`, fixed in #13) would have stopped bootstrap just
+  before those are installed, but they are present, so an earlier run had
+  already installed them.
+- The README "Status" section now reports production from these observations,
+  with the date in the heading and the run logs named as the record. Keep it
+  matching what you have actually seen.
 - Documented gaps: content drift (in-place edits inside a release directory
   are invisible to `drift`); `dedup.keys` declared but not consumed;
-  `state.backup` declared with no job behind it.
+  `state.backup` declared with no job behind it; and `observe` does not report
+  which `alertctl` built the answer, so a stale control plane reads as current
+  (backlog #23 — this already misled one verification).
 - Environment, learned the hard way (details in `.claude/backlog.md`):
   there is no `gh` CLI — use the GitHub MCP tools; the system `python3` has
   none of `pyyaml`/`jsonschema`/`ruff`/`pytest`, so build a 3.12 venv first;
@@ -356,3 +384,10 @@ Conan catches up afterwards. Write them for someone reading ten on a Sunday.
   Check GitHub write access early in a run: it has been read-only before, and
   that blocks the §7 handoff route too, since issue creation is refused with
   it.
+  **Reset your branch onto `main` right after each merge**
+  (`git fetch origin main && git checkout -B <branch> origin/main`). Squash
+  merges leave the pre-squash commit on the branch, and the next PR then opens
+  `mergeable_state: dirty` with **no CI run at all** — which reads exactly like
+  a stale API. When checks seem missing, read `mergeable_state` first.
+  The GitHub check-runs endpoint *is* genuinely stale sometimes; a job's
+  archived logs (404 until it completes) are the reliable signal.

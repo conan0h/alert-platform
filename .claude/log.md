@@ -263,3 +263,23 @@ Format:
 - Catch-up: the finding-vs-failure fix is merged and its workflow half is
   proven live; the CLI half is sitting in `main` waiting for the host's binary
   to be rebuilt, which the bootstrap re-run will do.
+
+## 2026-09-21 (third session) — correction to the #13 write-up
+- Correcting myself: I recorded, and told Conan, that bug #8 left the host
+  "with a checkout, a binary, and no deploy path", the wrapper and sudo rule
+  never installed. The evidence contradicts that. The `AlertPlatform-Observe`
+  document runs `runuser -u alert-ops -- sudo -n /usr/local/sbin/alert-deploy`,
+  and four observe runs succeeded through it today — so the `alert-ops` user,
+  the wrapper and the sudoers rule are all present and working. Bootstrap must
+  have completed on an earlier run than the ones whose output I saw.
+- The bug was real (reproduced locally, exit 2 before the fix) and the fix
+  stands. What was wrong was my inference about its effect on *this* host: I
+  reasoned from "the script dies before line N" to "line N never ran", without
+  checking whether an earlier run had already done it. The observe runs were
+  sitting in front of me and say so directly.
+- What is actually true: the host's `alertctl` is stale — `drift` returns 1,
+  not the 3 the merged code returns. That is the whole of what needs fixing,
+  and either a bootstrap re-run or a `plan` does it. So the re-run is still
+  worth doing; the reason I gave for it was not the right one.
+- Catch-up: the host is in better shape than I reported. Nothing is missing
+  from its deploy path; its control-plane binary is just two changes behind.
