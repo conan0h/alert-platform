@@ -292,3 +292,31 @@ This is the same failure as the earlier denied-command near-miss: an operation I
 believed had a particular effect, which had a different one, and no check in
 between. `origin/main` was verified untouched both times — by luck the first time
 and by git's own refusal the second.
+
+## A failed command produces zeros, not evidence
+*Learned 2026-09-21, one sentence away from a false production claim.*
+
+To check whether the deploy stopped the duplicate alerts, I downloaded the job
+log and counted:
+
+    Alert sent (v0.2.0): 0
+    database is locked (v0.2.0): 0
+    sends refused: 0
+
+Three zeros, all of which would have read as "the fix worked". The download had
+returned HTTP 000 — the logs endpoint redirects to blob storage, which this
+session's proxy blocks — so the file was empty and the greps counted nothing at
+all.
+
+`grep -c` over a missing or empty file is indistinguishable from `grep -c` over a
+file with no matches. So is `wc -l`, and so is any `| grep | wc` pipeline reading
+something that failed to arrive.
+
+Two habits:
+
+- **Assert the input exists before trusting a count.** Check the byte size, the
+  HTTP status, or a line that must be present. A pipeline that reports a number
+  should report how many lines it read.
+- **A zero that confirms what you hoped deserves more scrutiny than a non-zero
+  that contradicts it.** This one matched the outcome I wanted, which is exactly
+  why it nearly went into a Production report unchallenged.

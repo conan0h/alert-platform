@@ -16,7 +16,7 @@ actually emit.
 ## P0 — Stop the noise, then measure it
 
 25. **`form4-insider` is re-sending the same alerts in a loop.**
-    `slices (a) and (b) done; (c) and (d) open`
+    `fix deployed 2026-09-21; effect not yet observed (see #32); (c) open`
     **Live incident.** Found 2026-09-21 in journald. The same DELL insider
     sales are sent every ~20s: `$1,119,426`, `$1,411,252`, `$1,828,658`,
     `$4,209,497` … then the identical sequence again two minutes later.
@@ -170,6 +170,28 @@ actually emit.
     human for each release — a signed artifact, or a bot token with `contents:
     write` held by a workflow rather than by this session. Worth designing once
     #28's infra ownership lands, since that is the same shape of problem.
+
+
+32. **`logs` returns the oldest part of its window, which is backwards.**
+    `todo`
+    Found while trying to verify the 2026-09-21 deploy. The verb runs
+    `journalctl --since "1 hour ago"` with no bound on output. SSM caps a
+    command's captured stdout at roughly 24 KB, and journalctl prints
+    oldest-first, so a busy hour returns its *beginning* and silently drops the
+    end. The deploy landed at 22:16 and the returned log stopped at 21:20.
+    An operator asking for logs wants the most recent ones. Fix: bound the
+    output with `journalctl -n <N>` as well as `--since`, so the tail is what
+    survives. Also worth letting `observe.yml` pass `--since`, which today it
+    cannot — the SSM document takes only `verb`, so that part needs a document
+    change and therefore #28.
+    This is the reason the duplicate-alert fix is deployed but its effect is
+    not yet observed.
+
+33. **Roll the remaining three services to a current tag.** `todo`
+    `clinical-trials`, `edgar-mna` and `fda-catalysts` run `v0.1.0`, now pinned
+    there deliberately (#24). They should move to a tag carrying the `alertlib`
+    counter and the dead-code removal, in a deploy where that is the only change
+    being made. Not urgent: nothing in `v0.2.0` fixes a fault in those three.
 
 
 ## P0 — Carried forward
