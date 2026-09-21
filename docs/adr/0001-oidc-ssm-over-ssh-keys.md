@@ -94,6 +94,47 @@ not merge.
   shellcheck, by argument validation that is tested rather than asserted, and
   by keeping it short enough to read in one sitting.
 
+## Addendum, 2026-09-21: the subject claim is not what the docs show
+
+The first real `observe` run failed with `Not authorized to perform
+sts:AssumeRoleWithWebIdentity` against a trust policy that was, on inspection,
+exactly what every guide prescribes:
+
+    "token.actions.githubusercontent.com:sub":
+        "repo:conan0h/alert-platform:ref:refs/heads/main"
+
+A temporary step that asked for the token and printed only its `sub` and `aud`
+claims showed what GitHub actually sends:
+
+    repo:conan0h@98814385/alert-platform@1340575956:ref:refs/heads/main
+
+The subject embeds immutable numeric ids for the account and the repository.
+That is a real improvement, and it is worth understanding rather than merely
+matching: a claim naming only `conan0h/alert-platform` would be satisfied by
+whatever repository sits at that path *later* — after a rename, a transfer, or
+a deletion and re-registration by someone else. The ids cannot be reused, so
+the claim names this repository and no future impostor.
+
+Two things were tempting and both are wrong:
+
+- **`StringLike` with a wildcard**, e.g. `repo:conan0h*/alert-platform*:ref:…`.
+  It would work today and it widens the boundary: `conan0h*` also matches
+  `conan0hx`, so an account with a similar name could assume the deploy role.
+- **Accepting both the old and new subject forms.** Harmless-looking, and it
+  reintroduces exactly the rename-hijack the ids exist to prevent.
+
+So the policy pins the exact subject including the ids. If GitHub changes the
+format again this fails closed and loudly, which is the right failure: a deploy
+that cannot authenticate is safe, and one that authenticates against a claim we
+no longer understand is not.
+
+The general lesson is the one this whole ADR is about. The layering was sound;
+the part that broke was an assumption about an external system's behaviour that
+nothing in the repo could test. It was found in about ten minutes by reading
+what was actually sent instead of reasoning about what should be sent, and that
+technique — print the claim, not the token — belongs in the runbook for anything
+OIDC.
+
 ## Notes
 
 The layering matters more than any individual control: IAM decides *where*,

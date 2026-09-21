@@ -41,7 +41,16 @@ jobs:
   deploy:
     name: ${{ inputs.step }}
     runs-on: ubuntu-latest
-    environment: production
+    # Deliberately no `environment:`. Declaring one changes the OIDC subject
+    # claim from `repo:<owner>/<repo>:ref:refs/heads/main` to
+    # `repo:<owner>/<repo>:environment:production`, which the deploy role's
+    # trust policy does not accept — so this job could never have assumed the
+    # role. Widening the policy to accept the environment subject would be
+    # worse than it looks: that subject carries no branch, so it would let any
+    # branch that names this environment assume the role. Doing it safely
+    # needs a deployment-branch policy on the environment restricting it to
+    # main, which is a repository setting rather than code. Until that exists,
+    # the branch-pinned subject is the tighter of the two.
     steps:
       - uses: actions/checkout@v4
 

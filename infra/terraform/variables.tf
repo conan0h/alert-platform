@@ -16,10 +16,41 @@ variable "instance_id" {
   }
 }
 
-variable "github_repo" {
-  description = "owner/name of the repository whose main branch may deploy."
+# The OIDC subject GitHub presents embeds immutable numeric ids alongside the
+# names: `repo:<owner>@<owner_id>/<repo>@<repo_id>:ref:refs/heads/<branch>`.
+# The ids are the security-relevant half. A claim naming only `conan0h/
+# alert-platform` would be satisfied by whatever repository happens to sit at
+# that path later — after a rename, a transfer, or a deletion and re-creation
+# by someone else. The ids name *this* account and *this* repository and
+# cannot be reused.
+#
+# Find them with:
+#   curl -s https://api.github.com/users/conan0h | jq .id
+#   curl -s https://api.github.com/repos/conan0h/alert-platform | jq .id
+# or read them off the `sub` claim in an Actions run.
+
+variable "github_owner" {
+  description = "GitHub account that owns the repository."
   type        = string
-  default     = "conan0h/alert-platform"
+  default     = "conan0h"
+}
+
+variable "github_owner_id" {
+  description = "Immutable numeric id of the GitHub account. Half of what makes the trust policy un-spoofable by a rename."
+  type        = string
+  default     = "98814385"
+}
+
+variable "github_repo_name" {
+  description = "Repository name."
+  type        = string
+  default     = "alert-platform"
+}
+
+variable "github_repo_id" {
+  description = "Immutable numeric id of the repository."
+  type        = string
+  default     = "1340575956"
 }
 
 variable "secrets_prefix" {
