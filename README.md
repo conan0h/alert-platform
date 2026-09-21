@@ -1,5 +1,7 @@
 # alert-platform
 
+[![ci](https://github.com/conan0h/alert-platform/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/conan0h/alert-platform/actions/workflows/ci.yml?query=branch%3Amain)
+
 Four Python alerting services — SEC EDGAR M&A filings, FDA catalysts,
 ClinicalTrials.gov updates, Form 4 insider trades — used to be hand-operated
 on a single EC2 box: `git pull`, edit a unit file, `systemctl restart`, watch
