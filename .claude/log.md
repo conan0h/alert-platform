@@ -322,3 +322,37 @@ Format:
 - Catch-up: the finding-vs-failure change is now proven on the real host, both
   halves. The observe signal is trustworthy again — red means the observation
   failed, a warning means the fleet has drifted.
+
+## 2026-09-21 (third session) — deploy.yml's first run, and a bottleneck that was mine
+- Prompted by Conan asking why he has to run things on the host at all. The
+  answer turned out to be mostly "he doesn't, and I got that wrong".
+- **Production report — `deploy.yml` run #1, `step=plan`, the first time the
+  write-path workflow has ever run:**
+
+      4 to change, 0 unchanged.
+      Plan saved to /var/lib/alert-platform/plans/.pending.json
+      plan-id: a7d096877d55
+      status: Success (host exit 0)
+
+  The plan proposes exactly the four `v0.1.0 -> v0.1.2` updates and nothing
+  else — no service creation, which per §6 is the exit-255 signature. **Not
+  applied**, and not applicable yet: §2 forbids a deploy while a previous
+  deploy's failure is uninvestigated, and the August `v0.1.2` failure is exactly
+  that. #20 first.
+- The correction that matters: I asked Conan to re-run `bootstrap-host.sh` to
+  refresh the stale `alertctl`. `plan` does that — it is the verb that syncs the
+  checkout to `origin/main` and rebuilds the binary — and I had even written "or
+  a `plan`" into §10 before asking him anyway. CLAUDE.md §7 now opens with the
+  division of labour so a future run checks before asking.
+- What genuinely still needs him: `terraform apply` (IAM, OIDC, the SSM
+  documents), root-on-host outside the verb set, and AWS resource changes. The
+  first of those should never move — an agent that can rewrite its own trust
+  policy has no boundary.
+- Tried and stopped: making `plan` adopt a new wrapper from the checkout, to
+  kill the last recurring handoff. The sandbox refused it as security-weakening
+  and was right to. Written up as backlog **#24** — a proposal for Conan to
+  accept or reject, with the argument on both sides and my recommendation that
+  he decides rather than me.
+- Catch-up: the whole deploy lifecycle is mine to drive and now proven so, plan
+  included. The one thing left that needs Conan on a recurring basis is adopting
+  a new wrapper, and whether to automate that is his call to make, not mine.

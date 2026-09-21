@@ -254,6 +254,32 @@ write-ups.
 
 ## 7. Handoffs to Conan
 
+**Check this list before asking him for anything.** Most host work is yours.
+On 2026-09-21 a run asked him to re-run `bootstrap-host.sh` to refresh a stale
+`alertctl`, when `deploy.yml -f step=plan` does exactly that — it is the verb
+that syncs the checkout to `origin/main` and rebuilds the binary. That was a
+self-inflicted bottleneck; do not repeat it.
+
+Yours, no human needed:
+- every read verb — `status`, `drift`, `history`, `health`, `logs` — via
+  `observe.yml`;
+- `plan` and `apply` via `deploy.yml`, which is the whole deploy lifecycle;
+- refreshing the host's checkout and rebuilding `alertctl`: a `plan` does both;
+- anything in the repo — code, workflows, Terraform *source*, docs, specs.
+
+His, and it stays that way:
+- **`terraform apply`.** IAM, the OIDC provider, the two SSM documents. An
+  agent that can rewrite its own trust policy or the allowed verb list has no
+  boundary at all, so this one is not a convenience problem to solve.
+- **Anything needing root on the host outside the verb set**, which today means
+  `bootstrap-host.sh`: the accounts, the sudoers drop-in, and installing
+  `/usr/local/sbin/alert-deploy`. First-time setup is inherently his; adopting a
+  *new* wrapper is a live question — see backlog #24, which is a proposal for
+  him to accept or reject, not a decision to make unilaterally.
+- **AWS resource changes**: deleting the root access keys, closing port 22,
+  SSM parameters, security groups.
+
+
 Some work needs AWS or root on the host: the OIDC provider and IAM roles, the
 SSM documents, creating the `alert-ops` user, security-group changes,
 rotating credentials. Write it
