@@ -135,3 +135,68 @@ Format:
   Issue #5 is the twenty minutes of CloudShell and Session Manager work that
   turns it on, and nothing about production can be verified until then.
 
+
+## 2026-09-21 (third session) — the pipeline reaches the host; first Production report
+- Did: got handoff #5 across the line with Conan working the AWS and host
+  steps, then fixed the four bugs that stood between "the code is merged" and
+  "the read path works against the real host". PRs **#8** (OIDC trust policy),
+  **#9** (Go too old on the host), **#10** (only `plan` built `alertctl`),
+  **#11** (`go build` needed `-C`), **#12** (refuse to bootstrap the wrong
+  host), **#13** (bootstrap killed by its own post-build check). Five of those
+  six were found by running the thing, not by reading it.
+- PR: #8–#13, all merged after every check went green.
+- Verification: green. `main` at `dac7254`.
+- **Production report — the first one, from `observe.yml` runs #6–#9 against
+  `i-06aaf8cca765d5352`, all on `main` @ `baa45bb`:**
+
+      status   clinical-trials  v0.1.0  active  enabled  2026-08-20T11:46:25Z  ubuntu
+               edgar-mna        v0.1.0  active  enabled  2026-08-20T11:53:10Z  ubuntu
+               fda-catalysts    v0.1.0  active  enabled  2026-08-20T12:06:59Z  ubuntu
+               form4-insider    v0.1.0  active  enabled  2026-08-20T12:12:43Z  ubuntu
+
+      health   all four: unit=active  healthz=ok
+
+      drift    all four UPDATE: source.ref v0.1.0 -> v0.1.2, plus an
+               environment hash change each. "4 to change, 0 unchanged."
+               Exit 1, which is drift's contract for "drift found".
+
+      history  2026-08-20T19:53:02Z  apply     clinical-trials  failed  v0.1.0 -> v0.1.2  (ubuntu, 3.504s)
+               2026-08-20T19:53:04Z  rollback  clinical-trials  failed  v0.1.2 -> v0.1.0  (ubuntu, 2.055s)
+               2026-08-20T19:55:22Z  apply     clinical-trials  failed  v0.1.0 -> v0.1.2  (ubuntu, 1.508s)
+               2026-08-20T19:55:24Z  rollback  clinical-trials  failed  v0.1.2 -> v0.1.0  (ubuntu, 1.51s)
+
+  This confirms, from the host rather than from report, three things CLAUDE.md
+  §10 could only carry second-hand: the fleet really is on `v0.1.0`, the
+  `v0.1.2` apply really did fail, and every change to production so far was
+  made by hand (`by: ubuntu`). No deploy was made this run.
+- Two findings worth more than the confirmation:
+  **(a)** The `v0.1.2` apply never got past `clinical-trials`. Both attempts
+  failed on the first service and stopped, leaving the other three untouched.
+  That is the blast-radius limit working, and it is the best evidence the repo
+  has that the engine's ordering is not decoration.
+  **(b)** Both rollbacks are logged `failed`, yet `clinical-trials` is active
+  and healthy at `v0.1.0` — the ref those rollbacks were supposed to restore.
+  Either rollback misreports its own outcome, or it failed and the service got
+  back another way. The audit log is the evidence base for every production
+  claim this project makes, so a status field that may be wrong about the
+  safety mechanism is a real problem. New backlog **#20**, P0.
+- Also found: `observe.yml` fails the whole run on any non-zero host exit, so
+  `drift` finding drift is reported identically to the host being unreachable.
+  The hourly schedule is now permanently red, and will stay red until the fleet
+  is deployed — an alerting anti-pattern sitting in the observability path of a
+  repo whose pitch is symptom-based alerting. New backlog **#21**, P0.
+- Next: **#21** first (it is small, and every run until it lands has to explain
+  a red hourly job), then **#20**, then the first real deploy through the
+  pipeline to close the `v0.1.0` → `v0.1.2` drift. #20 before the deploy, not
+  after: the rollback status is the thing that will report on whether that
+  deploy was safe.
+- Notes: the bug rate in the deploy path — eight, seven found by hitting them —
+  has one cause, recorded in learnings: PR #4 shipped a path whose
+  locally-testable half had 45 tests and whose AWS-and-host half had none.
+  Backlog #17 is raised to P0 accordingly and renumbered #22.
+  **Conan needs to run `bootstrap-host.sh` once more** now #13 has merged; the
+  three earlier runs all died before installing the wrapper and the sudo rule.
+- Catch-up: the pipeline can now see production, and what it sees is four
+  healthy bots running code two releases behind their specs, last touched by
+  hand in August. Re-run the bootstrap script once and the write path is ready
+  to try.

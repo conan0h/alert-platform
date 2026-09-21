@@ -77,3 +77,57 @@ rewrite history.
   different failures, different fixes. `sudo -n -l <cmd>` asks the real
   question without running anything.
 
+
+## A deploy path is not tested until something runs it end to end
+*Learned 2026-09-21, the expensive way.*
+
+PR #4 shipped the whole OIDC → IAM → SSM → wrapper pipeline in one piece. Its
+locally-testable half — argument validation in `alert-deploy` — had 45 tests.
+Its other half — the Terraform, the workflows, `bootstrap-host.sh` — had none,
+because nothing in CI could run them. Eight bugs followed in a week, seven of
+them found by hitting them against the real host:
+
+| # | Bug | Would an e2e target have caught it? |
+|---|---|---|
+| 1 | GitHub's OIDC subject embeds numeric ids | No — external system |
+| 2 | `environment:` changes the subject claim | No — external system |
+| 3 | Host Go was 1.18, `go.mod` needs 1.22 | Yes, if pinned to the host image |
+| 4 | Only `plan` built `alertctl` | **Yes** |
+| 5 | `go build` resolved the package against the wrong cwd | **Yes** |
+| 6 | Ran in CloudShell by mistake | No — operator error, guarded instead |
+| 7 | Bootstrap killed by its own post-build check | **Yes** |
+| 8 | `observe.yml` scheduled to fail hourly before AWS existed | Caught by review |
+
+Three of eight were plain "nobody ever ran this", and each cost a round trip
+through a human on a phone. The two that no harness would have caught are the
+interesting ones, and they share a shape: an assumption about an external
+system that nothing in the repo could test. For those, the lesson is different
+and already recorded — print the claim, not the token.
+
+The rule this leaves: **if a script is on the path to production, CI runs it,
+or it is untested — however many tests sit next to it.** A test count on the
+half you could reach says nothing about the half you could not, and it reads
+like coverage, which is worse than no tests at all because it stops you
+looking.
+
+## `set -euo pipefail` plus `cmd | head` is a trap
+*Learned 2026-09-21, bug #7 above.*
+
+`"$BIN/alertctl" 2>&1 | head -n 1` ended a bootstrap script three times.
+Two separate mechanisms, either of which is enough:
+
+- A CLI printing usage and exiting non-zero is *correct* behaviour, not a
+  failure, but `set -e` cannot tell the difference.
+- `head` closes the pipe after one line; the next write gets SIGPIPE, and
+  `pipefail` promotes that to the pipeline's status.
+
+It reads as a harmless "show me the first line" and it is a control-flow
+statement. Worse, the banner prints before the script dies, so the output
+looks like success — which is why it survived three runs. Capture into a
+variable, tolerate the exit explicitly, and slice the first line in the shell:
+
+    banner=$("$BIN/alertctl" 2>&1) || true
+    log "${banner%%$'\n'*}"
+
+The general version: under `pipefail`, every `| head`, `| grep -q` and
+`| read` in a script is a place the script can exit. Audit them.

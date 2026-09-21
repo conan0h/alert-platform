@@ -183,31 +183,52 @@ Built and under test — all of it verifiable from this repository:
 - [x] Phase 5 — Prometheus metrics + Grafana dashboards
 - [x] Phase 6 — runbooks, drift detection, architecture docs
 - [x] Phase 7 — read-only operator console
-
-In progress:
-
-- [~] Phase 8 — gated deploy pipeline: GitHub OIDC → IAM → SSM, so a deploy
+- [x] Phase 8 — gated deploy pipeline: GitHub OIDC → IAM → SSM, so a deploy
       runs from `main` with no stored credentials anywhere and every apply
-      lands in the audit log against the workflow run that caused it. The
-      code is written and tested — Terraform, the host wrapper and its
-      argument tests, and the two workflows — but the one-time AWS apply and
-      host bootstrap have not been done, so **nothing has run against a real
-      host yet.** See [ADR 0001](docs/adr/0001-oidc-ssm-over-ssh-keys.md).
+      lands in the audit log against the workflow run that caused it. Live
+      since 2026-09-21; the read-only half has run against the real host. See
+      [ADR 0001](docs/adr/0001-oidc-ssm-over-ssh-keys.md).
 
-### What this page does not tell you
+### Production, as observed on 2026-09-21
 
-**Nothing here is a claim about what is running in production right now.**
-Phase 8 is also the only read path to the host, so until it exists there is no
-automated way to check `status`, `drift` or heartbeats, and no evidence to
-report. The host's own `alertctl status`, `alertctl drift` and audit log are
-the sources of truth about the fleet; this page is not.
+The pipeline now has a read path, so this section reports evidence instead of
+declining to. Everything below came from `observe.yml` runs against the live
+host, and the run logs are the record.
+
+| Service | Deployed ref | Unit | Health | Deployed |
+|---|---|---|---|---|
+| `clinical-trials` | `v0.1.0` | active | `ok` | 2026-08-20 |
+| `edgar-mna` | `v0.1.0` | active | `ok` | 2026-08-20 |
+| `fda-catalysts` | `v0.1.0` | active | `ok` | 2026-08-20 |
+| `form4-insider` | `v0.1.0` | active | `ok` | 2026-08-20 |
+
+All four bots are up and answering their health endpoints. All four are also
+**two releases behind their specs**, which pin `v0.1.2`, so `alertctl drift`
+reports all four as drifted and exits non-zero. That is the platform working:
+the drift is real and it is being named.
+
+The audit log says how it got that way. On 2026-08-20 the `v0.1.2` apply was
+attempted twice; both times it failed on `clinical-trials`, and both times the
+engine rolled that service back and stopped without touching the other three.
+Stopping at the first failure rather than carrying on through the fleet is the
+blast-radius limit doing its job — three services were never put at risk by a
+change that was already known to be failing.
+
+Two things in that record are not yet explained and are being treated as open:
+the rollbacks are logged with status `failed` even though the service they
+rolled back is active and healthy at `v0.1.0`, and the original failure's cause
+is recorded on the host rather than here. Until the first is understood, treat
+the `failed` status on a rollback entry as unreliable.
+
+No deploy has yet been made through the pipeline. The last change to production
+was made by hand in August, which is what every `by: ubuntu` in the table's
+audit trail means.
 
 Before a first deploy through that pipeline, work through
 [**docs/migration.md → Before the first deploy**](docs/migration.md#before-the-first-deploy).
 The baseline tag it asks for exists (`v0.1.0`, and the fleet has since moved to
 `v0.1.2`); the remaining items — rotating the leaked Telegram token, populating
-SSM, preparing the host, migrating SQLite state — need real credentials and a
-real host, so this repo cannot confirm any of them.
+SSM, migrating SQLite state — are not yet confirmed done.
 
 Known gaps, unchanged and still open: `dedup.keys` is declared but not consumed
 by the services, `state.backup` is declared with no backup job behind it, and
