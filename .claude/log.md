@@ -233,3 +233,33 @@ Format:
 - Catch-up: the hourly observe job will now be green with a warning while the
   fleet is behind its specs, and red only when the observation itself fails —
   which is the difference between a signal and noise.
+
+## 2026-09-21 (third session, continued) — #21 merged; verified half, and a new gap
+- Did: **#15** merged (exit codes, `verdict.sh`, ADR 0002). CI run 41 green on
+  all six jobs, including the new `A finding is not a failure` step and
+  `golangci-lint`.
+- Production report (observe run #10, `verb=drift`, on `main` @ `3505eb3`):
+  still **red**, and for a reason worth writing down rather than retrying.
+  The run log reads `status: Failed (host exit 1)` — that line and the
+  `__self.send` step id are both new code, so **the workflow half of #15 is
+  live and correct**: `verdict.sh` was asked to excuse exit 3 and was handed
+  exit 1, so it refused, which is exactly its job.
+  The host reported 1 because it is running the **old `alertctl`**. Read verbs
+  call `ensure_binary`, which builds only when the binary is absent and never
+  syncs the checkout; only `plan` does that. That is deliberate — a read verb
+  must not mutate the checkout — so the CLI half of #15 does not reach the host
+  until a `plan` runs or bootstrap is re-run.
+  Fleet state itself is unchanged from earlier today: four services healthy at
+  `v0.1.0`, specs at `v0.1.2`, all four drifted.
+- Notes: that is a new gap, filed as **#23**. Nothing in the observe output
+  says which `alertctl` produced it, so the report looks current when it is
+  not — which is precisely what just happened to me. The fix is a version
+  stamp (`-ldflags -X` the commit, expose it, surface it), not rebuilding on
+  read.
+- Next: **#20** (rollback status), then #23, then release and first deploy.
+  Conan's re-run of `bootstrap-host.sh` — still needed for #13 — will also
+  rebuild `alertctl` and make #15 visible on the host, so #21 gets verified for
+  free then.
+- Catch-up: the finding-vs-failure fix is merged and its workflow half is
+  proven live; the CLI half is sitting in `main` waiting for the host's binary
+  to be rebuilt, which the bootstrap re-run will do.
