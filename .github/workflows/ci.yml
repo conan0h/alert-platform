@@ -67,6 +67,39 @@ jobs:
       - run: go build -mod=vendor -o bin/alertctl ./cmd/alertctl
       - run: python3 -m pytest services/tests -q
 
+  ops:
+    name: deploy path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The wrapper is the entire blast radius of the deploy pipeline: IAM
+      # says which host and which documents, and everything past that is
+      # decided by this one script. A shell bug here is a production incident,
+      # so it is linted and its argument validation is tested.
+      - name: Lint (shellcheck)
+        run: shellcheck deploy/ops/alert-deploy deploy/ops/alert-deploy_test.sh deploy/ops/bootstrap-host.sh
+      - name: The wrapper refuses what it should refuse
+        run: ./deploy/ops/alert-deploy_test.sh
+
+  infra:
+    name: terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+      - name: Formatting is canonical
+        run: terraform -chdir=infra/terraform fmt -check -recursive -diff
+      # -backend=false: this validates the configuration, it does not touch
+      # any state and cannot reach the account. Applying is a human act done
+      # from CloudShell — never from CI, and never by the agent.
+      - name: Configuration is valid
+        run: |
+          terraform -chdir=infra/terraform init -backend=false -input=false
+          terraform -chdir=infra/terraform validate
+
   secrets:
     name: no committed secrets
     runs-on: ubuntu-latest

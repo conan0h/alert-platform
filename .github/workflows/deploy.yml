@@ -1,0 +1,82 @@
+name: deploy
+
+# The only way production changes.
+#
+# Two separate invocations on purpose: `plan` prints a change set for a human
+# to read in the run log, and `apply` executes one already planned. They are
+# not one button, because the review step between them is the point — and the
+# engine's stale-plan gate will refuse an apply whose specs have moved since.
+#
+# Trust chain, none of which lives in this file: the IAM role is assumable
+# only from refs/heads/main of this repository, so nothing reaches production
+# without merging through green CI; the SSM document accepts only plan and
+# apply; and the wrapper on the host validates the verb and its arguments
+# again before anything runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: plan computes a change set; apply executes one
+        required: true
+        default: plan
+        type: choice
+        options: [plan, apply]
+      plan:
+        description: Plan id to apply (from a previous plan run). Ignored by plan.
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+# One at a time, and never cancelled: interrupting an apply mid-flight would
+# leave a service between two releases with nothing driving its rollback.
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: ${{ inputs.step }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse an apply with no plan id
+        if: inputs.step == 'apply'
+        run: |
+          set -euo pipefail
+          if [[ ! "${{ inputs.plan }}" =~ ^[0-9a-f]{12}$ ]]; then
+            echo "::error::apply needs the plan id printed by a previous plan run"
+            exit 1
+          fi
+
+      - name: Assume the deploy role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: deploy-${{ github.run_id }}
+
+      - name: ${{ inputs.step }}
+        uses: ./.github/actions/ssm-run
+        with:
+          document: AlertPlatform-Deploy
+          instance-id: ${{ vars.ALERT_INSTANCE_ID }}
+          parameters: verb=${{ inputs.step }},actor=gha:${{ github.run_id }},planId=${{ inputs.plan }}
+          # An apply deploys services one at a time, each behind a health gate
+          # with a startup grace period, so it needs far longer than a plan.
+          timeout-seconds: '1800'
+
+      - name: What to do next
+        if: always()
+        run: |
+          if [[ "${{ inputs.step }}" == "plan" ]]; then
+            echo "Read the plan above. If it proposes anything you did not intend —"
+            echo "creating services that already exist, removing services, or touching"
+            echo "services you did not roll — stop and treat it as an incident."
+            echo "Otherwise re-run this workflow with step=apply and the plan-id shown."
+          fi

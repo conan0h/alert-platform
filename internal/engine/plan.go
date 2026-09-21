@@ -303,13 +303,53 @@ func shortHash(s string) string {
 	return orNone(s)
 }
 
+// currentUser names who is responsible for a change, for the audit log.
+//
+// ALERTCTL_ACTOR is consulted first because of how automated deploys reach
+// the host: the deploy workflow sets it to `gha:<run-id>`, and on the host
+// the wrapper runs as the shared `alert-ops` account under sudo. Without it
+// every automated deploy would be attributed to `alert-ops`, and the link
+// from an audit entry back to the workflow run — and so to the commit and
+// the review that caused it — would be lost.
 func currentUser() string {
-	for _, key := range []string{"SUDO_USER", "USER", "LOGNAME"} {
-		if v := os.Getenv(key); v != "" {
+	for _, key := range []string{"ALERTCTL_ACTOR", "SUDO_USER", "USER", "LOGNAME"} {
+		if v := sanitizeActor(os.Getenv(key)); v != "" {
 			return v
 		}
 	}
 	return "unknown"
+}
+
+// sanitizeActor constrains a value that reaches operator-facing output.
+//
+// The actor is JSON-encoded into the audit log, so a newline cannot forge a
+// second entry, and the console escapes what it renders. This is not about
+// either: it is that the audit log is read by a human at 3am, and a value
+// taken from the environment is the one field in an entry that nothing else
+// validates. Out-of-charset bytes become '_' rather than being dropped,
+// because a mangled actor still traces back to something while an empty one
+// silently becomes "unknown".
+func sanitizeActor(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	const maxLen = 64
+	var b strings.Builder
+	for _, r := range v {
+		if b.Len() >= maxLen {
+			break
+		}
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case strings.ContainsRune("-_.:@/", r):
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
 }
 
 // SortServices keeps plan output and apply order stable. Critical-tier

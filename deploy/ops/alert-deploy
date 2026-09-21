@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+#
+# alert-deploy — the only path from outside this host to the fleet on it.
+#
+# It is reached this way, and only this way:
+#
+#   GitHub Actions (OIDC, no stored keys)
+#     -> ssm:SendCommand, restricted by IAM to two documents on this instance
+#       -> the document runs, as root:  runuser -u alert-ops -- sudo -n alert-deploy ...
+#         -> this script, as root, execs alertctl
+#
+# The IAM policy bounds *which instance and which documents*. This file
+# bounds *what can actually be asked for*, and it is the narrower of the two:
+# the documents pass through a verb and its arguments, and every one of them
+# is checked here against a fixed set before anything runs. A hole in a
+# document is contained by this file; a hole in this file is contained by
+# nothing.
+#
+# So the rules it holds to:
+#
+#   - A fixed verb set. Anything else exits 2 without running.
+#   - Every argument is validated by shape before use, and is passed to
+#     alertctl as an argv element. Nothing reaches a shell word-split, an
+#     eval, or a command substitution.
+#   - `plan` is the only verb that moves the checkout. `apply` deliberately
+#     does not, so what gets applied is what was planned and reviewed — the
+#     engine's own stale-plan gate then has something meaningful to compare.
+#   - No break-glass. There is no flag here that skips a gate; --skip-gates
+#     is not in the verb set and cannot be reached through it.
+#
+# Exit codes: 0 ok, 2 usage/validation, anything else is alertctl's.
+
+set -euo pipefail
+
+readonly CHECKOUT=/opt/alert-platform/control-plane
+readonly PLAN_DIR=/var/lib/alert-platform/plans
+readonly BIN=/usr/local/lib/alert-platform/alertctl
+readonly ENV_DIR=/etc/alert-platform
+
+# Verbs. `apply` takes a plan id; `logs` takes an optional --since; the rest
+# take nothing. Read-only verbs cannot change the host even if alertctl is
+# wrong about something, which is why observe.yml is allowed only these.
+readonly -a READONLY_VERBS=(status drift history health logs)
+readonly -a WRITE_VERBS=(plan apply)
+
+die() { printf 'alert-deploy: %s\n' "$*" >&2; exit 2; }
+
+usage() {
+  local code=${1:-2}
+  # Usage goes to stderr when it is a complaint and stdout when it was asked
+  # for, so `alert-deploy help` is pipeable and a misuse is still a misuse.
+  if [[ $code -eq 0 ]]; then exec 3>&1; else exec 3>&2; fi
+  cat >&3 <<'USAGE'
+usage: alert-deploy <verb> [options]
+
+  plan   [--actor A]            refresh the checkout to origin/main, then plan
+  apply  <plan-id> [--actor A]  apply a plan produced by `plan`
+  status                        what is deployed, and is it running
+  drift                         non-zero if the host no longer matches the specs
+  history [--lines N]           audit log entries
+  health                        per-service unit state and /healthz probe
+  logs   [--since S]            journalctl for the alert-* units
+USAGE
+  exit "$code"
+}
+
+# --- validation -----------------------------------------------------------
+#
+# Each of these is a whitelist, never a blacklist. A value that does not match
+# is refused rather than escaped: the set of things we want to accept here is
+# small and known, so there is no reason to be clever about the rest.
+
+valid_actor()   { [[ $1 =~ ^[A-Za-z0-9_.:@/-]{1,64}$ ]]; }
+valid_plan_id() { [[ $1 =~ ^[0-9a-f]{12}$ ]]; }          # engine fingerprint
+valid_lines()   { [[ $1 =~ ^[0-9]{1,4}$ ]]; }
+# journalctl accepts a lot; we accept a relative window or a plain timestamp.
+valid_since()   { [[ $1 =~ ^([0-9]{1,4}[smhd]|[0-9]{1,4}\ (second|minute|hour|day)s?\ ago|[0-9]{4}-[0-9]{2}-[0-9]{2}([\ T][0-9]{2}:[0-9]{2}(:[0-9]{2})?)?)$ ]]; }
+
+contains() {
+  local needle=$1; shift
+  local item
+  for item in "$@"; do [[ $item == "$needle" ]] && return 0; done
+  return 1
+}
+
+# The sudoers rule names this path, so if alert-ops (or anything else that is
+# not root) can write to it or to the checkout, the restriction it enforces is
+# decorative. Cheap to check, and it fails closed.
+assert_not_writable_by_others() {
+  local path=$1 perms owner
+  [[ -e $path ]] || return 0
+  perms=$(stat -c '%a' "$path")
+  owner=$(stat -c '%U' "$path")
+  [[ $owner == root ]] || die "$path is owned by $owner, not root — refusing to run"
+  [[ $(( 8#$perms & 8#022 )) -eq 0 ]] || die "$path is group/world writable ($perms) — refusing to run"
+}
+
+# --- main -----------------------------------------------------------------
+
+[[ $# -ge 1 ]] || usage 2
+case $1 in
+  -h|--help|help) usage 0 ;;
+esac
+verb=$1; shift
+
+if ! contains "$verb" "${READONLY_VERBS[@]}" "${WRITE_VERBS[@]}"; then
+  die "unknown verb '$verb' (this is the whole point: the verb set is fixed)"
+fi
+
+actor=""
+plan_id=""
+lines="20"
+since="1 hour ago"
+
+# `apply` is the only verb with a positional argument. Taking it before the
+# option loop keeps "alert-deploy apply --actor x" from silently applying
+# nothing.
+if [[ $verb == apply ]]; then
+  [[ $# -ge 1 ]] || die "apply needs a plan id (from 'alert-deploy plan')"
+  plan_id=$1; shift
+  valid_plan_id "$plan_id" || die "plan id '$plan_id' is not a 12-character engine fingerprint"
+fi
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --actor)
+      [[ $# -ge 2 ]] || die "--actor needs a value"
+      actor=$2; shift 2
+      valid_actor "$actor" || die "actor '$actor' is not of the allowed shape"
+      ;;
+    --lines)
+      [[ $# -ge 2 ]] || die "--lines needs a value"
+      lines=$2; shift 2
+      valid_lines "$lines" || die "--lines '$lines' is not a small positive integer"
+      ;;
+    --since)
+      [[ $# -ge 2 ]] || die "--since needs a value"
+      since=$2; shift 2
+      valid_since "$since" || die "--since '$since' is not an accepted time expression"
+      ;;
+    *) die "unexpected argument '$1' for verb '$verb'" ;;
+  esac
+done
+
+# Validation is complete. ALERT_DEPLOY_DRYRUN prints what would run and stops.
+# It can only ever suppress execution — it is checked after every argument has
+# been accepted, never instead — and sudo does not forward it, so it is not
+# reachable from the SSM path. It exists so the test suite can drive the real
+# argument parsing without a host.
+run() {
+  if [[ -n ${ALERT_DEPLOY_DRYRUN:-} ]]; then
+    printf '%q ' "$@"; printf '\n'
+    return 0
+  fi
+  "$@"
+}
+
+if [[ -z ${ALERT_DEPLOY_DRYRUN:-} ]]; then
+  assert_not_writable_by_others /usr/local/sbin/alert-deploy
+  assert_not_writable_by_others "$CHECKOUT"
+fi
+
+export ALERTCTL_ACTOR="$actor"
+
+case $verb in
+  plan)
+    # The one place the host's idea of desired state moves, and it moves only
+    # to origin/main — which is the branch the IAM trust policy already
+    # restricts the workflow to, so nothing unreviewed can arrive here.
+    run git -C "$CHECKOUT" fetch --quiet --tags origin main
+    run git -C "$CHECKOUT" reset --quiet --hard origin/main
+    # Vendored deps mean this build needs no network, which is the point of
+    # vendoring them: it still works during the incident that took the
+    # network away.
+    run env GOFLAGS=-mod=vendor go build -o "$BIN" "$CHECKOUT/cmd/alertctl"
+    run mkdir -p "$PLAN_DIR"
+    tmp="$PLAN_DIR/.pending.json"
+    run "$BIN" plan -root "$CHECKOUT" -target local -out "$tmp"
+    if [[ -z ${ALERT_DEPLOY_DRYRUN:-} ]]; then
+      id=$(sed -n 's/^  "id": "\([0-9a-f]\{12\}\)",$/\1/p' "$tmp" | head -n1)
+      valid_plan_id "$id" || die "could not read a plan id out of $tmp"
+      mv -f "$tmp" "$PLAN_DIR/$id.json"
+      printf '\nplan-id: %s\n' "$id"
+    fi
+    ;;
+  apply)
+    plan_file="$PLAN_DIR/$plan_id.json"
+    if [[ -z ${ALERT_DEPLOY_DRYRUN:-} && ! -f $plan_file ]]; then
+      die "no such plan '$plan_id' — run 'alert-deploy plan' first"
+    fi
+    run "$BIN" apply -root "$CHECKOUT" -target local -plan "$plan_file" -auto-approve
+    ;;
+  status)  run "$BIN" status  -root "$CHECKOUT" -target local ;;
+  drift)   run "$BIN" drift   -root "$CHECKOUT" -target local ;;
+  history) run "$BIN" history -root "$CHECKOUT" -target local -n "$lines" ;;
+  logs)    run journalctl --no-pager --unit 'alert-*' --since "$since" ;;
+  health)
+    # Ports come from the rendered environment files rather than the specs, so
+    # this reports what the running services were actually given — which is
+    # the question being asked when someone runs `health`.
+    rc=0
+    for env_file in "$ENV_DIR"/*.env; do
+      [[ -e $env_file ]] || { echo "no services deployed"; break; }
+      name=$(basename "$env_file" .env)
+      port=$(sed -n 's/^ALERT_METRICS_PORT=\([0-9]\{1,5\}\)$/\1/p' "$env_file" | head -n1)
+      state=$(systemctl show "alert-$name.service" --property=ActiveState --value 2>/dev/null || echo unknown)
+      if [[ -n $port ]] && curl -fsS --max-time 5 "http://127.0.0.1:$port/healthz" >/dev/null 2>&1; then
+        probe=ok
+      else
+        probe=FAILED
+        rc=1
+      fi
+      printf '%-20s unit=%-10s healthz=%s\n' "$name" "$state" "$probe"
+    done
+    exit "$rc"
+    ;;
+esac
