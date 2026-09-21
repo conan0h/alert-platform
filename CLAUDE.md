@@ -357,10 +357,16 @@ Conan catches up afterwards. Write them for someone reading ten on a Sunday.
   end; a host-side edit in `services/form4_insider/main.py`
   (`alerted_this_filing`) is not in git; `alertctl` runs on the VM itself over
   a loopback SSH alias and needs `sudo`.
-- **`bootstrap-host.sh` needs one more run on the host.** Three earlier runs
-  died before installing the wrapper and the sudo rule (a `| head` under
-  `pipefail`, fixed in #13). That re-run also rebuilds `alertctl`, which is
-  what makes the exit-code change visible to read verbs.
+- **The host's `alertctl` binary is stale, and that is the only thing known to
+  be wrong with the host.** `drift` returns exit 1, not the 3 the merged code
+  returns, so the binary predates #15. Read verbs never rebuild it (only `plan`
+  does), so a `bootstrap-host.sh` re-run or a `plan` is what refreshes it.
+  Note what is *not* wrong: the wrapper, the sudoers rule and the `alert-ops`
+  user are all installed and working — every observe run today went through
+  `runuser -u alert-ops -- sudo -n /usr/local/sbin/alert-deploy`. Bug #8 (a
+  `| head` under `pipefail`, fixed in #13) would have stopped bootstrap just
+  before those are installed, but they are present, so an earlier run had
+  already installed them.
 - The README "Status" section now reports production from these observations,
   with the date in the heading and the run logs named as the record. Keep it
   matching what you have actually seen.
