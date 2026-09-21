@@ -34,6 +34,48 @@ log() { printf '==> %s\n' "$*"; }
 
 [[ $EUID -eq 0 ]] || { echo "must run as root (sudo bash $0)" >&2; exit 1; }
 
+# --- am I on the right machine? --------------------------------------------
+#
+# This script creates system accounts and writes a sudoers file. Run on the
+# wrong host that is at best litter and at worst a privilege grant somewhere
+# nobody is expecting one, so it refuses before touching anything rather than
+# failing partway through on a missing command.
+#
+# The mistake this catches is an easy one: the handoff has the operator in AWS
+# CloudShell for the Terraform steps and in SSM Session Manager for these, and
+# the two shells look alike. CloudShell is Amazon Linux, which has no apt-get,
+# so the first symptom used to be a confusing "apt-get: command not found"
+# after the script had already announced it was installing packages.
+if ! command -v apt-get >/dev/null 2>&1; then
+  cat >&2 <<'WRONG_HOST'
+This is not the alert-platform host.
+
+bootstrap-host.sh expects Ubuntu on the EC2 instance that runs the fleet, and
+this machine has no apt-get — so it is most likely AWS CloudShell, which is
+Amazon Linux and is where the Terraform steps run, not this one.
+
+Open a session on the host instead:
+  https://console.aws.amazon.com/systems-manager/session-manager/start-session
+
+The prompt there looks like `ubuntu@ip-…`. Nothing has been changed here.
+WRONG_HOST
+  exit 1
+fi
+
+# Belt and braces: the SSM agent's registration names the instance this script
+# is meant for. Absent (not an EC2 instance) is a warning rather than an error,
+# because a future host may be provisioned differently; a *mismatch* is not.
+readonly EXPECTED_INSTANCE=i-06aaf8cca765d5352
+if [[ -r /var/lib/amazon/ssm/registration ]]; then
+  here=$(sed -n 's/.*"ManagedInstanceID":"\([^"]*\)".*/\1/p' /var/lib/amazon/ssm/registration)
+  if [[ -n $here && $here != "$EXPECTED_INSTANCE" ]]; then
+    echo "This is instance $here, but this script is for $EXPECTED_INSTANCE." >&2
+    echo "Refusing to create accounts and sudo rules on the wrong host." >&2
+    echo "If the fleet has moved, update EXPECTED_INSTANCE in this script." >&2
+    exit 1
+  fi
+fi
+
 # --- packages --------------------------------------------------------------
 # git to move the checkout, curl for the health probe.
 log "installing packages"
