@@ -183,6 +183,40 @@ items with a one-line "why".
     (d) note in the deploy runbook that a control-plane change needs a `plan`
     or bootstrap before read verbs reflect it.
 
+24. **Proposal for Conan: should `plan` adopt a new wrapper from the
+    checkout?** `needs-conan — decision, not work`
+    The sudo rule names `/usr/local/sbin/alert-deploy`, a copy, so a fix to
+    `deploy/ops/alert-deploy` does not reach the host until someone re-runs
+    `bootstrap-host.sh` as root. Three wrapper bugs landed in one week (#10,
+    #11, #13) and each waited on that. It is the last recurring reason the agent
+    needs a human for host work.
+    **The proposal:** `plan` already syncs the checkout to `origin/main` and
+    rebuilds `alertctl`; it could also install the wrapper from that checkout,
+    gated on the candidate passing `alert-deploy_test.sh` (56 cases) on the host
+    first, installed by temp-file-and-rename so the running script's inode is
+    never truncated. No new verb, so no SSM document change and no Terraform —
+    which is why `plan` rather than a `self-update` verb.
+    **The argument for:** the trust root does not change. `plan` already resets
+    the checkout to `origin/main` and builds and runs `alertctl` from it as
+    root, so main-derived code already executes as root on that host. Pinning
+    the wrapper while rebuilding `alertctl` from main every plan is inconsistent.
+    And the human step it replaces is a delay, not a review — nobody reads the
+    wrapper diff at bootstrap time, and nobody runs its tests there either.
+    **The argument against, which is why this is a proposal:** the wrapper is
+    the allowlist. It is the file that decides what the agent may cause on that
+    host. Letting it adopt itself means the agent's own commits change the
+    agent's own permissions with no human in the loop — categorically different
+    from its commits changing what `alertctl` does, even though both come from
+    main. It also removes a real circuit breaker: when the agent shipped three
+    broken wrappers, the host went on running a known-good one.
+    **Recommendation:** Conan decides. An agent should not widen its own
+    boundary on its own authority, and the convenience gained is one manual step
+    per wrapper change, which is not much. If he declines, the cheaper
+    mitigation is #23's version stamp extended to the wrapper, so at least a
+    stale wrapper is visible rather than silent.
+    Attempted on 2026-09-21 and correctly refused by the sandbox as a
+    security-weakening change; see `.claude/learnings.md`.
+
 
 ## P1 — Close the documented gaps (strong design-review material)
 
