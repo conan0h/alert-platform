@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "alertplatform/v1/service",
+  "$id": "urn:alertplatform:v1:service",
   "title": "Alert Platform Service Spec",
   "type": "object",
   "required": ["apiVersion", "kind", "metadata", "spec"],
