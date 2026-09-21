@@ -8,13 +8,16 @@ items with a one-line "why".
 
 ## P0 — Green, reachable, deployed (in this order)
 
-1. **Make `main` green: decouple engine tests from live fleet refs.** `todo`
-   CI has been red since `e44bd09`. `engine_test.go:330` asserts
-   `git clone --depth 1 --branch v0.1.0` and `rollback_test.go:108` pins
-   `nextRef = "v0.1.0"`, but both load the real `fleet/` specs (now `v0.1.2`).
-   Fix the class of bug: give these tests their own fixture fleet under
-   `internal/engine/testdata/` (the rollback test already builds a temp repo)
-   so a routine ref bump can never break them. Add the CI badge once green.
+1. **Make `main` green: decouple engine tests from live fleet refs.**
+   `in-pr #1`
+   CI has been red since `e44bd09`. `engine_test.go` asserted
+   `git clone --depth 1 --branch v0.1.0` and `rollback_test.go` pinned
+   `nextRef = "v0.1.0"`, but both loaded the real `fleet/` specs (now
+   `v0.1.2`). Engine tests now load `internal/engine/testdata/fleet`, four
+   fictional services pinned at `v1.0.0` that never move;
+   `TestLiveFleetSpecsRenderAndStayDeployable` keeps the real specs covered
+   without naming a version, port, service or count. Full suite green
+   locally. Still to do: add the CI badge once `main` is green again.
 
 2. **Fix the Go module path `conanohara` → `conan0h`.** `todo`
    `go install github.com/conan0h/alert-platform/cmd/alertctl@latest` fails
@@ -142,6 +145,31 @@ items with a one-line "why".
     `make demo` running validate → plan → apply → injected failure → rollback
     → history against `-target dry`, plus a VHS/asciinema script for a README
     GIF. Label it clearly as a dry-run demo.
+
+## Environment fixes for Conan
+
+- **Check GitHub write access at the top of a run.** On 2026-09-21 the
+  Claude GitHub App had read-only access here: reads succeeded while push,
+  branch, PR *and issue* creation all returned 403, so the §7 handoff route
+  was blocked too and the milestone was built before the problem showed.
+  Conan fixed it mid-run by granting the app access at
+  <https://github.com/apps/claude/installations/select_target>. Cheap guard
+  for a future run: try the write early rather than after the work.
+
+- **`golangci-lint` cannot run locally.** The image has v2.5.0;
+  `.golangci.yml` is v1 format and CI pins v1.59.1, so the binary exits with
+  "unsupported version of the configuration". Either pin v1.59.1 in the image
+  or migrate the config and CI together — the second is the better end state
+  but is a change to the lint policy, so it wants its own PR.
+- **No `gh` CLI in the runner.** CLAUDE.md §6 is written around
+  `gh workflow run` / `gh run watch`; the routine has the GitHub MCP tools
+  instead (`actions_run_trigger`, `actions_list`, `get_job_logs`), which
+  cover the same ground. Worth rewording §6 rather than installing `gh`.
+- **System `python3` is 3.11 with no `pyyaml`, `jsonschema`, `ruff` or
+  `pytest`.** A run has to build its own 3.12 venv first. Note the sharp
+  edge: `rollback_test.go` *skips* itself when the validator deps are
+  missing, so a missing dependency reads as a pass locally and a failure in
+  CI. That is how backlog #1 stayed half-hidden.
 
 ## Done
 
