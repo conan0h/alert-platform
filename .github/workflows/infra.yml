@@ -1,0 +1,104 @@
+name: infra
+
+# Terraform against the account, from main, with no stored credential.
+#
+# Two invocations rather than one button, for the same reason as deploy.yml: the
+# plan is read by a human or an agent before anything is applied. A plan that
+# proposes destroying or replacing a stateful resource — the instance, a volume,
+# the state bucket, an SSM parameter — is a stop-and-investigate, not a prompt to
+# type apply.
+#
+# The blast radius is bounded by IAM rather than by this file: the infra role
+# cannot modify its own trust policy, its own permissions, the permissions
+# boundary, or the OIDC provider, and any role it creates must carry the
+# boundary. See infra/terraform/iam_infra.tf for the escalation routes and what
+# closes each.
+
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: plan shows what would change; apply executes it
+        required: true
+        default: plan
+        type: choice
+        options: [plan, apply]
+
+permissions:
+  id-token: write
+  contents: read
+
+# Terraform takes a state lock, so a second run would fail rather than corrupt
+# anything. Serialising here turns that into a queue instead of an error.
+concurrency:
+  group: infra
+  cancel-in-progress: false
+
+jobs:
+  infra:
+    name: ${{ inputs.step }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Is the infra role configured yet?
+        run: |
+          set -euo pipefail
+          if [[ -z "${{ vars.AWS_INFRA_ROLE_ARN }}" ]]; then
+            echo "::error::AWS_INFRA_ROLE_ARN is not set. infra/bootstrap must be applied once by hand first, and its infra_role_arn output set as that repository variable. See the Handoff issue."
+            exit 1
+          fi
+          if [[ -z "${{ vars.AWS_REGION }}" ]]; then
+            echo "::error::AWS_REGION is not set."
+            exit 1
+          fi
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          # The wrapper rewrites stdout, which makes the plan harder to read in
+          # the log and the log is the point of the plan step.
+          terraform_wrapper: false
+
+      - name: Assume the infra role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_INFRA_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: infra-${{ github.run_id }}
+
+      - name: init
+        run: terraform -chdir=infra/terraform init -input=false
+
+      # Run on both steps. On apply it is a cheap guard against applying a
+      # module that no longer parses, and on plan it is the first thing that
+      # would fail.
+      - name: validate
+        run: terraform -chdir=infra/terraform validate
+
+      - name: plan
+        run: |
+          terraform -chdir=infra/terraform plan \
+            -input=false -lock-timeout=5m \
+            -var aws_region=${{ vars.AWS_REGION }} \
+            -var instance_id=${{ vars.ALERT_INSTANCE_ID }} \
+            -out=tfplan
+          echo
+          echo "Read the plan above before applying. Stop and investigate if it"
+          echo "proposes to destroy or replace the instance, a volume, the state"
+          echo "bucket, or an SSM parameter."
+
+      # Applies the saved plan, not a fresh one. Terraform refuses a saved plan
+      # whose state has moved since, which is the same staleness guard the deploy
+      # path relies on.
+      - name: apply
+        if: inputs.step == 'apply'
+        run: terraform -chdir=infra/terraform apply -input=false -lock-timeout=5m tfplan
+
+      - name: What to do next
+        if: inputs.step == 'plan'
+        run: |
+          echo "Nothing was changed. Re-run this workflow with step=apply to"
+          echo "execute the plan above. The plan is recomputed on that run, so a"
+          echo "change landing on main in between is picked up rather than"
+          echo "silently applied from a stale file."

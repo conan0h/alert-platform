@@ -102,18 +102,22 @@ actually emit.
     #28's self-service infra, (d) console panel.
 
 28. **Own the AWS infrastructure: remote state and an `infra.yml` workflow.**
-    `todo`
+    `code done (#26); needs-conan for the one bootstrap apply`
     Granted by the owner on 2026-09-21. Terraform state is local today, so
     nothing but a human's CloudShell can apply it, and every SSM-document or IAM
     change is a handoff. #27 needs a document change immediately.
-    Slices: (a) S3 state bucket with versioning and a DynamoDB lock table,
-    written as Terraform, plus the backend block; (b) an `alert-platform-infra`
-    role with a permissions boundary, explicitly denied from modifying its own
-    role, its own policies, the boundary, or deleting named stateful resources;
-    (c) `infra.yml` with `step=plan` and `step=apply`, same read-the-plan
-    discipline as `deploy.yml`; (d) one handoff issue for the bootstrap apply —
-    the agent cannot grant itself access, so exactly one manual apply remains;
-    (e) after it is proven, delete the root access keys and close port 22.
+    Slices (a) S3 state bucket with versioning and a DynamoDB lock table in
+    `infra/bootstrap`, a separate root module because a backend cannot reference
+    the module that defines it; (b) the `alert-platform-infra` role with a
+    permissions boundary and explicit denies on its own role, its own policies,
+    the boundary, the OIDC provider, the state, and terminating the instance;
+    (c) `infra.yml` with plan then apply — **all done**, ADR 0003.
+    (d) The handoff for the bootstrap apply — **open**, and it is the last one:
+    the agent cannot grant itself access. Two steps in AWS CloudShell, then two
+    repository variables.
+    (e) After it is proven: delete the root access keys and close port 22.
+    Once this lands, #27's `alerts` verb and #32's `--since` parameter both stop
+    being handoffs, since both are SSM document changes.
     The guardrails are the point. An IAM-capable role is close to account
     admin, so the boundary and the self-modification denies are what make this
     defensible rather than a shrug.
