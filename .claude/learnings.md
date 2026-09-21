@@ -320,3 +320,35 @@ Two habits:
 - **A zero that confirms what you hoped deserves more scrutiny than a non-zero
   that contradicts it.** This one matched the outcome I wanted, which is exactly
   why it nearly went into a Production report unchallenged.
+
+## A handoff step that can run in the wrong directory will
+*Learned 2026-09-21, from the bootstrap handoff in issue #27.*
+
+Issue #27 gave the CloudShell steps as separate lines:
+
+    cd ~/alert-platform/infra/bootstrap && terraform init
+    terraform apply -auto-approve -var aws_region=us-east-1
+
+The clone on the previous step had not run, so the `cd` failed and the `apply`
+ran anyway — in `~/bin`, against no configuration. Terraform refused
+("No configuration files") and nothing was created, but that was Terraform's
+caution, not the instruction's. The same shape against a directory that *did*
+hold a different module would have applied the wrong one.
+
+Two separate defects, both in the writing rather than the code:
+
+- **Chain every step of a handoff with `&&`, across lines as well as within
+  them.** A `cd` that fails must make the mutating command unreachable. Newline
+  separation gives a fresh, independent attempt at exactly the wrong moment.
+- **A paste block must survive being pasted with a prompt prefix.** The first
+  line of #27's block was pasted as
+  `ubuntu@ip-172-31-35-137:~$ git clone …`, so bash ran the prompt string as a
+  command, the clone never happened, and every later step failed for that one
+  invisible reason. Put the whole sequence on one line, so a mangled prefix
+  kills the entire step visibly instead of silently skipping its first half.
+
+Also: **name the target shell in the imperative, not just the prose.** #27 said
+"All of this runs in AWS CloudShell" once in a header, and the steps were tried
+on the EC2 host as well, where `apt` does not exist and the instance role cannot
+create IAM. Every step needs to say where it runs, because steps get pasted
+individually and headers do not travel with them.
