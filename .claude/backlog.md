@@ -102,7 +102,7 @@ actually emit.
     #28's self-service infra, (d) console panel.
 
 28. **Own the AWS infrastructure: remote state and an `infra.yml` workflow.**
-    `code done (#26); needs-conan for the one bootstrap apply`
+    `code done (#26); needs-conan (#27) for the one bootstrap apply`
     Granted by the owner on 2026-09-21. Terraform state is local today, so
     nothing but a human's CloudShell can apply it, and every SSM-document or IAM
     change is a handoff. #27 needs a document change immediately.
