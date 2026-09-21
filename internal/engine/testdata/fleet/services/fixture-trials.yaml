@@ -1,0 +1,34 @@
+# The service the plan tests drive. Standard tier and unremarkable on
+# purpose: what those tests assert is the plan action, not the spec.
+apiVersion: alertplatform/v1
+kind: Service
+
+metadata:
+  name: fixture-trials
+  description: Fixture service used by the plan tests as an ordinary standard-tier target
+  tier: standard
+
+spec:
+  source:
+    repo: https://example.invalid/fixture/alert-platform
+    path: services/fixture_trials
+    ref: v1.0.0
+    entrypoint: main.py
+
+  polling:
+    interval_sec: 600
+    source_url: https://example.invalid/trials
+
+  dedup:
+    keys: [study_id, last_update]
+    cross_source: true
+    retention_days: 365
+
+  delivery:
+    telegram_chat_secret: tg_chat_trials
+    bot_token_secret: tg_bot_token
+    rate_limit_per_min: 10
+
+  health:
+    metrics:
+      port: 9112
