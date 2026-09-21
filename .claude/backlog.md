@@ -127,7 +127,7 @@ items with a one-line "why".
     (c) fix, with a test pinning each outcome to its status, (d) if the August
     rollbacks really did fail, an incident write-up.
 
-21. **`observe.yml` cannot tell a finding from a failure.** `done (#15)`
+21. **`observe.yml` cannot tell a finding from a failure.** `done (#15), verified in production`
     `alertctl drift` exits 1 to mean "drift found" — that is its contract. The
     composite action treats any non-`Success` SSM status as a workflow
     failure, so "the fleet has drifted" and "the host is unreachable" produce

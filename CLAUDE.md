@@ -339,7 +339,9 @@ Conan catches up afterwards. Write them for someone reading ten on a Sunday.
   `history` and `health` against it. The write path has never been used.
 - **Production, verified first-hand** (observe runs #6–#10, not reported):
   all four bots are `active` and answer `/healthz`, all four are deployed at
-  **`v0.1.0`** while the specs pin `v0.1.2`, so `drift` reports all four. Every
+  **`v0.1.0`** while the specs pin `v0.1.2`, so `drift` reports all four and
+  exits 3 (a finding, which annotates the observe run rather than failing it —
+  ADR 0002). Every
   audit entry says `by: ubuntu` — every change to production so far was made by
   hand, in August. The `v0.1.2` apply was attempted twice on 2026-08-20, failed
   both times on `clinical-trials`, and stopped there without touching the other
@@ -357,16 +359,14 @@ Conan catches up afterwards. Write them for someone reading ten on a Sunday.
   end; a host-side edit in `services/form4_insider/main.py`
   (`alerted_this_filing`) is not in git; `alertctl` runs on the VM itself over
   a loopback SSH alias and needs `sudo`.
-- **The host's `alertctl` binary is stale, and that is the only thing known to
-  be wrong with the host.** `drift` returns exit 1, not the 3 the merged code
-  returns, so the binary predates #15. Read verbs never rebuild it (only `plan`
-  does), so a `bootstrap-host.sh` re-run or a `plan` is what refreshes it.
-  Note what is *not* wrong: the wrapper, the sudoers rule and the `alert-ops`
-  user are all installed and working — every observe run today went through
-  `runuser -u alert-ops -- sudo -n /usr/local/sbin/alert-deploy`. Bug #8 (a
-  `| head` under `pipefail`, fixed in #13) would have stopped bootstrap just
-  before those are installed, but they are present, so an earlier run had
-  already installed them.
+- **Nothing is known to be wrong with the host.** Conan re-ran
+  `bootstrap-host.sh` on 2026-09-21 and it completed, so the checkout, the
+  `alertctl` binary and the wrapper are all at `d74e2d0`. Confirmed by observe
+  run #12: `drift` returned **exit 3**, the merged finding code, where the stale
+  binary returned 1.
+  Worth knowing for next time: read verbs never rebuild the binary (only `plan`
+  does), so a control-plane change is invisible on the host until a `plan` or a
+  bootstrap re-run. Nothing reports that staleness — backlog #23.
 - The README "Status" section now reports production from these observations,
   with the date in the heading and the run logs named as the record. Keep it
   matching what you have actually seen.
