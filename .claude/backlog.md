@@ -16,8 +16,10 @@ items with a one-line "why".
    `v0.1.2`). Engine tests now load `internal/engine/testdata/fleet`, four
    fictional services pinned at `v1.0.0` that never move;
    `TestLiveFleetSpecsRenderAndStayDeployable` keeps the real specs covered
-   without naming a version, port, service or count. Full suite green
-   locally. Still to do: add the CI badge once `main` is green again.
+   without naming a version, port, service or count. `$id` is now the URN
+   `urn:alertplatform:v1:service`, verified against both resolver
+   generations. Full suite green locally and in CI. Still to do: add the CI
+   badge now that `main` is green.
 
 2. **Fix the Go module path `conanohara` → `conan0h`.** `todo`
    `go install github.com/conan0h/alert-platform/cmd/alertctl@latest` fails
@@ -75,6 +77,16 @@ items with a one-line "why".
    gated, how agent actions show up in the audit log and PRs, and a running
    "what went wrong" section fed from incidents. README gets a short section
    linking to it. Keep it factual; no hype.
+
+8a. **Pin the validator's Python dependencies for the host.** `todo`
+   Gate 1 of every apply shells out to `tools/validate.py` using whatever
+   `python3` and `jsonschema` the host happens to have. The `$id` bug found
+   on 2026-09-21 was one way that bites; a resolver old enough to differ in
+   *any* behaviour is another. Either vendor the validator's deps alongside
+   the release or state a minimum version and check it at gate time, so a
+   deploy cannot fail on the host's library versions. Slices: (a) decide
+   vendor vs. version check, ADR if it changes the gate's contract,
+   (b) implement with a test that the gate refuses an unsupported resolver.
 
 ## P1 — Close the documented gaps (strong design-review material)
 

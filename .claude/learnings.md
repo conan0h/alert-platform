@@ -43,4 +43,22 @@ rewrite history.
 - **`.claude/` must be committed.** The directory arrived inside an uploaded
   zip rather than in git, so the log and learnings were invisible to a fresh
   clone — which is every run. Memory that is not in the repo does not exist.
+- **A relative `$id` in a JSON Schema is a latent network call.** Old
+  `jsonschema` resolvers (`RefResolver`, pre-4.18) join a local `$ref` onto
+  the `$id` base and *fetch* the result, so `alertplatform/v1/service` plus
+  `#/$defs/secretName` became a URL and blew up. Current versions resolve the
+  fragment in-document and never notice, which is exactly why it survived: it
+  only fails where an old resolver is installed. `$id` is now a URN. This
+  matters beyond CI — `tools/validate.py` is gate 1 of every apply and runs
+  on the host, against the host's library.
+- **One red check can hide another.** `main` was red for two independent
+  reasons, and the backlog recorded only the newer one. Fixing the refs just
+  revealed the `$id` failure underneath. When CI has been red a while, read
+  the *oldest* failing run, not the most recent: run #6 on 2026-08-20 already
+  showed it, two commits before the ref bump everyone blamed.
+- **The environment a test runs in is part of the test.** The `alertctl` CI
+  job has no `pip install jsonschema`, so it exercises the validator against
+  a bare distro Python — which is the closest thing in CI to how the gate
+  actually runs on the host. That is a feature. Installing the dependency
+  there would have hidden the bug rather than fixed it.
 
