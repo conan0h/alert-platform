@@ -490,3 +490,54 @@ Format:
 - Catch-up: two of fda-catalysts' sources are dead and I could not find out why
   from here. The fix is to make the failure visible first and diagnose it from
   the host, not to guess at a header.
+
+## 2026-09-21 (fourth session) — first deploy through the pipeline
+- Conan cut `v0.2.0`, which unblocked everything below.
+- **Production report — `deploy.yml` runs 3 and 4, the first apply this pipeline
+  has ever performed.**
+  The first plan proposed four changes, not the one I predicted in #23:
+
+      ~ edgar-mna      UPDATE  source.ref  v0.1.0 -> v0.1.2
+      ~ fda-catalysts  UPDATE  source.ref  v0.1.0 -> v0.1.2
+      ~ form4-insider  UPDATE  source.ref  v0.1.0 -> v0.2.0
+      4 to change, 0 unchanged.
+
+  Not applied. A plan compares specs against the host, and three specs still
+  pinned `v0.1.2` from the abandoned August deploy while the host ran `v0.1.0`,
+  so rolling one spec could never shrink the plan. I had asserted it would
+  without checking how a plan is computed. Pinned those three to `v0.1.0` (#24),
+  which is both what they run and what is intended, and re-planned:
+
+      1 to change, 3 unchanged.
+      plan-id: 54993f27b007
+
+  Applied that. `- gate: health endpoint reports ok`, `✓ form4-insider healthy at
+  v0.2.0`, `Applied 1 change(s)`, host exit 0, 88 seconds. `status` confirms:
+
+      form4-insider  v0.2.0  active  enabled  2026-09-21T22:16:39Z  gha:35661685161
+
+  First row in this project's history not deployed by hand, with the actor
+  recorded as the workflow run id exactly as designed.
+- **Resolved: secret resolution works.** The apply passed the gate that failed in
+  August, so the instance role was the fix. CLAUDE.md §11's open question 1 is
+  closed by evidence rather than inference this time.
+- **Not verified: whether the duplication stopped.** The `logs` verb runs
+  `journalctl --since "1 hour ago"` unbounded, SSM caps captured stdout near
+  24 KB, and journalctl prints oldest-first — so a busy hour returns its
+  beginning. The deploy was at 22:16 and the returned log ended at 21:20. New
+  backlog #32; the window slides, so the next run can confirm without any change.
+- Nearly reported "0 duplicates" from a grep over an empty file: the raw-log
+  download returns HTTP 000 because the redirect target is blocked by this
+  session's proxy, so every count was zero. That would have been a fabricated
+  production claim. Learnings updated.
+- The gate is the thing worth keeping from this run. I wrote down what would make
+  me stop before seeing the plan, the plan tripped it, and stopping was therefore
+  unambiguous rather than a judgement call. The three `v0.1.2` diffs really are
+  near-inert — dead code removal and ruff autofixes — so had I formed the
+  criterion after reading the plan I would probably have applied four services.
+- Next: confirm the duplication stopped (#25, via #32's window sliding), then #32
+  itself, then #28 (infra ownership; Terraform for remote state, the bounded
+  infra role and `infra.yml` is written and saved outside git, ready to land).
+- Catch-up: the platform deployed to production by itself for the first time,
+  one service, gated, audited, and rolled nothing back. Whether it fixed the
+  alert spam is the one thing still unconfirmed.

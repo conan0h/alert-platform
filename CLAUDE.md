@@ -360,18 +360,30 @@ deploy needs a release first. The `go.mod` module path is
 `github.com/conan0h/alert-platform`; tags up to `v0.1.2` predate the rename and
 carry `conanohara`, so `go install …@latest` needs a newer tag.
 
-**Production, verified 2026-09-21** (observe runs 6–12, `deploy.yml` run 1):
-all four services are `active` and answer `/healthz`. All four run `v0.1.0`
-while the specs pin `v0.1.2`, so `drift` reports four changes and exits 3. Every
-audit entry reads `by: ubuntu`: every change to production so far was made by
-hand, in August. `deploy.yml` has run `plan` successfully (`4 to change, 0
-unchanged`, plan `a7d096877d55`) but has never applied.
+**Production, verified 2026-09-21.** All four services are `active` and answer
+`/healthz`.
+
+    SERVICE          REF      STATE   DEPLOYED               BY
+    clinical-trials  v0.1.0   active  2026-08-20T11:46:25Z   ubuntu
+    edgar-mna        v0.1.0   active  2026-08-20T11:53:10Z   ubuntu
+    fda-catalysts    v0.1.0   active  2026-08-20T12:06:59Z   ubuntu
+    form4-insider    v0.2.0   active  2026-09-21T22:16:39Z   gha:35661685161
+
+`form4-insider` is the first service ever deployed by this pipeline rather than
+by hand. `deploy.yml` run 4 applied plan `54993f27b007` — one service, health
+gate passed, 88s, `Applied 1 change(s)` — and the audit actor is the workflow run
+id. The other three are pinned at `v0.1.0` deliberately (backlog #33), so `drift`
+should now be clean.
+
+**Not yet observed:** whether the duplicate-alert loop actually stopped. The
+`logs` verb returns the oldest part of its window rather than the newest, so the
+deploy falls outside what it shows — backlog #32. Confirm on the next run, when
+the window has slid past 22:16, and do not assume it worked before then.
 
 **Open production questions.**
-1. Whether secret resolution works now. The August `v0.1.2` apply failed at that
-   gate, reportedly because the instance had no IAM role; it has one today, but
-   nothing has re-tested it. Unverified; do not assume it. The next apply
-   establishes it either way, and does so safely — see below.
+1. Resolved 2026-09-21: **secret resolution works.** The first apply through the
+   pipeline passed that gate and completed, so the instance role fixed what the
+   August attempt failed on.
 2. Resolved 2026-09-21: the August rollbacks logged `failed` were accurate.
    `applyService` resolves secrets before its first mutating step and
    `rollbackTo` calls the same `applyService`, so both passes returned having
