@@ -72,6 +72,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Go, because the wrapper's job is to build alertctl and the test suite
+      # now compiles it the way the wrapper does — from a cwd outside the
+      # checkout, which is the case that was broken while 53 dry-run tests
+      # passed.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
       # The wrapper is the entire blast radius of the deploy pipeline: IAM
       # says which host and which documents, and everything past that is
       # decided by this one script. A shell bug here is a production incident,

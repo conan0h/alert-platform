@@ -113,7 +113,9 @@ install -d -o root -g root -m 0750 "$PLAN_DIR"
 # "the version string looks right" into "this toolchain compiles this module",
 # which is the thing actually being relied on.
 log "building alertctl"
-env GOFLAGS=-mod=vendor go build -o "$BIN_DIR/alertctl" "$CHECKOUT/cmd/alertctl"
+# -C, because this script runs from /tmp and `go build /abs/path/to/pkg`
+# resolves the package against the current directory's module.
+env GOFLAGS=-mod=vendor go build -C "$CHECKOUT" -o "$BIN_DIR/alertctl" ./cmd/alertctl
 "$BIN_DIR/alertctl" 2>&1 | head -n 1
 log "alertctl built and runnable"
 
