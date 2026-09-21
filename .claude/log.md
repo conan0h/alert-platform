@@ -283,3 +283,42 @@ Format:
   worth doing; the reason I gave for it was not the right one.
 - Catch-up: the host is in better shape than I reported. Nothing is missing
   from its deploy path; its control-plane binary is just two changes behind.
+
+## 2026-09-21 (third session) — #21 verified end to end against production
+- Did: nothing but verify. Conan re-ran `bootstrap-host.sh` (it completed this
+  time) and I triggered `observe.yml` with `verb=drift`.
+- **Production report (observe run #12, `main` @ `d74e2d0`) — the verification:**
+
+      4 to change, 0 unchanged.
+      ----- host stderr -----
+      failed to run commands: exit status 3
+      -----------------------
+      status: Failed (host exit 3)
+      ##[warning]AlertPlatform-Observe reported a finding on i-06aaf8cca765d5352 (exit 3).
+      ##[end-action id=__self.send;outcome=success;conclusion=success;duration_ms=13133]
+
+  Four things in that, all of them the point:
+  **(a)** `host exit 3` — the rebuilt binary. The stale one returned 1, so this
+  is direct evidence the bootstrap re-run refreshed the control plane.
+  **(b)** SSM still records `Failed`, because its model has only succeeded and
+  failed. Documented in ADR 0002 as an accepted limitation; the runbook says
+  which view is accurate.
+  **(c)** `verdict.sh` matched 3 against the declared finding set, annotated
+  with `::warning`, and the job concluded `success`.
+  **(d)** `4 to change` — the drift is still real and still reported. Green for
+  the right reason, not because anything was silenced. That was the failure mode
+  I was most worried about introducing.
+  Fleet state otherwise unchanged: four services healthy at `v0.1.0`, specs at
+  `v0.1.2`.
+- Verification: the hourly observe schedule will now be green-with-warning while
+  the fleet is behind its specs, and red only when the observation itself fails.
+  Backlog #21 marked verified in production.
+- Next: **#20** (the rollbacks logged `failed`), which is the gate before any
+  first deploy. Then a release — no tag contains the exit-code change — then the
+  first deploy through the pipeline to close the `v0.1.0` → `v0.1.2` drift.
+- Notes: CLAUDE.md §10 no longer lists anything as known-wrong with the host.
+  The staleness *mechanism* is kept in §10 as a fact to know rather than a
+  fault, since it will catch the next control-plane change too until #23 lands.
+- Catch-up: the finding-vs-failure change is now proven on the real host, both
+  halves. The observe signal is trustworthy again — red means the observation
+  failed, a warning means the fleet has drifted.
