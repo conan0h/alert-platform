@@ -105,14 +105,19 @@ jobs:
           terraform_version: 1.9.8
           terraform_wrapper: false
       - name: Formatting is canonical
-        run: terraform -chdir=infra/terraform fmt -check -recursive -diff
+        run: terraform fmt -check -recursive -diff infra/
       # -backend=false: this validates the configuration, it does not touch
       # any state and cannot reach the account. Applying is a human act done
       # from CloudShell — never from CI, and never by the agent.
+      # -backend=false: this validates the configuration, it does not touch any
+      # state and cannot reach the account. It also means the S3 backend block in
+      # infra/terraform does not need the bucket to exist or any credential.
       - name: Configuration is valid
         run: |
           terraform -chdir=infra/terraform init -backend=false -input=false
           terraform -chdir=infra/terraform validate
+          terraform -chdir=infra/bootstrap init -backend=false -input=false
+          terraform -chdir=infra/bootstrap validate
 
   secrets:
     name: no committed secrets
