@@ -59,9 +59,30 @@ actually emit.
     is usually bot filtering (no or default User-Agent) or a moved feed.
     The gap is as much observability as fetching: a source that stops working
     should degrade the service's health or fire an alert, not log a warning
-    forever. Slices: (a) identify why each 403 happens and fix or drop the
-    source, (b) per-source success metric, (c) a health signal or alert when a
-    declared source has failed for N consecutive cycles.
+    forever.
+    **Investigated 2026-09-21, not fixed.** What was established:
+    - The URLs are not stale. Both `v0.1.0` and `main` list
+      `https://endpts.com/feed/`; `requests` reports the post-redirect URL, so
+      the log's `endpoints.news` is that redirect, not a host-code difference.
+    - **Leading hypothesis, unverified:** `main.py:600` does
+      `HTTP_HEADERS_DEFAULT["User-Agent"] = EDGAR_USER_AGENT`, replacing the
+      descriptive `FDA-CatalystBot/1.0` default with the SEC contact-info string
+      for *every* feed. Commercial press behind Cloudflare commonly refuses
+      that. The EDGAR path sets its own UA explicitly at `main.py:485`, so the
+      global overwrite is redundant where it is needed and applied where it
+      probably hurts.
+    - **It could not be tested from the agent's environment**: the egress proxy
+      refuses both domains outright (`curl` returns `000` for every UA tried),
+      so no measurement distinguishes the UA theory from IP blocking or a feed
+      that now requires a subscription. Do not ship the UA change as a fix on
+      this evidence alone.
+    Slices: (b) and (c) first, because they are unambiguous and independent of
+    the diagnosis — a per-source success metric, and a health signal or alert
+    once a declared source has failed for N consecutive cycles. Then (a): get a
+    real response from the host, where the requests actually originate, via a
+    one-off diagnostic rather than a speculative patch. (d) Separately, stop the
+    global UA overwrite on its own merits: one UA per destination is right
+    whether or not it is what 403s here.
 
 27. **Alert content is not persisted anywhere.** `todo`
     Alerts exist only as a Telegram message and a journald line. There is no
@@ -132,6 +153,24 @@ actually emit.
     codes. `deploy.yml` has planned successfully (`4 to change, 0 unchanged`,
     plan `a7d096877d55`) and never applied. Sequence: clear #20, land #25, cut a
     release, roll the specs, then apply and verify.
+
+31. **This session cannot cut a release tag.** `needs-conan — recurring`
+    Verified 2026-09-21 by trying all three routes: `git push origin v0.2.0` →
+    403; `POST /releases` → 403 "Creating, editing, or deleting releases is not
+    permitted for this session type"; `POST /git/refs` → 403 "Write access to
+    this GitHub API path is not permitted through this proxy". CLAUDE.md had
+    asserted the opposite and now records the truth.
+    This blocks every deploy, because `source.ref` must match
+    `^v\d+\.\d+\.\d+$` and the engine clones with `--branch`, so neither a
+    branch nor a SHA is a usable substitute. Loosening that pattern would weaken
+    a §2 guarantee to work around a permissions limit, which is not a trade to
+    make unilaterally.
+    Mitigation, not a fix: hand Conan the prefilled release URL, which is one tap
+    on a phone. A real fix would be a deploy-time mechanism that does not need a
+    human for each release — a signed artifact, or a bot token with `contents:
+    write` held by a workflow rather than by this session. Worth designing once
+    #28's infra ownership lands, since that is the same shape of problem.
+
 
 ## P0 — Carried forward
 

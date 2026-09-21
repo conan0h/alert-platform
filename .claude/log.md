@@ -429,3 +429,64 @@ Format:
 - Catch-up: nothing was broken in the audit log; my reading of it was wrong.
   The deploy that stops the duplicate alerts is now permitted, and safe to
   attempt regardless of whether the secret gate has been fixed.
+
+## 2026-09-21 (fourth session, continued) — release blocked; deploy staged
+- Conan gave permission to drop the August failure unless it is active and
+  recurring. It is neither: #20 established it was a non-mutating gate refusal,
+  closed with a test and a write-up. The active, recurring one is the form4
+  duplicate-alert loop, which by his rule is the priority, and everything below
+  was aimed at shipping its fix.
+- `main` is green at `be7ec810` (run 56) and carries the fix. Then the release
+  step failed in a way CLAUDE.md said it would not: **this session cannot create
+  a tag.** Three routes, all 403 — `git push origin v0.2.0`, `POST /releases`
+  ("not permitted for this session type"), `POST /git/refs` ("not permitted
+  through this proxy"). CLAUDE.md §2 and §6 asserted the tag was mine to cut;
+  both corrected. Backlog #31.
+- Checked for a way round and rejected it: `source.ref` must match
+  `^v\d+\.\d+\.\d+$`, and the engine clones with `--branch`, so a SHA is
+  neither valid nor workable. Loosening the schema would weaken a §2 guarantee to
+  route around a permissions limit — the same shape as the wrapper self-update I
+  was right not to ship.
+- So the deploy is staged and blocked on one human action: cutting `v0.2.0` at
+  `be7ec810`. Scope was deliberately narrowed to **form4-insider only** rather
+  than all four: it is the service with the live bug, the `alertlib` change is
+  additive, and the first-ever apply through this pipeline should have a blast
+  radius of one.
+- Production report: unchanged. Four services active and healthy at `v0.1.0`,
+  `drift` reports four changes and exits 3, and the duplicate-alert loop is still
+  running.
+- Next: once the tag exists, roll `fleet/services/form4-insider.yaml` to it,
+  `plan`, read the plan (expect exactly one change), `apply`, then verify with
+  `status`, `health` and `logs` — the last being the one that matters, since the
+  test of success is that the repeats stop.
+- Catch-up: the fix is merged and cannot reach production until someone cuts a
+  tag. That is the one thing in this project I have found that I genuinely cannot
+  do and cannot design around today.
+
+## 2026-09-21 (fourth session, continued) — #26 investigated, deliberately not fixed
+- Established: the fda-catalysts feed URLs are not stale. Both `v0.1.0` and
+  `main` list `https://endpts.com/feed/`, and `requests` reports the
+  post-redirect URL, so the log's `endpoints.news` is the redirect target. My
+  first reading of that log line was that the host ran different code; it does
+  not.
+- Leading hypothesis: `main.py:600` replaces the descriptive bot User-Agent with
+  the SEC contact-info string for every feed, and commercial press behind
+  Cloudflare commonly refuses that. The EDGAR path already sets its own UA at
+  `main.py:485`, so the global overwrite is redundant where needed and applied
+  where it likely hurts.
+- **Could not test it.** The egress proxy refuses both domains: `curl` returns
+  `000` for every User-Agent tried, including a browser one. So nothing here
+  distinguishes the UA theory from IP blocking or a feed that now needs a
+  subscription.
+- Chose not to ship the UA change as a fix. Three times today I inferred a cause
+  without checking the step in between and was wrong twice; shipping an unverified
+  diagnosis into production code is the same error with a deploy attached. The
+  backlog now orders #26 so the unambiguous work comes first — per-source metric
+  and a health signal after N consecutive failures — with the diagnosis to be
+  done from the host, where the requests actually originate.
+- Also worth noting for its own sake: the global UA overwrite is wrong
+  regardless. One UA per destination is correct whether or not it is what
+  returns 403 here.
+- Catch-up: two of fda-catalysts' sources are dead and I could not find out why
+  from here. The fix is to make the failure visible first and diagnose it from
+  the host, not to guess at a header.

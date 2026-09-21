@@ -262,3 +262,33 @@ So: when a conclusion rests on "X must have happened", find the code or the
 timing that says whether it did. Prefer a test that pins the answer, because the
 next reader will otherwise re-derive the same wrong inference — which is exactly
 what the write-up in `docs/incidents/` and `secretgate_test.go` exist to prevent.
+
+## `git checkout -B <branch> origin/main` points your upstream at main
+*Learned 2026-09-21, the second near-miss of the day on the same rule.*
+
+The branch-reset-after-merge habit in CLAUDE.md §4 is
+`git checkout -B <branch> origin/main`. That sets the new branch's **upstream to
+`origin/main`**, not to its own remote branch. A later bare `git push` then
+targets `main`, which §2 forbids absolutely.
+
+Git declined it, with:
+
+    fatal: The upstream branch of your current branch does not match
+    the name of your current branch.
+
+That refusal is the only thing that stopped it, and it depends on `push.default`
+being `simple`. It is not a safety net to rely on.
+
+Two habits, both cheap:
+
+- **Push explicitly**: `git push origin <branch>:<branch>`, or
+  `git push -u origin <branch>` which both pushes and repairs the tracking. Never
+  a bare `git push` on a branch created with `-B` from another ref.
+- **Check `git rev-parse --abbrev-ref @{u}` after resetting a branch**, alongside
+  the existing `git branch --show-current` check before committing. The branch
+  name being right does not mean the upstream is.
+
+This is the same failure as the earlier denied-command near-miss: an operation I
+believed had a particular effect, which had a different one, and no check in
+between. `origin/main` was verified untouched both times — by luck the first time
+and by git's own refusal the second.
