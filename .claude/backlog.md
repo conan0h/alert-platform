@@ -21,10 +21,16 @@ items with a one-line "why".
    generations. Merged as #1; CI run #15 on `main` is green, the first since
    2026-08-20. README carries the CI badge.
 
-2. **Fix the Go module path `conanohara` → `conan0h`.** `todo`
-   `go install github.com/conan0h/alert-platform/cmd/alertctl@latest` fails
-   today. Update `go.mod`, all imports, and `vendor/modules.txt` if it names
-   the module; rebuild; gofmt.
+2. **Fix the Go module path `conanohara` → `conan0h`.** `done (#3)`
+   `go.mod` and all 13 importing files now say `github.com/conan0h/…`.
+   `vendor/modules.txt` lists dependencies only, so nothing there named the
+   main module and no vendor regeneration was needed.
+   Follow-up, deliberately not done here: `go install
+   github.com/conan0h/alert-platform/cmd/alertctl@latest` resolves to the
+   newest *tag*, and `v0.1.0`–`v0.1.2` all carry the old path — so it keeps
+   failing until a release is cut from this commit or later. Cutting that tag
+   belongs with the next change that actually warrants a release, not with a
+   rename.
 
 3. **Deploy and observe pipeline: GitHub OIDC → IAM → SSM.** `todo` → `needs-conan`
    The only path from this repo to production (CLAUDE.md §6). Slices:

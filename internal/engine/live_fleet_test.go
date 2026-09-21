@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/conanohara/alert-platform/internal/fleet"
+	"github.com/conan0h/alert-platform/internal/fleet"
 )
 
 // The rest of this package's tests run against testdata/fleet, so that a

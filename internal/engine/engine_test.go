@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/conanohara/alert-platform/internal/audit"
-	pexec "github.com/conanohara/alert-platform/internal/exec"
-	"github.com/conanohara/alert-platform/internal/fleet"
+	"github.com/conan0h/alert-platform/internal/audit"
+	pexec "github.com/conan0h/alert-platform/internal/exec"
+	"github.com/conan0h/alert-platform/internal/fleet"
 )
 
 // fixtureRef is the ref every fixture spec pins. It is test-owned and never

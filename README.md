@@ -168,6 +168,8 @@ others) and `ruff`; both run in CI alongside a `gofmt` check.
 
 ## Status
 
+Built and under test — all of it verifiable from this repository:
+
 - [x] Phase 1 — declarative fleet spec + validation
 - [x] Phase 1.5 — migrate services onto the platform runtime ([`docs/migration.md`](docs/migration.md))
 - [x] Phase 2 — plan/apply deploy workflow with audit log (Go CLI)
@@ -177,11 +179,29 @@ others) and `ruff`; both run in CI alongside a `gofmt` check.
 - [x] Phase 6 — runbooks, drift detection, architecture docs
 - [x] Phase 7 — read-only operator console
 
-Phases 2–7 are implemented and tested, but have not yet run against the
-production host. Before the first deploy, work through
-[**docs/migration.md → Before the first deploy**](docs/migration.md#before-the-first-deploy):
-rotate the leaked Telegram token, populate SSM, cut the `v0.1.0` tag, prepare
-the host, and migrate existing SQLite state.
+Not built yet:
 
-Outstanding beyond that: `dedup.keys` is declared but not yet consumed by the
-services, and `state.backup` is declared with no backup job behind it.
+- [ ] Phase 8 — gated deploy pipeline: GitHub OIDC → IAM → SSM, so a deploy
+      runs from `main` with no stored credentials anywhere and every apply
+      lands in the audit log against the workflow run that caused it.
+      `.github/workflows/` contains `ci.yml` and nothing else.
+
+### What this page does not tell you
+
+**Nothing here is a claim about what is running in production right now.**
+Phase 8 is also the only read path to the host, so until it exists there is no
+automated way to check `status`, `drift` or heartbeats, and no evidence to
+report. The host's own `alertctl status`, `alertctl drift` and audit log are
+the sources of truth about the fleet; this page is not.
+
+Before a first deploy through that pipeline, work through
+[**docs/migration.md → Before the first deploy**](docs/migration.md#before-the-first-deploy).
+The baseline tag it asks for exists (`v0.1.0`, and the fleet has since moved to
+`v0.1.2`); the remaining items — rotating the leaked Telegram token, populating
+SSM, preparing the host, migrating SQLite state — need real credentials and a
+real host, so this repo cannot confirm any of them.
+
+Known gaps, unchanged and still open: `dedup.keys` is declared but not consumed
+by the services, `state.backup` is declared with no backup job behind it, and
+`drift` compares refs and unit hashes only, so an in-place edit inside a release
+directory is invisible to it.

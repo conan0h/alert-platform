@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/conanohara/alert-platform/internal/exec"
-	"github.com/conanohara/alert-platform/internal/fleet"
+	"github.com/conan0h/alert-platform/internal/exec"
+	"github.com/conan0h/alert-platform/internal/fleet"
 )
 
 // SecretPlaceholder stands in for a resolved secret when rendering the
