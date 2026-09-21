@@ -1,4 +1,4 @@
-module github.com/conanohara/alert-platform
+module github.com/conan0h/alert-platform
 
 go 1.22
 

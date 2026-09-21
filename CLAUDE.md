@@ -326,8 +326,9 @@ Conan catches up afterwards. Write them for someone reading ten on a Sunday.
 - **CI on `main` is red:** two engine tests hardcode `v0.1.0` while loading the
   live `fleet/` specs, which `e44bd09` moved to `v0.1.2`. Everything else
   passes.
-- `go.mod` module path is `github.com/conanohara/alert-platform`; the GitHub
-  owner is `conan0h`.
+- `go.mod` module path is `github.com/conan0h/alert-platform`, matching the
+  GitHub owner. Tags `v0.1.0`–`v0.1.2` predate the rename and still carry
+  `conanohara`, so `go install …@latest` needs a newer tag to work.
 - Production (reported by Conan, not yet verified by you): all four bots run on
   `ec2-alerts-prod` (Ubuntu 22.04 ARM64, us-east-1). The `v0.1.2` apply failed
   at the secret-resolution gate because the instance has no IAM instance role;

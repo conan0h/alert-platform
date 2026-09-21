@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/conanohara/alert-platform/internal/console"
+	"github.com/conan0h/alert-platform/internal/console"
 )
 
 // cmdServe starts the read-only operator console.

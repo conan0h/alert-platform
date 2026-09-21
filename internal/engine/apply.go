@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/conanohara/alert-platform/internal/audit"
-	pexec "github.com/conanohara/alert-platform/internal/exec"
-	"github.com/conanohara/alert-platform/internal/fleet"
+	"github.com/conan0h/alert-platform/internal/audit"
+	pexec "github.com/conan0h/alert-platform/internal/exec"
+	"github.com/conan0h/alert-platform/internal/fleet"
 )
 
 // Options controls one apply run.

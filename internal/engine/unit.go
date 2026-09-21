@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/conanohara/alert-platform/internal/fleet"
+	"github.com/conan0h/alert-platform/internal/fleet"
 )
 
 // Paths on the target host. Every one is derived from metadata.name, which

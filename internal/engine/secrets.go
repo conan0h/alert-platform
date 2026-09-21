@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/conanohara/alert-platform/internal/exec"
-	"github.com/conanohara/alert-platform/internal/fleet"
+	"github.com/conan0h/alert-platform/internal/exec"
+	"github.com/conan0h/alert-platform/internal/fleet"
 )
 
 // Resolver turns the secret *names* in a spec into values at deploy time.

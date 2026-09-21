@@ -30,10 +30,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/conanohara/alert-platform/internal/audit"
-	"github.com/conanohara/alert-platform/internal/engine"
-	pexec "github.com/conanohara/alert-platform/internal/exec"
-	"github.com/conanohara/alert-platform/internal/fleet"
+	"github.com/conan0h/alert-platform/internal/audit"
+	"github.com/conan0h/alert-platform/internal/engine"
+	pexec "github.com/conan0h/alert-platform/internal/exec"
+	"github.com/conan0h/alert-platform/internal/fleet"
 )
 
 //go:embed assets/index.html
