@@ -25,6 +25,31 @@ __pycache__/
 bin/
 .alertctl/
 
+# Terraform. State is the one file here that must never be committed: it
+# records every resource's attributes, and for some resource types that
+# includes values the provider had to read. Remote state (infra/bootstrap)
+# is where it belongs; until a module is migrated its state is local, and
+# one `git add -A` in that directory is all it would take.
+#
+# .terraform/ holds the provider binaries — ~700 MB for hashicorp/aws, which
+# is also how a CloudShell home directory runs out of its 1 GB quota.
+# NOTE: .terraform.lock.hcl is deliberately NOT ignored. It pins each
+# provider's version and hashes, so committing it is what makes an init
+# reproducible between CI and a CloudShell session — the same reason Go deps
+# are vendored. Neither module has one yet; see backlog #34.
+.terraform/
+terraform.tfstate
+terraform.tfstate.*
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfplan
+# Variable files can carry account ids and instance ids; the modules take
+# those as explicit -var arguments instead, so a committed .tfvars would be
+# a second source of truth as well as a disclosure.
+*.tfvars
+*.tfvars.json
+
 # Plans are point-in-time artefacts tied to one host state; they go stale
 # and must never be resurrected from git.
 plan.json
