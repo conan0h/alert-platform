@@ -197,7 +197,14 @@ actually emit.
     plan `a7d096877d55`) and never applied. Sequence: clear #20, land #25, cut a
     release, roll the specs, then apply and verify.
 
-31. **This session cannot cut a release tag.** `needs-conan — recurring`
+31. **This session cannot cut a release tag.**
+    `needs-conan — open: issue #41 asks for v0.3.0 at 8bcd585`
+    **Issue #41 (2026-09-22) is the live request.** `main` is green at `8bcd585`
+    and carries three merged changes no tag contains — the source-health
+    accounting and UA fix (#30), the alert archive (#35), and `logs --since`
+    (#39). None of them is running in production until that tag exists. Check
+    whether it does before planning anything else; if it does, the next run's
+    first task is the four-service roll and deploy described in the issue.
     Verified 2026-09-21 by trying all three routes: `git push origin v0.2.0` →
     403; `POST /releases` → 403 "Creating, editing, or deleting releases is not
     permitted for this session type"; `POST /git/refs` → 403 "Write access to
