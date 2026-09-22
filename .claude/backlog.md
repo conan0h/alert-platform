@@ -120,7 +120,12 @@ actually emit.
     #28's self-service infra, (d) console panel.
 
 28. **Own the AWS infrastructure: remote state and an `infra.yml` workflow.**
-    `code done (#26); needs-conan (#27) for the one bootstrap apply`
+    `DONE 2026-09-22 — verified by infra.yml run 5, "No changes"`
+    AWS is now changed through `infra.yml` and needs no human. Issue #27 closed
+    with the evidence. One defect found in the process and fixed in #36: the
+    `NeverTheTrustAnchor` deny used `iam:*OpenIDConnectProvider*`, which also
+    matched the read Terraform needs to refresh before it can plan, so the role
+    could not plan at all. `tools/check_iam_denies.py` now guards that class.
     Granted by the owner on 2026-09-21. Terraform state is local today, so
     nothing but a human's CloudShell can apply it, and every SSM-document or IAM
     change is a handoff. #27 needs a document change immediately.
@@ -205,7 +210,9 @@ actually emit.
     output with `journalctl -n <N>` as well as `--since`, so the tail is what
     survives. Also worth letting `observe.yml` pass `--since`, which today it
     cannot — the SSM document takes only `verb`, so that part needs a document
-    change and therefore #28.
+    change and therefore #28. **#28 is done as of 2026-09-22, so this is now
+    ordinary work**: the SSM document is `infra/terraform/ssm_documents.tf` and
+    `infra.yml` applies it. The wrapper half still needs ADR 0004's adopter.
     Partly mitigated 2026-09-22 from the other end: #26(a) removed the ~3,800
     daily warning lines that were the main thing filling the 24 KB, so a window
     now holds far more of what an operator actually opened it to read.
