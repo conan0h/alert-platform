@@ -48,18 +48,36 @@ actually emit.
     previous deploy's failure is uninvestigated), which makes #20 urgent rather
     than tidy.
 
-26. **`fda-catalysts` has two dead sources and nothing notices.** `todo`
-    Every poll cycle logs, at WARNING:
+26. **`fda-catalysts` has two dead sources.**
+    `(b)(c)(d) done 2026-09-22; (a) needs a deploy first`
+    Confirmed still live in observe run 21 (2026-09-22T07:34Z). Every poll cycle
+    logs, at WARNING:
 
         Failed to fetch FiercePharma: 403 Client Error: Forbidden for url: https://www.fiercepharma.com/rss/xml
         Failed to fetch EndpointsNews: 403 Client Error: Forbidden for url: https://endpoints.news/feed/
 
     Both 403, so the service has been running with a fraction of its intended
-    coverage for an unknown period while reporting healthy. 403 on an RSS feed
-    is usually bot filtering (no or default User-Agent) or a moved feed.
-    The gap is as much observability as fetching: a source that stops working
-    should degrade the service's health or fire an alert, not log a warning
-    forever.
+    coverage since August while reporting healthy.
+
+    **(b) and (c) done 2026-09-22.** `alertlib.SourceHealth` tracks per-source
+    outcomes, logs a repeated failure on a widening schedule instead of every
+    cycle, names a source presumed dead after 20 consecutive failures, and
+    exposes four metrics. This also removes ~3,800 warning lines a day, which
+    were displacing alert content from the 24 KB `logs` returns (#32).
+
+    **(d) done 2026-09-22.** The global User-Agent overwrite is gone; each
+    destination now carries its own. Correct on its own merits either way, and
+    it makes the next observation informative rather than a repeat.
+
+    **(a) still open, and needs the deploy first.** Whether each remaining 403 is
+    a dead endpoint or a blocked User-Agent still cannot be settled from a cloud
+    session — re-confirmed 2026-09-22, and the proxy now names the reason:
+    `connect_rejected`, "gateway answered 403 to CONNECT (policy denial)", for
+    all of these hosts including `fda.gov`, which the host polls successfully.
+    Every probe from here returns the proxy's 403, not the origin's, and proves
+    nothing. Once (b)–(d) are deployed, one `logs` read names each source and its
+    consecutive-failure count from the host, where the network is the one that
+    matters. Do not guess at User-Agent strings from here.
     **Investigated 2026-09-21, not fixed.** What was established:
     - The URLs are not stale. Both `v0.1.0` and `main` list
       `https://endpts.com/feed/`; `requests` reports the post-redirect URL, so
@@ -188,8 +206,11 @@ actually emit.
     survives. Also worth letting `observe.yml` pass `--since`, which today it
     cannot — the SSM document takes only `verb`, so that part needs a document
     change and therefore #28.
-    This is the reason the duplicate-alert fix is deployed but its effect is
-    not yet observed.
+    Partly mitigated 2026-09-22 from the other end: #26(a) removed the ~3,800
+    daily warning lines that were the main thing filling the 24 KB, so a window
+    now holds far more of what an operator actually opened it to read.
+    Note the window is one hour, not one day — an earlier log entry wrongly
+    expected it to slide far enough to show a 22:16 event the next morning.
 
 33. **Roll the remaining three services to a current tag.** `todo`
     `clinical-trials`, `edgar-mna` and `fda-catalysts` run `v0.1.0`, now pinned

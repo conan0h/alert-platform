@@ -622,8 +622,13 @@ def main():
 
     # SEC blocks unidentified clients; the UA is a credential-ish value and
     # therefore lives in the secret store, referenced by name in the spec.
+    #
+    # It is deliberately NOT written into HTTP_HEADERS_DEFAULT. fetch_edgar_8k
+    # sets it per request, so doing so here was redundant where it is needed and
+    # applied to the twelve feeds where it is wrong: it sent the SEC contact
+    # string to commercial press feeds, and press behind Cloudflare commonly
+    # refuses that. One User-Agent per destination.
     EDGAR_USER_AGENT = SVC.cfg.secret("edgar_user_agent")
-    HTTP_HEADERS_DEFAULT["User-Agent"] = EDGAR_USER_AGENT
 
     # Primary cadence comes from polling.interval_sec. The two slower tiers
     # are service-specific and ride the spec.polling extension point, so all

@@ -570,3 +570,71 @@ Format:
 - Catch-up: the AWS side is written, reviewed and merged. One CloudShell session
   turns it on, and after that the only thing I still cannot do is cut a release
   tag.
+
+## 2026-09-22 — read the alerts, found the dead sources, made them visible
+- **Production report — observe runs 20 (`status`) and 21 (`logs`), 07:34Z.**
+  All four services `active` and `enabled`, host exit 0:
+
+        SERVICE          REF        STATE      ENABLED    DEPLOYED               BY
+        clinical-trials  v0.1.0     active     enabled    2026-08-20T11:46:25Z   ubuntu
+        edgar-mna        v0.1.0     active     enabled    2026-08-20T11:53:10Z   ubuntu
+        fda-catalysts    v0.1.0     active     enabled    2026-08-20T12:06:59Z   ubuntu
+        form4-insider    v0.2.0     active     enabled    2026-09-21T22:16:39Z   gha:35661685161
+
+  `form4-insider` has held `v0.2.0` for nine hours since the first pipeline
+  deploy. The hourly scheduled runs 18 and 19 both succeeded overnight, so there
+  is a record between sessions, which is what the schedule is for.
+- **The duplicate-alert question, as far as it goes.** `form4-insider` completed
+  cycles 251–257 in the observed window, 0.14–0.26s each, with no
+  `database is locked`, no repeated `Alert sent`, and no `sends_refused`. Roughly
+  257 cycles since the deploy without any of them. That is consistent with the
+  fix working and is **not proof**: no alert fired in the window, so the
+  record-then-send path was not exercised under contention. Do not upgrade this
+  to "confirmed" without a window containing an actual send.
+- **My earlier expectation about the log window was wrong.** I had written that
+  the window would "slide past 22:16" by the next run. The wrapper's default is
+  `--since "1 hour ago"`, not a day, so 22:16 was further outside the window this
+  morning, not inside it. The right question was never "what happened at 22:16"
+  but "is it duplicating now", which one hour answers.
+- **The actual finding, and it is live: two `fda-catalysts` feeds are dead.**
+  `FiercePharma` and `EndpointsNews` returned 403 on *every* cycle in the window
+  (62901–62919), as they have since August. Per the owner's instruction that an
+  active, recurring problem takes priority, this became the run's milestone.
+- Two defects, both fixed. The condition was **invisible**: nothing aggregated
+  fetch outcomes, so "which sources work" had no answer short of noticing the
+  same line twice. And it was **loud**: one WARNING per source per cycle is
+  ~1,900 lines/day each at a 45s cadence, two thirds of everything the service
+  emitted — and since `logs` captures roughly the first 24 KB of its window, the
+  spam was displacing the alert content it sat beside. So this is also a partial
+  fix for #32 from the other end.
+- Shipped `alertlib.SourceHealth`: per-source counts and failing-run length, four
+  metrics, a repeated failure logged on a widening schedule (1st, 10th, 100th,
+  1000th), a presumed-dead line once after 20 consecutive failures, one line on
+  recovery, and a summary logged only when it changes. Plus backlog #26(d): the
+  global User-Agent overwrite is gone — `main()` was writing the SEC contact
+  string into the shared default, which `fetch_edgar_8k` never needed (it sets
+  its own per request) and which the twelve press feeds got instead.
+- **What I deliberately did not do: guess at the fetch fix.** This session's
+  egress policy refuses CONNECT to every one of these hosts — `fda.gov`
+  included, which the host polls fine — so all sixteen probes returned the
+  *proxy's* 403, not the origin's. Reading `Tunnel connection failed` rather than
+  trusting "403" is the only reason I did not conclude the feeds were gone. The
+  accounting shipped here is what makes the answer readable from the host, where
+  the network that matters is.
+- Also fixed a test-isolation defect this surfaced: every service keeps its entry
+  point in a module named `main`, so two test files doing `import main` got
+  whichever ran first out of `sys.modules`, and `test_form4_dedup` failed with
+  `module 'main' has no attribute 'mark_alerted'` the moment a second such file
+  existed. `services/tests/_loader.py` loads each service under its own alias;
+  verified in both orders and alone.
+- README's Status section was materially wrong — still claiming no deploy had
+  been made through the pipeline and repeating two questions closed yesterday.
+  Rewritten from the observations, with a Known gaps list that now also states
+  the unconfirmed Telegram token rotation and the ungitted host-side edit.
+- Next run: read `logs` first — one read now names every source and its
+  consecutive-failure count from the host, which settles #26(a). Then #27's alert
+  archive, which is the prerequisite for measuring signal quality and for the
+  website.
+- Catch-up: the bots' output got read for the first time and it immediately paid
+  for itself. Two of thirteen `fda-catalysts` feeds have been dead since August
+  and nothing said so; now something does, and quietly.

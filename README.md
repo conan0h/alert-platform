@@ -186,51 +186,78 @@ Built and under test — all of it verifiable from this repository:
 - [x] Phase 8 — gated deploy pipeline: GitHub OIDC → IAM → SSM, so a deploy
       runs from `main` with no stored credentials anywhere and every apply
       lands in the audit log against the workflow run that caused it. Live
-      since 2026-09-21; the read-only half has run against the real host. See
+      since 2026-09-21, and both halves have now run against the real host —
+      the write path made its first deploy the same day. See
       [ADR 0001](docs/adr/0001-oidc-ssm-over-ssh-keys.md).
 
-### Production, as observed on 2026-09-21
+### Production, as observed on 2026-09-22
 
-The pipeline now has a read path, so this section reports evidence instead of
-declining to. Everything below came from `observe.yml` runs against the live
-host, and the run logs are the record.
+Everything below came from `observe.yml` runs against the live host. The run
+logs are the record; no number here is estimated.
 
-| Service | Deployed ref | Unit | Health | Deployed |
-|---|---|---|---|---|
-| `clinical-trials` | `v0.1.0` | active | `ok` | 2026-08-20 |
-| `edgar-mna` | `v0.1.0` | active | `ok` | 2026-08-20 |
-| `fda-catalysts` | `v0.1.0` | active | `ok` | 2026-08-20 |
-| `form4-insider` | `v0.1.0` | active | `ok` | 2026-08-20 |
+| Service | Deployed ref | Unit | Health | Deployed | By |
+|---|---|---|---|---|---|
+| `clinical-trials` | `v0.1.0` | active | `ok` | 2026-08-20 | `ubuntu` |
+| `edgar-mna` | `v0.1.0` | active | `ok` | 2026-08-20 | `ubuntu` |
+| `fda-catalysts` | `v0.1.0` | active | `ok` | 2026-08-20 | `ubuntu` |
+| `form4-insider` | `v0.2.0` | active | `ok` | 2026-09-21 | `gha:35661685161` |
 
-All four bots are up and answering their health endpoints. All four are also
-**two releases behind their specs**, which pin `v0.1.2`, so `alertctl drift`
-reports all four as drifted and exits 3. That is the platform working:
-the drift is real and it is being named.
+`drift` reports no drift: every service is at the ref its spec pins.
 
-The audit log says how it got that way. On 2026-08-20 the `v0.1.2` apply was
-attempted twice; both times it failed on `clinical-trials`, and both times the
-engine rolled that service back and stopped without touching the other three.
-Stopping at the first failure rather than carrying on through the fleet is the
-blast-radius limit doing its job — three services were never put at risk by a
-change that was already known to be failing.
+**`form4-insider` is the first service this pipeline ever deployed.** On
+2026-09-21 at 22:16 UTC, `deploy.yml` applied plan `54993f27b007` — one service,
+health gate passed, 88 seconds, nothing rolled back. The audit actor is
+`gha:35661685161`, the workflow run id, which is what the whole OIDC chain
+exists to produce: a change to production attributable to a commit and a run
+rather than to a person on a login shell. Every `by: ubuntu` above is a change
+made by hand in August, before the pipeline existed.
 
-Two things in that record are not yet explained and are being treated as open:
-the rollbacks are logged with status `failed` even though the service they
-rolled back is active and healthy at `v0.1.0`, and the original failure's cause
-is recorded on the host rather than here. Until the first is understood, treat
-the `failed` status on a rollback entry as unreliable.
+That deploy carried a fix for a duplicate-alert bug: `form4-insider` sent its
+Telegram messages before recording the dedup row, so a locked SQLite database
+meant the same filings were re-sent every cycle. It now records first and
+refuses to send if the record will not persist
+([incident](docs/incidents/2026-09-21-form4-duplicate-alerts.md)).
 
-No deploy has yet been made through the pipeline. The last change to production
-was made by hand in August, which is what every `by: ubuntu` in the table's
-audit trail means.
+Two earlier questions are closed. Secret resolution works — the apply passed
+the gate the August attempt failed on, so the instance role was the fix. And
+the August rollbacks logged `failed` were accurate rather than buggy:
+`applyService` resolves secrets before its first mutating step, and the
+rollback path calls the same function, so both passes returned having changed
+nothing. Pinned by `internal/engine/secretgate_test.go`.
 
-Before a first deploy through that pipeline, work through
-[**docs/migration.md → Before the first deploy**](docs/migration.md#before-the-first-deploy).
-The baseline tag it asks for exists (`v0.1.0`, and the fleet has since moved to
-`v0.1.2`); the remaining items — rotating the leaked Telegram token, populating
-SSM, migrating SQLite state — are not yet confirmed done.
+### Known gaps
 
-Known gaps, unchanged and still open: `dedup.keys` is declared but not consumed
-by the services, `state.backup` is declared with no backup job behind it, and
-`drift` compares refs and unit hashes only, so an in-place edit inside a release
-directory is invisible to it.
+Stated because they are real, not because they are planned away.
+
+- **Two `fda-catalysts` feeds are dead.** `FiercePharma` and `EndpointsNews`
+  have returned 403 on every poll cycle since August. As of 2026-09-22 the
+  service accounts for fetch outcomes per source and names a source presumed
+  dead, so the condition is visible and quiet rather than invisible and loud;
+  whether these particular endpoints are gone or merely blocking the bot's
+  User-Agent is not yet established.
+- **`clinical-trials` streams 399 trials per cycle and alerts on none.** The
+  constant count suggests a page size rather than a result count. Not yet
+  investigated.
+- **No alert output is persisted** beyond journald, so there is no way to
+  review what the bots reported against what the market subsequently did. This
+  is the main obstacle to measuring signal quality.
+- **`logs` returns the oldest part of its window.** The read verb captures
+  roughly the first 24 KB of a one-hour journal, so a busy hour is truncated
+  from the wrong end.
+- **`observe` does not report which `alertctl` produced its answer.** Read
+  verbs never rebuild the binary, so a stale control plane reads as current.
+  This has already misled one verification.
+- **`dedup.keys`** is declared in the spec but not consumed by the services,
+  and **`state.backup`** is declared with no backup job behind it.
+- **`drift` compares refs and unit hashes only**, so an in-place edit inside a
+  release directory is invisible to it.
+- **Root account access keys are still in use.**
+- **The leaked Telegram token has not been confirmed rotated.** A bot token was
+  committed in this repository's history, and history rewriting is not a remedy
+  for a credential that has been published — only rotation is. The
+  [migration guide](docs/migration.md) asks for it and nothing has confirmed it
+  was done, so treat it as outstanding.
+- **A host-side edit to `services/form4_insider/main.py` is not in git.** A
+  traceback from the 2026-09-21 incident places a function four lines from where
+  the repository has it, so the host has been running code that no commit
+  contains.

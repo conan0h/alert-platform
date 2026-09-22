@@ -104,3 +104,37 @@ def test_a_good_fetch_clears_the_gauges(svc, monkeypatch, always_403):
 
     assert svc.metrics.gauges["alert_sources_failing"] == 0
     assert svc.metrics.gauges["alert_sources_presumed_dead"] == 0
+
+
+def test_each_destination_gets_its_own_user_agent(svc, monkeypatch):
+    """Wire feeds must not be sent the SEC contact string.
+
+    `main()` used to write the EDGAR User-Agent into HTTP_HEADERS_DEFAULT,
+    which fetch_edgar_8k sets per request anyway — so the one place it was
+    needed did not rely on it, and the twelve press feeds got it instead.
+    Commercial press behind Cloudflare commonly refuses that.
+    """
+    seen: list[dict] = []
+
+    class _Resp:
+        content = b"<rss><channel></channel></rss>"
+
+        def raise_for_status(self):
+            return None
+
+    def capture(url, headers=None, timeout=None, **kw):
+        seen.append(headers or {})
+        return _Resp()
+
+    monkeypatch.setattr(fda.requests, "get", capture)
+    monkeypatch.setattr(fda, "EDGAR_USER_AGENT", "SEC-Contact someone@example.invalid")
+
+    fda.fetch_feed("FiercePharma", "https://example.invalid/feed")
+    fda.fetch_edgar_8k("EDGAR-8K", "https://example.invalid/atom")
+
+    wire_ua, edgar_ua = seen[0]["User-Agent"], seen[1]["User-Agent"]
+    assert wire_ua != edgar_ua
+    assert "FDA-CatalystBot/1.0" in wire_ua
+    assert "someone@example.invalid" in edgar_ua
+    # The shared default must not have been mutated by either call.
+    assert fda.HTTP_HEADERS_DEFAULT["User-Agent"] == wire_ua
