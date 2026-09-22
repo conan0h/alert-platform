@@ -676,3 +676,45 @@ Format:
   changes, then the SSM document verbs. If `v0.3.0` exists, roll `fda-catalysts`,
   deploy, and read `logs` — that settles #26(a). The alert archive (#27) is the
   next milestone after that.
+
+## 2026-09-22 (third) — the infra bootstrap is applied; one variable outstanding
+- **Issue #27's AWS side is done and verified first-hand**, 08:05Z, from read-only
+  calls in the owner's CloudShell:
+
+        arn:aws:iam::834088498569:role/alert-platform-infra
+        arn:aws:iam::834088498569:policy/alert-platform-infra-boundary
+        s3://alert-platform-tfstate-834088498569/infra/terraform.tfstate  64772 bytes, 08:02:39
+
+  So the infra role, its permissions boundary, and remote state all exist. The
+  state migration took: **Terraform state is no longer only in a CloudShell home
+  directory**, which was the real exposure while it lasted.
+- The pre-migration state held exactly the 9 managed resources expected (plus 5
+  data sources): the OIDC provider, `alert-platform-deploy` + its inline policy,
+  `alert-platform-instance` + its inline policy + the SSM-core attachment + the
+  instance profile, and both SSM documents. Verified before migrating, which is
+  what made step 4 safe to approve.
+- **Still outstanding: the `AWS_INFRA_ROLE_ARN` repository variable.** `infra.yml`
+  runs 1 and 2 both failed on its guard, which is the guard working. `AWS_REGION`
+  interpolated correctly in the same step, so it is specifically that one value.
+  Not mine to set: repository settings are out of scope (§2), and this session's
+  proxy refuses `/actions/variables` for both read and write (403), so it cannot
+  even be checked from here — the workflow run is the only test.
+- Two failures worth recording because both were instruction defects rather than
+  system faults:
+  - **CloudShell ran out of disk** on `terraform init`. `hashicorp/aws` v5.100.0 is
+    ~700 MB against a 1 GB `$HOME` quota. Fix is `TF_DATA_DIR` under `/tmp`
+    (ephemeral instance storage, 9.4 GB free), one per module. Local state is
+    unaffected because it does not live under `.terraform/`.
+  - **The state nearly got orphaned.** The original state was in a clone from a
+    previous CloudShell session. The rewritten handoff used
+    `git pull --ff-only` when the directory already existed rather than
+    re-cloning, so it survived. A fresh clone would have left
+    `-migrate-state` nothing to migrate and step 4 would have tried to create
+    the OIDC provider and both SSM documents that already exist. Always locate
+    existing state before writing a migrate step.
+- `.gitignore` had no Terraform patterns at all, so that state file was untracked
+  by luck. Fixed in #33. `.terraform.lock.hcl` deliberately not ignored; neither
+  module has one and it cannot be generated here (registry blocked) — backlog #34.
+- Next: once the variable is set, `infra.yml -f step=plan` must report **no
+  changes**. That closes issue #27 and unblocks the SSM document verbs, which is
+  what #26(a), #32 and ADR 0004 all wait on.
