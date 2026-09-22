@@ -81,7 +81,10 @@ class SourceHealth:
 
     sources: dict[str, SourceState] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
-    _last_summary: str = field(default="", repr=False)
+    # None rather than "", because "" is the shape of "everything healthy" —
+    # initialising to it would swallow the first all-healthy line, which is the
+    # one most worth seeing at startup.
+    _last_shape: str | None = field(default=None, repr=False)
 
     def _state(self, name: str) -> SourceState:
         return self.sources.setdefault(name, SourceState(name=name))
@@ -154,17 +157,31 @@ class SourceHealth:
         )
         return f"{total - len(bad)}/{total} sources healthy; failing: {detail}"
 
-    def summary_if_changed(self) -> str:
-        """`summary()`, but only the first time it says something new.
+    def _shape(self) -> str:
+        """Which sources are failing, and whether each is presumed dead.
 
-        Logging the summary every cycle would trade 3,800 warning lines a day
-        for 1,900 summary lines, which misses the point. The per-source
-        escalation in `record_failure` is already the "still broken"
-        heartbeat, so this only needs to speak when the picture moves.
+        Deliberately excludes the consecutive-failure counts. Comparing the
+        rendered summary instead was the first version's bug: the count is in
+        that string, so it changed on every cycle a source stayed broken and
+        the summary printed every cycle — about 1,900 lines a day, which is
+        the volume the escalation schedule exists to avoid. Found by reading
+        the deployed output on 2026-09-22, not by a test.
         """
-        current = self.summary()
+        return "|".join(
+            f"{s.name}:{'dead' if s.presumed_dead else 'failing'}"
+            for s in self.failing()
+        )
+
+    def summary_if_changed(self) -> str:
+        """`summary()`, but only when the set of failing sources moves.
+
+        The per-source escalation in `record_failure` is already the "still
+        broken" heartbeat, so a steady state must stay silent here — including
+        a steady state where the failure counts keep climbing.
+        """
+        shape = self._shape()
         with self._lock:
-            if current == self._last_summary:
+            if shape == self._last_shape:
                 return ""
-            self._last_summary = current
-        return current
+            self._last_shape = shape
+        return self.summary()
