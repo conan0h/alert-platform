@@ -102,31 +102,39 @@ actually emit.
     global UA overwrite on its own merits: one UA per destination is right
     whether or not it is what 403s here.
 
-27. **Alert content is not persisted anywhere.**
-    `(a)(b) DONE 2026-09-22 in #35; (c) blocked on ADR 0004; (d) todo`
-    Built by a concurrent session, not this one — `alertlib.AlertArchive` plus
-    `Service.send_alert`, ADR 0005, 23 tests. Every alert is now recorded to an
-    append-only SQLite archive before it is sent, with the delivery outcome
-    settled afterwards. Read ADR 0005 before touching it.
-    Remaining: **(c)** the `alerts` read verb. The SSM document half is now ours
-    (#28 is done), but `READONLY_VERBS` in the wrapper does not include `alerts`
-    and the wrapper is not ours to change until ADR 0004's adopter exists — so
-    this is blocked there, not on infra. **(d)** the console panel, which is
-    unblocked and needs nothing from anyone.
-    Original motivation, still the reason it mattered: alerts existed only as a
-    Telegram message and a journald line, so "is this signal any good" could not
-    be answered and the website had nothing to render.
-    This is the prerequisite for priority 1 and 2 and for the website, and it
-    should be built before more filtering work, so that filtering can be judged
+27. **Persist alert content, and give it a reader.**
+    `(a)(b) done 2026-09-22 in #35; (c) blocked on ADR 0004; (d) todo, unblocked`
+    Alerts existed only as a Telegram message and a journald line, so "is this
+    signal any good" could not be answered and the website had nothing to
+    render. This is the prerequisite for priorities 1 and 2 and for the site,
+    and it comes before more filtering work so that filtering can be judged
     against recorded output rather than impressions.
-    Design sketch: an append-only table per service in the existing SQLite
-    state, or one shared alerts database — every alert with source, ticker,
-    payload, dedup key, reason it fired, and send outcome. Then an `alerts`
-    read verb, and a console panel. Keep the schema boring; it is going to be
-    read by a website later.
-    Slices as originally planned: (a) schema and `alertlib` write path with
-    tests, (b) record from all four services, (c) `alerts` verb in the wrapper
-    and SSM document, (d) console panel.
+
+    **(a) and (b) done.** `alertlib.AlertArchive` plus `Service.send_alert`:
+    every alert is recorded to an append-only SQLite table before it is sent and
+    the delivery outcome settled afterwards — service, deployed ref, source,
+    dedup key, ticker, reason, the message as sent, JSON payload,
+    `pending | sent | failed`. All four services route through one method, so
+    recording is a property of the send path rather than a convention. 23 tests.
+    **Read ADR 0005 before touching it**: it argues the two decisions a reviewer
+    will ask about — one database per service rather than a shared one (the last
+    incident here was a SQLite lock storm), and a write failure that is counted
+    rather than raised (a missing archive row is lost measurement; a missing
+    dedup row is duplicate alerts that reach a human).
+
+    **Nothing is being recorded in production yet.** This runs on the host, so
+    it needs a release and a deploy, and no session can cut a tag (#31). Until
+    then the table exists only in `main`.
+
+    **(c) the `alerts` read verb — blocked on the wrapper, not on infra.** The
+    SSM document half is ours now that #28 is done. But `READONLY_VERBS` in
+    `deploy/ops/alert-deploy` does not include `alerts`, and the wrapper is not
+    ours to change until ADR 0004's adopter exists.
+    **(d) the console panel — unblocked, and needs nothing from anyone.**
+
+    Design note for whoever builds either: the archive is one file per service,
+    so a reader unions four. `AlertArchive.recent()` and `.count()` already
+    exist, and `PRAGMA user_version` carries the schema version.
 
 28. **Own the AWS infrastructure: remote state and an `infra.yml` workflow.**
     `DONE 2026-09-22 — verified by infra.yml run 5, "No changes"`
@@ -135,18 +143,17 @@ actually emit.
     `NeverTheTrustAnchor` deny used `iam:*OpenIDConnectProvider*`, which also
     matched the read Terraform needs to refresh before it can plan, so the role
     could not plan at all. `tools/check_iam_denies.py` now guards that class.
-    Granted by the owner on 2026-09-21. Terraform state is local today, so
-    nothing but a human's CloudShell can apply it, and every SSM-document or IAM
-    change is a handoff. #27 needs a document change immediately.
+    Granted by the owner on 2026-09-21, when Terraform state was local and every
+    SSM-document or IAM change was a handoff.
     Slices (a) S3 state bucket with versioning and a DynamoDB lock table in
     `infra/bootstrap`, a separate root module because a backend cannot reference
     the module that defines it; (b) the `alert-platform-infra` role with a
     permissions boundary and explicit denies on its own role, its own policies,
     the boundary, the OIDC provider, the state, and terminating the instance;
     (c) `infra.yml` with plan then apply — **all done**, ADR 0003.
-    (d) The handoff for the bootstrap apply — **open**, and it is the last one:
-    the agent cannot grant itself access. Two steps in AWS CloudShell, then two
-    repository variables.
+    (d) The handoff for the bootstrap apply — **done and verified 2026-09-22**,
+    independently twice: `infra.yml` runs 5 and 6, both `No changes. Your
+    infrastructure matches the configuration.`
     (e) After it is proven: delete the root access keys and close port 22.
     Once this lands, #27's `alerts` verb and #32's `--since` parameter both stop
     being handoffs, since both are SSM document changes.

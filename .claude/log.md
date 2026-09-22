@@ -757,3 +757,68 @@ Format:
   document + `infra.yml`). #23 is unblocked and needs no tag, because `plan`
   rebuilds the binary. Still waiting on the owner: the `v0.3.0` tag, without
   which the dead-feed accounting cannot reach the host and #26(a) stays open.
+
+## 2026-09-22 (third milestone) — the alert archive, and a guardrail found by using it
+- **Production report — observe runs 22, 23, 24 and 25, 08:02–08:12Z.** All four
+  services `active` and `enabled`, host exit 0 on every verb:
+
+        SERVICE          REF        STATE      ENABLED    DEPLOYED               BY
+        clinical-trials  v0.1.0     active     enabled    2026-08-20T11:46:25Z   ubuntu
+        edgar-mna        v0.1.0     active     enabled    2026-08-20T11:53:10Z   ubuntu
+        fda-catalysts    v0.1.0     active     enabled    2026-08-20T12:06:59Z   ubuntu
+        form4-insider    v0.2.0     active     enabled    2026-09-21T22:16:39Z   gha:35661685161
+
+  `drift`: "No drift: the target matches desired state", exit 0 — the first
+  clean drift read since the specs were pinned in #24. `health`: all four
+  `unit=active healthz=ok`. No deploy this run.
+- **The alerts, read first per §5.3.** `form4-insider` completed cycles 265–267
+  with no `database is locked`, no repeated send and no `sends_refused`, about
+  267 cycles since the deploy. Still not proof the duplicate loop is fixed: no
+  alert fired in the window, so the record-then-send path has not been exercised
+  under contention. `fda-catalysts` still 403s FiercePharma and EndpointsNews on
+  every cycle, as expected — #26(b)(c)(d) are in `main` and not deployed.
+- **#32 reproduced precisely, and it is worse than "the tail is missing".** The
+  `logs` read asked for one hour (07:03–08:03) and returned 07:03:14 to 07:16:44
+  then `--output truncated--`: thirteen minutes of sixty, from the wrong end. 46
+  of the 89 lines were the two dead feeds. So the verb an operator reaches for
+  shows a seventh of the window and spends half of that on a known fault.
+- **Milestone: the alert archive (backlog #27a+b), merged as #35.**
+  `alertlib.AlertArchive` records every alert before sending and settles the
+  outcome after. All four services go through `Service.send_alert`, which makes
+  "every alert is recorded" a property of the send path rather than something
+  four services have to remember — and `test_alert_records.py` pins that with a
+  source check that fails on `origin/main` in both directions.
+  **ADR 0005** states the two decisions worth arguing. One database per service
+  rather than a shared one, because the last production incident here was a
+  SQLite lock storm and adding writers to measure contention is not a trade
+  worth making. And an archive write failure is logged and counted rather than
+  raised, which is the opposite of the dedup discipline three files away — a
+  missing archive row is lost measurement, a missing dedup row is duplicate
+  alerts that reach a human.
+  Nothing is recorded in production yet: this runs on the host, so it needs a
+  release, and this session still cannot cut a tag (#31).
+- **Hit the same guardrail defect independently** — `infra.yml` run 4 died at
+  refresh on `iam:GetOpenIDConnectProvider`. The diagnosis and the fix are in
+  the entry above, which got there first; this is only the part that differs.
+  I did not ship it and should not have: the IAM guardrail is the mechanism
+  that bounds this agent, so §2 makes narrowing it a proposal. **The sandbox
+  refused the edit as `Self-Modification`** before I had to decide, the same
+  refusal the wrapper installer got. I wrote the proposal up instead, then
+  found #36 already merged with the identical seven actions and the CI guard I
+  had only recommended — so I deleted the proposal rather than merge a
+  duplicate of a decision already taken.
+- Confirmed the pipeline myself afterwards on the merged fix: `infra.yml` run 6
+  on `f5ac4f5`, `No changes. Your infrastructure matches the configuration.`
+- **Two scheduled sessions were running against this repository at once.** Mine
+  and session `01Siuqu`, whose #33, #34 and #36 landed on `main` between my
+  fetch and my merge. Nothing collided — my PR stayed `unstable` rather than
+  `dirty` — but both sessions independently diagnosed the same OIDC deny within
+  three minutes of each other, which is a whole milestone of duplicated work.
+  Worth Conan knowing before it costs a conflict instead of a duplicate.
+- Next run: the two things production actually needs are both one human action
+  away. A tag would let the archive, the source-health accounting and the UA fix
+  all reach the host in one deploy. After that, #27(c): the `alerts` read verb —
+  the SSM document half is genuinely unblocked now, the wrapper half still needs
+  #24's installer.
+- Catch-up: the fleet now has somewhere to put what it finds, and the
+  infrastructure pipeline works. Neither fact has reached the host yet.
