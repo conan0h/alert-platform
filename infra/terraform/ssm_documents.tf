@@ -14,8 +14,14 @@ locals {
   # Parameters arrive as shell variables, quoted at the point of use. The
   # wrapper validates them again regardless — this is defence in depth, not
   # the defence.
+  # `logs` is the only read verb that takes a window, and the other verbs
+  # refuse an unexpected argument, so it is special-cased rather than passed
+  # to everything. Same shape as the `apply` case below.
   observe_script = <<-SCRIPT
     set -euo pipefail
+    if [ "$1" = "logs" ]; then
+      exec runuser -u ${var.ops_user} -- sudo -n /usr/local/sbin/alert-deploy logs --since "$3" --actor "$2"
+    fi
     exec runuser -u ${var.ops_user} -- sudo -n /usr/local/sbin/alert-deploy "$1" --actor "$2"
   SCRIPT
 
@@ -50,13 +56,36 @@ resource "aws_ssm_document" "observe" {
         allowedPattern = "^[A-Za-z0-9_.:@/-]{1,64}$"
         default        = "ssm:observe"
       }
+      # An exact set, not a pattern. Two reasons beyond the usual preference
+      # for a whitelist. The value reaches `journalctl --since`, and the
+      # wrapper's own validator accepts forms journalctl rejects — `30m` passes
+      # `valid_since` and then fails at runtime — so the set is restricted to
+      # expressions verified against journalctl itself. And it is interpolated
+      # into a shell string in this document, so an exact set removes the
+      # question of quoting rather than answering it.
+      #
+      # A short window is the point: SSM captures roughly the first 24 KB of
+      # stdout and journalctl prints oldest-first, so a long window returns its
+      # beginning and drops the recent entries an operator opened it to read.
+      since = {
+        type        = "String"
+        description = "How far back `logs` reads. Ignored by every other verb."
+        allowedValues = [
+          "10 minutes ago",
+          "30 minutes ago",
+          "1 hour ago",
+          "6 hours ago",
+          "1 day ago",
+        ]
+        default = "1 hour ago"
+      }
     }
     mainSteps = [{
       action = "aws:runShellScript"
       name   = "observe"
       inputs = {
         timeoutSeconds = "300"
-        runCommand     = ["bash -s '{{ verb }}' '{{ actor }}' <<'EOF'\n${local.observe_script}\nEOF"]
+        runCommand     = ["bash -s '{{ verb }}' '{{ actor }}' '{{ since }}' <<'EOF'\n${local.observe_script}\nEOF"]
       }
     }]
   })

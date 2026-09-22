@@ -19,6 +19,17 @@ on:
         default: status
         type: choice
         options: [status, drift, history, health, logs]
+      since:
+        description: How far back `logs` reads. Ignored by every other verb.
+        required: false
+        default: 1 hour ago
+        type: choice
+        options:
+          - 10 minutes ago
+          - 30 minutes ago
+          - 1 hour ago
+          - 6 hours ago
+          - 1 day ago
 
 permissions:
   id-token: write   # mint the OIDC token; this is what replaces stored keys
@@ -69,7 +80,10 @@ jobs:
         with:
           document: AlertPlatform-Observe
           instance-id: ${{ vars.ALERT_INSTANCE_ID }}
-          parameters: verb=${{ inputs.verb || 'status' }},actor=gha:${{ github.run_id }}
+          # A choice input rather than free text, and the document constrains the
+          # value again with allowedValues — so nothing arbitrary reaches a shell
+          # string. `since` is inert for every verb but `logs`.
+          parameters: verb=${{ inputs.verb || 'status' }},actor=gha:${{ github.run_id }},since=${{ inputs.since || '1 hour ago' }}
           timeout-seconds: '300'
           # 3 is alertctl's "I found what I look for" — drift found drift. It
           # annotates the run instead of failing it, because an hourly job that
