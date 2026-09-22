@@ -479,3 +479,36 @@ Cheap habits that cost nothing when there is only one session:
 - **Attribute from the commit, not from memory.** `#36` is in the history with
   its own reasoning. Claiming it would have been a fabricated production claim
   of a subtler kind than the usual one.
+
+## A test that runs one iteration cannot see a per-iteration bug
+*Learned 2026-09-22, from shipping a log-spam fix that still spammed.*
+
+`SourceHealth.summary_if_changed` was meant to print only when the set of failing
+sources moved. Deployed, it printed every cycle:
+
+    source health: 14/15 sources healthy; failing: FiercePharma (x1)
+    source health: 14/15 sources healthy; failing: FiercePharma (x2)
+    source health: 14/15 sources healthy; failing: FiercePharma (x3)
+
+It compared the *rendered summary*, and the consecutive-failure count is in that
+string. So the thing it used to detect "has anything changed" was guaranteed to
+change on every cycle a source stayed broken.
+
+The test suite had twelve cases and passed. The relevant one failed a source
+exactly once, so the count never climbed and the defect could not appear.
+
+- **When the behaviour under test is "does this repeat", the test must repeat
+  it.** One call proves the first call works. A loop of twenty proves the
+  twentieth is silent, which was the whole claim.
+- **Beware a change-detector whose key contains a monotonic value.** A counter, a
+  timestamp, a duration or a sequence number inside the compared key makes the
+  detector fire unconditionally while looking correct.
+- **The output is the specification.** Twelve green tests and a PR body asserting
+  "a steady state stays silent" did not make it so; four lines of journal did.
+  Reading what a change actually emitted in production found in seconds what the
+  suite was built not to see.
+
+Related trap in the fix: the natural sentinel for "nothing compared yet" was
+`""`, which is also the shape of "every source healthy" — so the first
+all-healthy line, the one most worth seeing at startup, would have been
+swallowed. A sentinel must be a value the domain cannot produce.
