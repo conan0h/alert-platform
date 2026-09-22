@@ -379,10 +379,11 @@ id.
 **`infra.yml` is proven, 2026-09-22.** Run 6 on `f5ac4f5` assumed the infra role
 via OIDC, read remote state, and reported `No changes. Your infrastructure
 matches the configuration.` Terraform is now the working path to the account, so
-an SSM document change is yours (§10) rather than a handoff. Run 4 that morning
+an SSM document change is yours (§10) rather than a handoff. Runs 3 and 4 that morning
 found why it had never worked: the guardrail denied `iam:*OpenIDConnectProvider*`
-and that wildcard matches the read a plan's refresh needs. Narrowed in #36, with
-`tools/check_iam_denies.py` failing CI on any wildcard inside a Deny.
+and that wildcard matches the read a plan's refresh needs, so every plan died
+before printing a change. Narrowed in #36, with `tools/check_iam_denies.py`
+failing CI on any wildcard inside a Deny.
 
 **Not yet observed:** whether the duplicate-alert loop actually stopped. Roughly
 267 cycles since the deploy show no `database is locked`, no repeated send and

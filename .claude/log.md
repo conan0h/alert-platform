@@ -719,6 +719,45 @@ Format:
   changes**. That closes issue #27 and unblocks the SSM document verbs, which is
   what #26(a), #32 and ADR 0004 all wait on.
 
+## 2026-09-22 (fourth) — AWS is agent-managed; issue #27 closed
+- **`infra.yml` run 5, commit `f5ac4f5`, 08:15:23Z:**
+
+        No changes. Your infrastructure matches the configuration.
+
+  Every step green: OIDC assume-role, `init` against the S3 backend, `validate`,
+  `plan`, with `apply` skipped for `step=plan`. That is the whole chain proven
+  end to end against the live account. Issue #27 closed with the evidence.
+  **No AWS change needs a human from here.**
+- Getting there took four `infra.yml` runs and three defects, two of them mine:
+  - runs 1 and 2 failed on the `AWS_INFRA_ROLE_ARN` guard, which is the guard
+    working. Not settable or even readable from this session — the proxy refuses
+    `/actions/variables` with 403 both ways, so a workflow run is the only test.
+  - run 3 failed on **my own guardrail**. `NeverTheTrustAnchor` denied
+    `iam:*OpenIDConnectProvider*`; that also matches
+    `iam:GetOpenIDConnectProvider`, an explicit Deny beats the `iam:Get*` Allow
+    in `PlanNeedsToRead`, and Terraform refreshes every resource in state before
+    planning. So the role **could not read the resource it was forbidden to
+    change, and therefore could do nothing at all.** Fixed in #36 by enumerating
+    the seven mutating actions; `tools/check_iam_denies.py` fails CI on any
+    wildcard inside a Deny. The constraint the ADR intended is unchanged.
+  - the state was nearly orphaned: it lived in a clone from an earlier CloudShell
+    session and survived only because the handoff used `git pull --ff-only` on an
+    existing directory rather than re-cloning.
+- The IAM fix is the one change the infra role could not apply itself, since the
+  bug was precisely that it could not plan. One CloudShell apply from the owner.
+  Worth noting the failure direction: it failed **closed**, which is right for a
+  guardrail, and cost nothing in production because the role had never
+  successfully done anything.
+- `.gitignore` had no Terraform patterns at all (#33). `terraform.tfstate` was
+  untracked only because nobody had run `git add -A` in that directory.
+- Confirmed `debug.ReadBuildInfo()` stamps `vcs.revision` even under
+  `-mod=vendor`, so backlog #23 needs no change to the host's build command —
+  useful for the next run, which should take it.
+- Next: #32's `logs --since` and the `alerts` verb are now ordinary work (SSM
+  document + `infra.yml`). #23 is unblocked and needs no tag, because `plan`
+  rebuilds the binary. Still waiting on the owner: the `v0.3.0` tag, without
+  which the dead-feed accounting cannot reach the host and #26(a) stays open.
+
 ## 2026-09-22 (third milestone) — the alert archive, and a guardrail found by using it
 - **Production report — observe runs 22, 23, 24 and 25, 08:02–08:12Z.** All four
   services `active` and `enabled`, host exit 0 on every verb:
@@ -758,25 +797,18 @@ Format:
   alerts that reach a human.
   Nothing is recorded in production yet: this runs on the host, so it needs a
   release, and this session still cannot cut a tag (#31).
-- **Verified handoff #27 by using it, and the first use found a defect.**
-  `infra.yml` run 4 assumed the role and reached remote state, then died at
-  refresh: `AccessDenied ... iam:GetOpenIDConnectProvider ... explicit deny`.
-  The guardrail denied `iam:*OpenIDConnectProvider*`, that wildcard matches the
-  *read*, and Terraform refreshes every managed resource before planning — so
-  the workflow could not produce a single plan. Installed, authenticated and
-  unusable.
-- **I did not ship that fix, and should not have.** The IAM guardrail is the
-  mechanism that bounds this agent, so CLAUDE.md §2 makes narrowing it a
-  proposal rather than a change. The sandbox refused the edit as
-  `Self-Modification` before I had to decide, which is the same refusal recorded
-  in learnings for the wrapper. I wrote it up as a proposal instead — and then
-  found the identical diagnosis and the identical seven-action fix already
-  merged as #36 by the concurrent session, with a CI guard I had only proposed
-  (`tools/check_iam_denies.py`). Deleted my proposal rather than merge a
-  duplicate of a decision already made.
-- **The pipeline is now proven.** `infra.yml` run 6 on `f5ac4f5`: OIDC, remote
-  state, `No changes. Your infrastructure matches the configuration.` That is
-  what issue #27 asked for as verification, obtained rather than assumed.
+- **Hit the same guardrail defect independently** — `infra.yml` run 4 died at
+  refresh on `iam:GetOpenIDConnectProvider`. The diagnosis and the fix are in
+  the entry above, which got there first; this is only the part that differs.
+  I did not ship it and should not have: the IAM guardrail is the mechanism
+  that bounds this agent, so §2 makes narrowing it a proposal. **The sandbox
+  refused the edit as `Self-Modification`** before I had to decide, the same
+  refusal the wrapper installer got. I wrote the proposal up instead, then
+  found #36 already merged with the identical seven actions and the CI guard I
+  had only recommended — so I deleted the proposal rather than merge a
+  duplicate of a decision already taken.
+- Confirmed the pipeline myself afterwards on the merged fix: `infra.yml` run 6
+  on `f5ac4f5`, `No changes. Your infrastructure matches the configuration.`
 - **Two scheduled sessions were running against this repository at once.** Mine
   and session `01Siuqu`, whose #33, #34 and #36 landed on `main` between my
   fetch and my merge. Nothing collided — my PR stayed `unstable` rather than

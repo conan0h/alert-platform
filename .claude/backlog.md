@@ -102,7 +102,7 @@ actually emit.
     global UA overwrite on its own merits: one UA per destination is right
     whether or not it is what 403s here.
 
-27. **Alert content is not persisted anywhere.**
+27. **Persist alert content, and give it a reader.**
     `(a)(b) done 2026-09-22 (#35); (c)(d) open — and (a)(b) need a deploy`
     Alerts existed only as a Telegram message and a journald line. There was no
     record to query, so "is this signal any good" could not be answered, and the
@@ -136,24 +136,23 @@ actually emit.
     and `PRAGMA user_version` carries the schema version.
 
 28. **Own the AWS infrastructure: remote state and an `infra.yml` workflow.**
-    `code done (#26); needs-conan (#27) for the one bootstrap apply`
-    Granted by the owner on 2026-09-21. Terraform state is local today, so
-    nothing but a human's CloudShell can apply it, and every SSM-document or IAM
-    change is a handoff. #27 needs a document change immediately.
+    `DONE 2026-09-22 — verified by infra.yml run 5, "No changes"`
+    AWS is now changed through `infra.yml` and needs no human. Issue #27 closed
+    with the evidence. One defect found in the process and fixed in #36: the
+    `NeverTheTrustAnchor` deny used `iam:*OpenIDConnectProvider*`, which also
+    matched the read Terraform needs to refresh before it can plan, so the role
+    could not plan at all. `tools/check_iam_denies.py` now guards that class.
+    Granted by the owner on 2026-09-21, when Terraform state was local and every
+    SSM-document or IAM change was a handoff.
     Slices (a) S3 state bucket with versioning and a DynamoDB lock table in
     `infra/bootstrap`, a separate root module because a backend cannot reference
     the module that defines it; (b) the `alert-platform-infra` role with a
     permissions boundary and explicit denies on its own role, its own policies,
     the boundary, the OIDC provider, the state, and terminating the instance;
     (c) `infra.yml` with plan then apply — **all done**, ADR 0003.
-    (d) The handoff for the bootstrap apply — **done and verified 2026-09-22.**
-    `infra.yml` run 6 on `f5ac4f5`: role assumed via OIDC, remote state read,
-    `No changes. Your infrastructure matches the configuration.` That is the
-    verification this item asked for, and the pipeline is now proven end to end.
-    Note what run 4 found first: the guardrail's `iam:*OpenIDConnectProvider*`
-    deny also matched `iam:GetOpenIDConnectProvider`, and Terraform refreshes
-    every managed resource, so *every* plan died at refresh. Fixed in #36 with a
-    CI guard (`tools/check_iam_denies.py`) against wildcards inside a Deny.
+    (d) The handoff for the bootstrap apply — **done and verified 2026-09-22**,
+    independently twice: `infra.yml` runs 5 and 6, both `No changes. Your
+    infrastructure matches the configuration.`
     (e) After it is proven: delete the root access keys and close port 22.
     Once this lands, #27's `alerts` verb and #32's `--since` parameter both stop
     being handoffs, since both are SSM document changes.
@@ -226,7 +225,9 @@ actually emit.
     output with `journalctl -n <N>` as well as `--since`, so the tail is what
     survives. Also worth letting `observe.yml` pass `--since`, which today it
     cannot — the SSM document takes only `verb`, so that part needs a document
-    change and therefore #28.
+    change and therefore #28. **#28 is done as of 2026-09-22, so this is now
+    ordinary work**: the SSM document is `infra/terraform/ssm_documents.tf` and
+    `infra.yml` applies it. The wrapper half still needs ADR 0004's adopter.
     Partly mitigated 2026-09-22 from the other end: #26(a) removed the ~3,800
     daily warning lines that were the main thing filling the 24 KB, so a window
     now holds far more of what an operator actually opened it to read.
