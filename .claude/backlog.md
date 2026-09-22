@@ -241,12 +241,28 @@ actually emit.
     already misled one verification. Fix is a build-time commit stamp surfaced
     in `status` and the workflow summary, not a rebuild on read.
 
-24. **Proposal for Conan: should `plan` adopt a new wrapper from the checkout?**
-    `needs-conan — decision, not work`
-    The sudo rule names a copy of the wrapper, so a wrapper fix waits on a root
-    re-run of `bootstrap-host.sh`. Full argument both ways in the entry below;
-    unchanged by the 2026-09-21 grant of AWS ownership, because the wrapper is
-    the allowlist rather than a resource.
+24. **Wrapper adoption: decided, not built.**
+    `granted 2026-09-22; blocked on a sandbox permission and on issue #27`
+    The owner granted it: the agent owns the wrapper's verb set. Design and the
+    full argument both ways are in **ADR 0004**. Not `plan` adopting silently —
+    an explicit, gated, audited `adopt-wrapper` verb, with the *adopter* a
+    separate frozen program so a broken wrapper stays recoverable and so the
+    rules a candidate must satisfy remain the owner's.
+
+    Two things block implementation, and neither is the decision:
+    - **The sandbox refuses to let the agent author the privileged installer or
+      the sudoers change** (`Security Weaken`), on 2026-09-21 and again on
+      2026-09-22 after the grant. The grant settles whether, not how. Either the
+      owner commits that one file from ADR 0004's design, or the permission is
+      widened for it specifically. Do not attempt to route around the denial with
+      a different file-writing tool; the objection is to what the script does.
+    - **Issue #27 comes first regardless.** The SSM document needs an
+      `adopt-wrapper` verb in `allowedValues`, which is Terraform, which needs
+      ADR 0003's bootstrap applied.
+
+    Everything else for it — the wrapper-side verb changes, the test-suite gate,
+    the workflow input, docs — is ordinary work the agent can do once the
+    installer exists.
 
 5. **Capture the host-side `form4_insider` edit into git.** `todo`
     Confirmed still real: the traceback in #25 puts `mark_alerted`'s
