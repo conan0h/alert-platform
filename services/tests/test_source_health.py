@@ -166,3 +166,53 @@ def test_counts_accumulate_across_runs(health):
     assert st.consecutive_failures == 1   # the run, not the total
     assert st.last_error == "y"
     assert st.last_success_at > 0
+
+
+def test_summary_is_silent_while_a_source_stays_broken(health):
+    """The bug the deployed output showed on 2026-09-22.
+
+    The first version compared the rendered summary, which contains the
+    consecutive-failure count — so it changed every cycle a source stayed
+    broken and printed about 1,900 lines a day, the exact volume the
+    escalation schedule exists to avoid.
+    """
+    health.record_success("ok-source")
+    assert health.summary_if_changed()          # first picture is news
+
+    health.record_failure("FiercePharma", "403")
+    assert "FiercePharma" in health.summary_if_changed()
+
+    # More failures of the same source, staying below the presumed-dead
+    # threshold: the count climbs, the shape does not, so nothing is printed.
+    # (Crossing into presumed-dead *is* a change, and has its own test.)
+    spoke = []
+    for _ in range(PRESUMED_DEAD_AFTER - 5):
+        health.record_failure("FiercePharma", "403")
+        spoke.append(health.summary_if_changed())
+    assert [x for x in spoke if x] == [], spoke
+
+    # A *second* source failing is a change in the set, so it speaks again.
+    health.record_failure("EndpointsNews", "403")
+    line = health.summary_if_changed()
+    assert "EndpointsNews" in line and "FiercePharma" in line
+
+
+def test_summary_speaks_when_a_source_becomes_presumed_dead(health):
+    """Crossing into presumed-dead changes the shape even though the set does not."""
+    health.record_success("ok")
+    health.summary_if_changed()
+    for _ in range(PRESUMED_DEAD_AFTER - 1):
+        health.record_failure("x", "boom")
+    first = health.summary_if_changed()
+    assert "x" in first and "presumed dead" not in first
+
+    health.record_failure("x", "boom")          # crosses the threshold
+    crossed = health.summary_if_changed()
+    assert "presumed dead" in crossed
+
+
+def test_summary_speaks_on_recovery(health):
+    health.record_failure("x", "boom")
+    health.summary_if_changed()
+    health.record_success("x")
+    assert health.summary_if_changed() == "all 1 sources healthy"
