@@ -102,10 +102,20 @@ actually emit.
     global UA overwrite on its own merits: one UA per destination is right
     whether or not it is what 403s here.
 
-27. **Alert content is not persisted anywhere.** `todo`
-    Alerts exist only as a Telegram message and a journald line. There is no
-    record to query, so "is this signal any good" cannot be answered, and the
-    website in CLAUDE.md §1 has nothing to render.
+27. **Alert content is not persisted anywhere.**
+    `(a)(b) DONE 2026-09-22 in #35; (c) blocked on ADR 0004; (d) todo`
+    Built by a concurrent session, not this one — `alertlib.AlertArchive` plus
+    `Service.send_alert`, ADR 0005, 23 tests. Every alert is now recorded to an
+    append-only SQLite archive before it is sent, with the delivery outcome
+    settled afterwards. Read ADR 0005 before touching it.
+    Remaining: **(c)** the `alerts` read verb. The SSM document half is now ours
+    (#28 is done), but `READONLY_VERBS` in the wrapper does not include `alerts`
+    and the wrapper is not ours to change until ADR 0004's adopter exists — so
+    this is blocked there, not on infra. **(d)** the console panel, which is
+    unblocked and needs nothing from anyone.
+    Original motivation, still the reason it mattered: alerts existed only as a
+    Telegram message and a journald line, so "is this signal any good" could not
+    be answered and the website had nothing to render.
     This is the prerequisite for priority 1 and 2 and for the website, and it
     should be built before more filtering work, so that filtering can be judged
     against recorded output rather than impressions.
@@ -114,10 +124,9 @@ actually emit.
     payload, dedup key, reason it fired, and send outcome. Then an `alerts`
     read verb, and a console panel. Keep the schema boring; it is going to be
     read by a website later.
-    Slices: (a) schema and `alertlib` write path with tests, (b) record from all
-    four services, (c) `alerts` verb in the wrapper and SSM document — note the
-    document's `allowedValues` is Terraform, so this is the first thing to use
-    #28's self-service infra, (d) console panel.
+    Slices as originally planned: (a) schema and `alertlib` write path with
+    tests, (b) record from all four services, (c) `alerts` verb in the wrapper
+    and SSM document, (d) console panel.
 
 28. **Own the AWS infrastructure: remote state and an `infra.yml` workflow.**
     `DONE 2026-09-22 — verified by infra.yml run 5, "No changes"`
@@ -213,9 +222,18 @@ actually emit.
     change and therefore #28. **#28 is done as of 2026-09-22, so this is now
     ordinary work**: the SSM document is `infra/terraform/ssm_documents.tf` and
     `infra.yml` applies it. The wrapper half still needs ADR 0004's adopter.
-    Partly mitigated 2026-09-22 from the other end: #26(a) removed the ~3,800
-    daily warning lines that were the main thing filling the 24 KB, so a window
-    now holds far more of what an operator actually opened it to read.
+    **Half done 2026-09-22.** `observe.yml` can now pass `--since`, as a choice
+    input constrained again by `allowedValues` on the SSM document, so a caller
+    can ask for 10 minutes instead of an hour and get all of it. The wrapper
+    already accepted `--since`; only the document did not pass it. Also mitigated
+    from the other end: #26(a) removed the ~3,800 daily warning lines that were
+    the main thing filling the 24 KB.
+    Still open: bounding output with `journalctl -n` so the *tail* survives
+    regardless of window length. That is a wrapper change, so ADR 0004.
+    Found while doing this: **the wrapper's `valid_since` accepts `30m`, which
+    journalctl rejects** — verified both locally. So that form passes validation
+    and then fails at runtime with a confusing error. The document's
+    `allowedValues` excludes it; fixing the wrapper's validator needs ADR 0004.
     Note the window is one hour, not one day — an earlier log entry wrongly
     expected it to slide far enough to show a 22:16 event the next morning.
 
