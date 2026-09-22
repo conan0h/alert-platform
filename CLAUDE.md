@@ -354,14 +354,16 @@ the evidence, and continue.
 
 Verify and update this section as you learn.
 
-**Repository.** `main` is green. Tags `v0.1.0`–`v0.1.2`; all four specs pin
-`v0.1.2`. No tag yet contains the exit-code change of ADR 0002, so the next
-deploy needs a release first. The `go.mod` module path is
-`github.com/conan0h/alert-platform`; tags up to `v0.1.2` predate the rename and
-carry `conanohara`, so `go install …@latest` needs a newer tag.
+**Repository.** `main` is green. Tags `v0.1.0`–`v0.2.0`. `form4-insider` pins
+`v0.2.0`; the other three pin `v0.1.0` deliberately (#33). `main` now carries
+three merged changes no tag contains — the source-health accounting and the
+User-Agent fix (#30), and the alert archive (#35) — so the next deploy needs a
+release first. The `go.mod` module path is `github.com/conan0h/alert-platform`;
+tags up to `v0.1.2` predate the rename and carry `conanohara`, so
+`go install …@latest` needs a newer tag.
 
-**Production, verified 2026-09-21.** All four services are `active` and answer
-`/healthz`.
+**Production, verified 2026-09-22.** All four services are `active`, `enabled`
+and answer `/healthz`. `drift` reports no drift, exit 0.
 
     SERVICE          REF      STATE   DEPLOYED               BY
     clinical-trials  v0.1.0   active  2026-08-20T11:46:25Z   ubuntu
@@ -372,13 +374,27 @@ carry `conanohara`, so `go install …@latest` needs a newer tag.
 `form4-insider` is the first service ever deployed by this pipeline rather than
 by hand. `deploy.yml` run 4 applied plan `54993f27b007` — one service, health
 gate passed, 88s, `Applied 1 change(s)` — and the audit actor is the workflow run
-id. The other three are pinned at `v0.1.0` deliberately (backlog #33), so `drift`
-should now be clean.
+id.
 
-**Not yet observed:** whether the duplicate-alert loop actually stopped. The
-`logs` verb returns the oldest part of its window rather than the newest, so the
-deploy falls outside what it shows — backlog #32. Confirm on the next run, when
-the window has slid past 22:16, and do not assume it worked before then.
+**`infra.yml` is proven, 2026-09-22.** Run 6 on `f5ac4f5` assumed the infra role
+via OIDC, read remote state, and reported `No changes. Your infrastructure
+matches the configuration.` Terraform is now the working path to the account, so
+an SSM document change is yours (§10) rather than a handoff. Run 4 that morning
+found why it had never worked: the guardrail denied `iam:*OpenIDConnectProvider*`
+and that wildcard matches the read a plan's refresh needs. Narrowed in #36, with
+`tools/check_iam_denies.py` failing CI on any wildcard inside a Deny.
+
+**Not yet observed:** whether the duplicate-alert loop actually stopped. Roughly
+267 cycles since the deploy show no `database is locked`, no repeated send and
+no `sends_refused` — consistent with the fix and not proof of it, because no
+alert has fired in any observed window, so the record-then-send path has never
+run under contention. Do not upgrade this to "confirmed" without a window
+containing an actual send.
+
+Note the `logs` window is **one hour**, not one day, and it returns the *oldest*
+part of it: on 2026-09-22 a 07:03–08:03 request returned 07:03:14 to 07:16:44
+and then `--output truncated--`. Backlog #32. Two earlier log entries expected
+that window to slide far enough to show a previous evening's event; it cannot.
 
 **Open production questions.**
 1. Resolved 2026-09-21: **secret resolution works.** The first apply through the
@@ -397,8 +413,10 @@ the window has slid past 22:16, and do not assume it worked before then.
 invisible to `drift`. `dedup.keys` is declared but not consumed. `state.backup`
 is declared with no job behind it. `observe` does not report which `alertctl`
 produced its answer, so a stale control plane reads as current (backlog #23;
-this has already misled one verification). No alert output is persisted beyond
-journald, which is the main obstacle to priority 1.
+this has already misled one verification). Alert output is recorded as of #35
+but only in `main`: nothing is being written on the host until that ships in a
+release, and there is no read path off the host until the `alerts` verb exists
+(backlog #27c).
 
 **Also unfixed.** Root account access keys are in use. A host-side edit to
 `services/form4_insider/main.py` (`alerted_this_filing`) is not in git.
@@ -410,6 +428,17 @@ image's `golangci-lint` is v2.5.0 against a v1-format config, so it runs only in
 CI. Repository auto-merge is off: merge by hand once every check is green.
 Check GitHub write access early — it has been read-only before, which also
 blocks the handoff route, since issue creation fails with it.
+
+The sandbox refuses edits to the mechanisms that bound this agent — the wrapper
+installer and `infra/terraform/iam_infra.tf` have both been declined as
+`Security Weaken` / `Self-Modification`. That refusal agrees with §2; write the
+proposal, do not re-author it through a different tool.
+
+**Two scheduled sessions can be live at once.** On 2026-09-22 `main` moved three
+times mid-run and both sessions diagnosed the same defect independently. Re-read
+`git log origin/main` before writing `.claude/log.md` and before starting a
+second piece of work, and attribute findings from the commit history rather than
+from memory.
 
 The GitHub check-runs endpoint and a run's top-level status are both sometimes
 stale. A job's archived logs — 404 until it completes — are reliable. If checks

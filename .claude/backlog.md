@@ -102,22 +102,38 @@ actually emit.
     global UA overwrite on its own merits: one UA per destination is right
     whether or not it is what 403s here.
 
-27. **Alert content is not persisted anywhere.** `todo`
-    Alerts exist only as a Telegram message and a journald line. There is no
-    record to query, so "is this signal any good" cannot be answered, and the
-    website in CLAUDE.md §1 has nothing to render.
-    This is the prerequisite for priority 1 and 2 and for the website, and it
-    should be built before more filtering work, so that filtering can be judged
-    against recorded output rather than impressions.
-    Design sketch: an append-only table per service in the existing SQLite
-    state, or one shared alerts database — every alert with source, ticker,
-    payload, dedup key, reason it fired, and send outcome. Then an `alerts`
-    read verb, and a console panel. Keep the schema boring; it is going to be
-    read by a website later.
-    Slices: (a) schema and `alertlib` write path with tests, (b) record from all
-    four services, (c) `alerts` verb in the wrapper and SSM document — note the
-    document's `allowedValues` is Terraform, so this is the first thing to use
-    #28's self-service infra, (d) console panel.
+27. **Alert content is not persisted anywhere.**
+    `(a)(b) done 2026-09-22 (#35); (c)(d) open — and (a)(b) need a deploy`
+    Alerts existed only as a Telegram message and a journald line. There was no
+    record to query, so "is this signal any good" could not be answered, and the
+    website in CLAUDE.md §1 had nothing to render.
+
+    **(a) and (b) done 2026-09-22.** `alertlib.AlertArchive` writes every alert
+    to an append-only SQLite table before sending and settles the delivery
+    outcome afterwards: service, deployed ref, source, dedup key, ticker,
+    reason, the message as sent, JSON payload, `pending | sent | failed`. All
+    four services route through `Service.send_alert`, so recording is a property
+    of the send path rather than a convention. 23 tests; **ADR 0005** argues the
+    two decisions a reviewer will ask about — one database per service rather
+    than a shared one (the last incident here was a SQLite lock storm), and a
+    write failure that is counted rather than raised (a missing row is lost
+    measurement; a missing dedup row is duplicate alerts).
+
+    **Nothing is being recorded in production yet.** The code runs on the host,
+    so it needs a release and a deploy, and this session cannot cut a tag (#31).
+    Until then the table exists only in `main`.
+
+    **(c) the `alerts` read verb.** The SSM document side is now genuinely
+    unblocked — `infra.yml` plan reported no changes on 2026-09-22 (run 6), so
+    the pipeline works. The *wrapper* side is not: adding a verb to
+    `alert-deploy` still needs a root install, which is #24, which is blocked on
+    the installer the sandbox refuses to author. So (c) is: alertctl subcommand
+    and SSM document by the agent, wrapper verb by Conan or via #24.
+    (d) console panel, after (c).
+
+    Design note for whoever builds (c): the archive is one file per service, so
+    a reader unions four. `AlertArchive.recent()` and `.count()` already exist
+    and `PRAGMA user_version` carries the schema version.
 
 28. **Own the AWS infrastructure: remote state and an `infra.yml` workflow.**
     `code done (#26); needs-conan (#27) for the one bootstrap apply`
@@ -130,9 +146,14 @@ actually emit.
     permissions boundary and explicit denies on its own role, its own policies,
     the boundary, the OIDC provider, the state, and terminating the instance;
     (c) `infra.yml` with plan then apply — **all done**, ADR 0003.
-    (d) The handoff for the bootstrap apply — **open**, and it is the last one:
-    the agent cannot grant itself access. Two steps in AWS CloudShell, then two
-    repository variables.
+    (d) The handoff for the bootstrap apply — **done and verified 2026-09-22.**
+    `infra.yml` run 6 on `f5ac4f5`: role assumed via OIDC, remote state read,
+    `No changes. Your infrastructure matches the configuration.` That is the
+    verification this item asked for, and the pipeline is now proven end to end.
+    Note what run 4 found first: the guardrail's `iam:*OpenIDConnectProvider*`
+    deny also matched `iam:GetOpenIDConnectProvider`, and Terraform refreshes
+    every managed resource, so *every* plan died at refresh. Fixed in #36 with a
+    CI guard (`tools/check_iam_denies.py`) against wildcards inside a Deny.
     (e) After it is proven: delete the root access keys and close port 22.
     Once this lands, #27's `alerts` verb and #32's `--since` parameter both stop
     being handoffs, since both are SSM document changes.

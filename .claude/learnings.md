@@ -427,3 +427,55 @@ forbidden to change, so it could do nothing at all.** Not a narrowed permission
 Generalising: a Deny is not "a bit of extra safety" — it is a hard assertion
 that no legitimate operation will ever need any action matching that pattern.
 Refresh-before-plan means almost every write path needs a read path first.
+
+## A wildcard in a Deny denies by spelling, not by effect
+*Learned 2026-09-22, on the first real use of `infra.yml`.*
+
+The infra guardrail said:
+
+    actions = ["iam:*OpenIDConnectProvider*"]
+
+which reads as "nothing to do with the trust anchor" and means "including
+looking at it". `iam:GetOpenIDConnectProvider` matched, an explicit Deny beats
+every Allow, and Terraform refreshes every resource it manages before planning —
+so the workflow could not produce one plan. The role was forbidden to read the
+resource it was forbidden to change, and could therefore do nothing at all.
+
+Nothing in the repository could have caught it. `terraform fmt` and
+`terraform validate` both pass: it is valid HCL and a valid policy. It only
+appears when a principal actually bounded by the policy tries to plan, which
+needs real credentials, which CI does not have. It is the same shape as the
+eight deploy-path bugs — untestable half, found in production — and the same
+answer applies: `tools/check_iam_denies.py` now fails CI on any wildcard inside
+a Deny action list, because a static check that runs without credentials is
+better than a correct-looking policy nobody can exercise.
+
+The general form: when writing a Deny, enumerate the actions that *change*
+something. A wildcard over an action name will eventually swallow a read, and
+a denied read fails in a place far from the policy that caused it.
+
+## Two scheduled sessions can run against this repository at once
+*Learned 2026-09-22, at the cost of one duplicated milestone.*
+
+Two routine sessions were live simultaneously. `main` moved under this one three
+times mid-run (#33, #34, #36, all from session `01Siuqu`), and both sessions
+independently diagnosed the `iam:*OpenIDConnectProvider*` deny from the same
+failed `infra.yml` run within about three minutes of each other. One shipped the
+fix; the other wrote it up as a proposal and then deleted it.
+
+Nothing was corrupted — the PR opened `unstable`, not `dirty`, and squash-merged
+cleanly — but the failure mode is obvious and it is not the merge conflict. It
+is two agents doing the same work and each recording it as theirs, which makes
+the log wrong about who found what.
+
+Cheap habits that cost nothing when there is only one session:
+
+- **Re-read `git log origin/main` before writing `.claude/log.md`**, not just at
+  the start of the run. The backlog and the log are the two files a second
+  session is also editing.
+- **Before starting a second piece of work, check whether it already landed.**
+  The finding here was real and worth having; the hour spent writing it up a
+  second time was not.
+- **Attribute from the commit, not from memory.** `#36` is in the history with
+  its own reasoning. Claiming it would have been a fabricated production claim
+  of a subtler kind than the usual one.
