@@ -10,7 +10,7 @@ spec:
   source:
     repo: https://github.com/conan0h/alert-platform
     path: services/clinical_trials
-    ref: v0.1.0                       # git tag; v0.1.0 was the post-migration baseline
+    ref: v0.4.0                       # git tag; carries the alert archive (ADR 0005)
     entrypoint: main.py
 
   polling:
