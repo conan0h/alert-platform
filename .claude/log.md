@@ -718,3 +718,42 @@ Format:
 - Next: once the variable is set, `infra.yml -f step=plan` must report **no
   changes**. That closes issue #27 and unblocks the SSM document verbs, which is
   what #26(a), #32 and ADR 0004 all wait on.
+
+## 2026-09-22 (fourth) — AWS is agent-managed; issue #27 closed
+- **`infra.yml` run 5, commit `f5ac4f5`, 08:15:23Z:**
+
+        No changes. Your infrastructure matches the configuration.
+
+  Every step green: OIDC assume-role, `init` against the S3 backend, `validate`,
+  `plan`, with `apply` skipped for `step=plan`. That is the whole chain proven
+  end to end against the live account. Issue #27 closed with the evidence.
+  **No AWS change needs a human from here.**
+- Getting there took four `infra.yml` runs and three defects, two of them mine:
+  - runs 1 and 2 failed on the `AWS_INFRA_ROLE_ARN` guard, which is the guard
+    working. Not settable or even readable from this session — the proxy refuses
+    `/actions/variables` with 403 both ways, so a workflow run is the only test.
+  - run 3 failed on **my own guardrail**. `NeverTheTrustAnchor` denied
+    `iam:*OpenIDConnectProvider*`; that also matches
+    `iam:GetOpenIDConnectProvider`, an explicit Deny beats the `iam:Get*` Allow
+    in `PlanNeedsToRead`, and Terraform refreshes every resource in state before
+    planning. So the role **could not read the resource it was forbidden to
+    change, and therefore could do nothing at all.** Fixed in #36 by enumerating
+    the seven mutating actions; `tools/check_iam_denies.py` fails CI on any
+    wildcard inside a Deny. The constraint the ADR intended is unchanged.
+  - the state was nearly orphaned: it lived in a clone from an earlier CloudShell
+    session and survived only because the handoff used `git pull --ff-only` on an
+    existing directory rather than re-cloning.
+- The IAM fix is the one change the infra role could not apply itself, since the
+  bug was precisely that it could not plan. One CloudShell apply from the owner.
+  Worth noting the failure direction: it failed **closed**, which is right for a
+  guardrail, and cost nothing in production because the role had never
+  successfully done anything.
+- `.gitignore` had no Terraform patterns at all (#33). `terraform.tfstate` was
+  untracked only because nobody had run `git add -A` in that directory.
+- Confirmed `debug.ReadBuildInfo()` stamps `vcs.revision` even under
+  `-mod=vendor`, so backlog #23 needs no change to the host's build command —
+  useful for the next run, which should take it.
+- Next: #32's `logs --since` and the `alerts` verb are now ordinary work (SSM
+  document + `infra.yml`). #23 is unblocked and needs no tag, because `plan`
+  rebuilds the binary. Still waiting on the owner: the `v0.3.0` tag, without
+  which the dead-feed accounting cannot reach the host and #26(a) stays open.
