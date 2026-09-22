@@ -913,3 +913,28 @@ Format:
   (backlog #35), unchanged across three readings.
 - Next: get the alert archive deployed so alerts are attributable to sources;
   then #35's 399; then #23's build stamp, which needs no tag.
+
+## 2026-09-22 (seventh) — the fix held over four hours
+- **Production report — observe run, `logs --since "30 minutes ago"`, 12:58Z.**
+  Four hours and 329 cycles after the `v0.3.0` deploy:
+
+        source health: 14/15 sources healthy; failing: FiercePharma (x326, presumed dead)
+
+  This is the sustained answer rather than a first-cycle one. **EndpointsNews
+  stayed recovered** across four hours, so the User-Agent was genuinely the cause
+  and not a transient. FiercePharma sits at 326 consecutive failures, correctly
+  reported as presumed dead.
+- **The escalation schedule works as designed.** There is not one `WARNING` line in
+  the window: x326 falls between the 100 and 1000 thresholds, so the per-source
+  line is silent while the condition stays named in the summary. That is the
+  behaviour #30 was for, confirmed by observation rather than by test.
+- **The #43 defect is still visible**, as expected — one summary line per cycle,
+  because the deployed version compares a string containing the count. Merged, and
+  it reaches the host with `v0.4.0`.
+- `form4-insider` `v0.2.0` at cycle 435: no `database is locked`, no repeated
+  sends, no refusals. Still consistent-with rather than proof, for the same reason
+  as before — no alert fired in the window, so the contended path is unexercised.
+- `edgar-mna` cycles 63123–63127 healthy; one cycle took 20.8s against a usual
+  ~1.4s. Noted, not investigated, and not a fault on its own.
+- Run closed here. Everything merged, deployed and verified; the only outstanding
+  item is the `v0.4.0` tag, which is issue #41 and needs the owner.
