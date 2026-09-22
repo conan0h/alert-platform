@@ -238,17 +238,23 @@ Stated because they are real, not because they are planned away.
 - **`clinical-trials` streams 399 trials per cycle and alerts on none.** The
   constant count suggests a page size rather than a result count. Not yet
   investigated.
-- **No alert output is persisted** beyond journald, so there is no way to
-  review what the bots reported against what the market subsequently did. This
-  is the main obstacle to measuring signal quality.
+- **The alert archive has no reader yet.** As of 2026-09-22 every alert is
+  recorded to an append-only table in the service's state directory
+  ([ADR 0005](docs/adr/0005-alert-archive.md)), which closes the gap that
+  blocked measuring signal quality. Getting those rows *out* — an `alerts`
+  read verb and a console panel — needs an SSM document change, which needs
+  the Terraform bootstrap in issue #27. Until then the rows accumulate on the
+  host and can only be read there.
+- **Nothing backs the archive up.** `state.backup` is declared in the spec
+  with no job behind it, and there is now data under `/var/lib/alert-platform/`
+  whose loss would be irreversible rather than merely inconvenient.
 - **`logs` returns the oldest part of its window.** The read verb captures
   roughly the first 24 KB of a one-hour journal, so a busy hour is truncated
   from the wrong end.
 - **`observe` does not report which `alertctl` produced its answer.** Read
   verbs never rebuild the binary, so a stale control plane reads as current.
   This has already misled one verification.
-- **`dedup.keys`** is declared in the spec but not consumed by the services,
-  and **`state.backup`** is declared with no backup job behind it.
+- **`dedup.keys`** is declared in the spec but not consumed by the services.
 - **`drift` compares refs and unit hashes only**, so an in-place edit inside a
   release directory is invisible to it.
 - **Root account access keys are still in use.**

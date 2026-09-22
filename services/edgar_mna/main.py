@@ -53,7 +53,7 @@ import requests
 # Configuration, credentials, state location, logging and delivery all come
 # from the platform (see services/alertlib). Nothing is read from a local
 # .env and no path is relative to the working directory.
-from alertlib import Service, get_logger
+from alertlib import Alert, Service, get_logger
 
 SVC: Service = None          # bound in main()
 log = get_logger("edgar-mna")
@@ -747,6 +747,35 @@ def _format_facts_block(facts: DealFacts) -> str:
     return "\n".join(lines)
 
 
+def build_alert(hit: Hit, body: str) -> Alert:
+    """The archive record for one M&A hit.
+
+    Keyed on the hit's own fingerprint, which is what `seen` is keyed on, so
+    an archive row and a dedup row refer to the same thing.
+    """
+    return Alert(
+        source=hit.source,
+        dedup_key=hit.fingerprint(),
+        title=hit.title[:200],
+        body=body,
+        ticker=(hit.ticker or "").upper(),
+        reason=hit.category,
+        payload={
+            "category": hit.category,
+            "link": hit.link,
+            "published": hit.published,
+            "summary": hit.summary[:2000],
+            "matched_phrase": hit.matched_phrase,
+            "urgency": category_meta(hit.category).get("urgency"),
+            "offer_price": hit.facts.offer_price,
+            "offer_price_currency": hit.facts.offer_price_currency,
+            "deal_structure": hit.facts.deal_structure,
+            "premium_pct": hit.facts.premium_pct,
+            "total_deal_size": hit.facts.total_deal_size,
+        },
+    )
+
+
 def format_alert(hit: Hit) -> str:
     meta = category_meta(hit.category)
     emoji = meta.get("emoji", "📢")
@@ -803,7 +832,7 @@ def _process_hits(conn, hits: list[Hit]) -> int:
         except Exception as e:
             log.debug("Enrichment failed for %s: %s", hit.title[:60], e)
         mark_seen(conn, hit)
-        if send_telegram(format_alert(hit)):
+        if SVC.send_alert(build_alert(hit, format_alert(hit))):
             sent += 1
             log.info("Alert: [%s] %s | %s | offer=%s premium=%s",
                      category_meta(hit.category).get("urgency"),

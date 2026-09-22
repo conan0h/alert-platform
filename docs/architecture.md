@@ -232,6 +232,29 @@ costs about 1,900 lines per source per day at a 45-second cadence, and the
 `logs` read verb captures roughly the first 24 KB of its window — so source
 spam displaces the alert output an operator opened the log to read.
 
+### The alert archive
+
+Every alert is recorded before it is sent and settled with its delivery
+outcome afterwards, in an append-only SQLite table in the service's own state
+directory (`<state_dir>/alerts.db`). The row holds the service, the released
+ref, the upstream source, the service's dedup key, the ticker, the reason the
+filter fired, the message as sent, a JSON payload of structured detail, and
+whether delivery succeeded.
+
+This is what makes signal quality measurable. A journald line holds rendered
+prose and rotates; a row holds the fields an analysis groups by and does not.
+It is also what the operator console and the public site will read.
+
+The archive is a separate database from the service's dedup state, and a
+failed archive write is logged and counted rather than raised — the reasoning
+for both, and why they point in opposite directions, is in
+[ADR 0005](adr/0005-alert-archive.md). It exposes
+`alert_archive_records_total` and `alert_archive_write_failures_total`.
+
+Services reach it through `Service.send_alert`, not by calling the archive and
+the Telegram client in sequence, so "every alert is recorded" is a property of
+the send path rather than a convention four services have to remember.
+
 ## What is still deliberately absent
 
 - **Multi-host scheduling.** `targets` models one EC2 host. The shape leaves

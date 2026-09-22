@@ -12,7 +12,7 @@ that `alertctl` renders from the fleet spec.
 
 Typical use:
 
-    from alertlib import Service
+    from alertlib import Alert, Service
 
     svc = Service.from_env()
     log = svc.log
@@ -21,11 +21,12 @@ Typical use:
         while True:
             with svc.poll_cycle():     # times the loop, counts errors
                 for item in fetch():
-                    if svc.telegram.send(render(item)):
-                        svc.metrics.inc("alerts_sent_total")
+                    svc.send_alert(Alert(source=..., dedup_key=..., title=...,
+                                         body=render(item)))
             svc.sleep_until_next_poll()
 """
 
+from .archive import Alert, AlertArchive
 from .config import ConfigError, ServiceConfig
 from .health import HealthServer, Metrics
 from .log import configure_logging, get_logger
@@ -35,6 +36,8 @@ from .state import state_path
 from .telegram import TelegramClient
 
 __all__ = [
+    "Alert",
+    "AlertArchive",
     "ConfigError",
     "HealthServer",
     "Metrics",

@@ -38,7 +38,7 @@ import requests
 # Configuration, credentials, state location, logging and delivery all come
 # from the platform (see services/alertlib). Nothing is read from a local
 # .env and no path is relative to the working directory.
-from alertlib import Service, get_logger
+from alertlib import Alert, Service, get_logger
 
 SVC: Service = None          # bound in main()
 log = get_logger("clinical-trials")
@@ -313,6 +313,38 @@ def send_telegram(text: str) -> bool:
     return SVC.telegram.send(text)
 
 
+def build_alert(trial: dict, signal: str, description: str, direction: str,
+                body: str) -> Alert:
+    """The archive record for one trial-status signal.
+
+    The dedup key carries the signal as well as the NCT id: one trial can
+    legitimately alert more than once over its life — a status change, then
+    results posted — and those are different events, not a repeat.
+    """
+    return Alert(
+        source="ClinicalTrials.gov",
+        dedup_key=f"{trial['nct_id']}#{signal}",
+        title=f"{signal.replace('_', ' ')}: {trial.get('title', '')[:160]}",
+        body=body,
+        # The registry identifies studies, not issuers; there is no ticker to
+        # record, and an empty column is more honest than the sponsor's name
+        # in a field every other service fills with a symbol.
+        ticker="",
+        reason=description,
+        payload={
+            "nct_id": trial["nct_id"],
+            "signal": signal,
+            "direction": direction,
+            "sponsor": trial.get("sponsor"),
+            "status": trial.get("status"),
+            "phases": trial.get("phases"),
+            "conditions": trial.get("conditions"),
+            "drugs": trial.get("drugs"),
+            "results_posted_date": trial.get("results_posted_date"),
+        },
+    )
+
+
 def format_alert(trial: dict, signal: str, emoji: str, description: str, direction: str) -> str:
     nct_id = trial["nct_id"]
     conditions_str = ", ".join(trial.get("conditions", [])) or "Not specified"
@@ -411,7 +443,8 @@ def main():
                         "sponsor": trial["sponsor"], "title": trial["title"][:80],
                     })
 
-                    if send_telegram(format_alert(trial, signal, emoji, description, direction)):
+                    body = format_alert(trial, signal, emoji, description, direction)
+                    if SVC.send_alert(build_alert(trial, signal, description, direction, body)):
                         log_alert(conn, nct_id, signal)
                         alert_count += 1
                     else:

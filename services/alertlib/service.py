@@ -19,6 +19,7 @@ import signal
 import time
 from collections.abc import Iterator
 
+from .archive import Alert, AlertArchive
 from .config import ServiceConfig
 from .health import HealthServer, Heartbeat, Metrics
 from .log import configure_logging
@@ -40,6 +41,7 @@ class Service:
             self.heartbeat,
         )
         self._telegram: TelegramClient | None = None
+        self._archive: AlertArchive | None = None
         self._stopping = False
         self._cycle = 0
 
@@ -77,6 +79,38 @@ class Service:
             )
         return names[0]
 
+    # -- archive ----------------------------------------------------------
+    @property
+    def archive(self) -> AlertArchive:
+        """Append-only record of what this service emitted.
+
+        Its own database file, not the service's dedup state: see
+        alertlib/archive.py for why sharing that file is the one thing this
+        must not do.
+        """
+        if self._archive is None:
+            self._archive = AlertArchive(
+                path=self.state_file("alerts.db"),
+                service=self.cfg.name,
+                ref=self.cfg.deployed_ref,
+                metrics=self.metrics,
+            )
+        return self._archive
+
+    def send_alert(self, alert: Alert) -> bool:
+        """Archive the alert, deliver it, and record the outcome.
+
+        Every alert goes out through here rather than through `telegram.send`
+        directly, so "is it recorded" is a property of the send path instead
+        of a convention four services each have to remember. The return value
+        is the delivery result, unchanged, because callers use it to decide
+        whether to mark an item as alerted.
+        """
+        row_id = self.archive.record(alert)
+        delivered = self.telegram.send(alert.body)
+        self.archive.record_delivery(row_id, delivered)
+        return delivered
+
     # -- state ------------------------------------------------------------
     def state_file(self, filename: str) -> str:
         return state_path(self.cfg.state_dir, filename)
@@ -102,6 +136,8 @@ class Service:
     def __exit__(self, *exc) -> bool:
         self.log.info("service stopping", extra={"cycles": self._cycle})
         self.health.stop()
+        if self._archive is not None:
+            self._archive.close()
         return False
 
     def _on_signal(self, signum, _frame) -> None:

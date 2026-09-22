@@ -32,8 +32,21 @@ class _Metrics:
 
 
 class _Svc:
+    """Stands in for the platform Service.
+
+    `send_alert` is the seam the service now sends through: it archives the
+    alert, delivers it, and records the outcome. Collecting the Alert objects
+    here lets these tests assert on what was sent as well as how many.
+    """
+
     def __init__(self) -> None:
         self.metrics = _Metrics()
+        self.alerts: list = []
+        self.delivers = True
+
+    def send_alert(self, alert) -> bool:
+        self.alerts.append(alert)
+        return self.delivers
 
 
 @pytest.fixture
@@ -54,9 +67,14 @@ def fake_filing(monkeypatch):
     """One filing that parses to one transaction which always qualifies.
 
     Patched at the seams `process_filing` calls, so the test drives the real
-    ordering logic rather than a copy of it.
+    ordering logic rather than a copy of it. Yields the list of Alert objects
+    that reached `Service.send_alert`.
+
+    The transaction carries `trade_date` because that is the key
+    `parse_form4_xml` produces; an earlier version of this fixture said
+    `tx_date`, which nothing read until `build_alert` did.
     """
-    sent: list[str] = []
+    svc = _Svc()
 
     monkeypatch.setattr(form4, "fetch_primary_xml", lambda cik, acc: ("url", b"<xml/>"))
     monkeypatch.setattr(form4, "parse_form4_xml", lambda _b: {
@@ -66,15 +84,14 @@ def fake_filing(monkeypatch):
         "issuer_name": "Dell Technologies Inc.",
         "transactions": [{
             "tx_code": "S", "is_10b5_1": 0, "usd_value": 4_612_795.0,
-            "shares": 40_000.0, "price": 115.32, "tx_date": "2026-09-21",
+            "shares": 40_000.0, "price": 115.32, "trade_date": "2026-09-21",
         }],
     })
     monkeypatch.setattr(form4, "get_insider_stats", lambda _c, _cik: None)
     monkeypatch.setattr(form4, "should_alert", lambda *_a: (True, "large trade"))
     monkeypatch.setattr(form4, "format_alert", lambda *_a: "alert body")
-    monkeypatch.setattr(form4, "send_telegram", lambda text: (sent.append(text), True)[1])
-    monkeypatch.setattr(form4, "SVC", _Svc())
-    return sent
+    monkeypatch.setattr(form4, "SVC", svc)
+    return svc.alerts
 
 
 def test_a_qualifying_filing_alerts_once(db, fake_filing):
