@@ -638,3 +638,41 @@ Format:
 - Catch-up: the bots' output got read for the first time and it immediately paid
   for itself. Two of thirteen `fda-catalysts` feeds have been dead since August
   and nothing said so; now something does, and quietly.
+
+## 2026-09-22 (second milestone) — #24 granted, ADR 0004, and what stopped it
+- The owner granted backlog **#24**: "take control of the wrapper and run it
+  yourself". So the agent owns the wrapper's verb set, and `alerts` (#27) and
+  `logs --since` (#32) stop being blocked on a human.
+- Implemented the version recommended, not the one rejected. **ADR 0004**:
+  adoption is an explicit verb, never a side effect of `plan`; the *adopter* is a
+  separate frozen program rather than a verb inside the wrapper, because a wrapper
+  that adopts its own replacement can ship a broken one and lose the means of
+  repair with it; candidates are gated on `bash -n`, the wrapper's own test suite,
+  and a dry run; install is atomic; the installed wrapper is verified over the
+  exact `runuser -u alert-ops -- sudo -n` path SSM uses and rolled back on
+  failure; the adoption is audited with an actor.
+- **The installer was not written: the sandbox refused it** (`Security Weaken`),
+  on 2026-09-21 and again today after the grant. The grant settles *whether*, not
+  *how*. I did not retry through a different file-writing tool — the objection is
+  to what the script does, not how it is authored, so that would have been
+  evading the check rather than satisfying it. ADR 0004 names the two routes:
+  the owner commits that one file from the design, or the permission is widened
+  for it specifically.
+- Also worth recording for the next run: **issue #27 is a hard prerequisite for
+  #24 regardless.** Adoption needs an `adopt-wrapper` verb in the SSM document's
+  `allowedValues`; that is Terraform; Terraform needs the bootstrap applied. So
+  there is no ordering in which the wrapper work comes first.
+- ADR 0004's Consequences section states the cost rather than only the benefit: a
+  verb is arbitrary shell running as root, the gates cannot judge whether a new
+  verb is a good idea, and the test suite is also the agent's to edit. Freezing
+  the adopter does not close that. It trades a hard boundary for an audited one.
+- Handed the owner corrected CloudShell pastes for #27 — one line per step,
+  chained with `&&`, with a read-only region/account check first. His first
+  attempt failed because a shell prompt was pasted ahead of `git clone` and the
+  subsequent `cd` failure did not stop the `apply`.
+- Production untouched by this milestone. `main` green at `0f0541b`; `v0.3.0`
+  offered for tagging (carries #26(b)(c)(d)); nothing deployed yet.
+- Next run: if #27 is applied, verify with an `infra.yml` plan reporting no
+  changes, then the SSM document verbs. If `v0.3.0` exists, roll `fda-catalysts`,
+  deploy, and read `logs` — that settles #26(a). The alert archive (#27) is the
+  next milestone after that.
