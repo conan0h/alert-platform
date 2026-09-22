@@ -310,6 +310,23 @@ actually emit.
     incident. Recover it before changing that file, or the fix will silently
     revert someone's patch.
 
+35. **`clinical-trials` streams exactly 399 trials every cycle and alerts on
+    none.** `todo — signal quality, priority 1`
+    Observed 2026-09-21 and again 2026-09-22 (observe runs 21 and 26), same
+    number both days:
+
+        Streamed 399 recently-updated trials from ClinicalTrials.gov
+
+    A constant is the tell. 399 looks like a page size or a cap, not a count of
+    what actually changed — so the service may be re-examining the same first
+    page every cycle and never seeing the rest. And 399 candidates per cycle
+    yielding zero alerts over weeks is either a filter far tighter than intended
+    or one that cannot match. Either way the service is reporting healthy while
+    producing nothing, which is the same shape as #26.
+    Start by checking whether the query paginates and whether the 399 are the
+    same 399 each cycle — the alert archive from #35 makes the second answerable
+    without guessing.
+
 ## P1 — Close the documented gaps (strong design-review material)
 
 7. **Content-drift detection.** `todo`

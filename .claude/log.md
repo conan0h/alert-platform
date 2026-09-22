@@ -822,3 +822,48 @@ Format:
   #24's installer.
 - Catch-up: the fleet now has somewhere to put what it finds, and the
   infrastructure pipeline works. Neither fact has reached the host yet.
+## 2026-09-22 (fifth) — first self-service infra change, and the log window works
+- **First production infrastructure change through `infra.yml` rather than a
+  handoff.** #39 added a `since` parameter to `AlertPlatform-Observe`; plan read,
+  then applied. `Apply complete! Resources: 0 added, 1 changed, 0 destroyed.`
+- The plan said **2 to change** and the apply made **1**. The second was
+  `aws_iam_role_policy.deploy`, which I had not touched, and it was right to stop
+  and explain it before applying: `data.aws_iam_policy_document.deploy` reads
+  `aws_ssm_document.observe.arn`, so an in-place update to the document makes the
+  data source unknown at plan time and the whole rendered policy shows as
+  `(known after apply)`. The apply confirmed the reading — the data source came
+  back with id `704535516`, identical to plan time, so the policy was
+  byte-identical and needed no update. **An in-place update cascades into every
+  data source that reads the resource, and those cascades are usually no-ops.**
+- **Production report — observe run 26, `logs --since "10 minutes ago"`, 08:28Z.**
+  Window 08:22:26–08:27:59, untruncated, ending five seconds before the read.
+  That is #32's practical half working: the *recent* end of the journal, not the
+  beginning of an hour.
+  - `fda-catalysts` `v0.1.0`: FiercePharma and EndpointsNews still 403 on every
+    cycle (63045–63052). **This does not test #26's fix** — the service is still
+    on `v0.1.0`, so this is the old unconditional-warning behaviour, and the
+    dead-vs-blocked-UA question still needs `v0.3.0` deployed.
+  - `form4-insider` `v0.2.0`: cycles 305–307 clean. No `database is locked`, no
+    repeated sends, no refusals — roughly 307 cycles since the deploy. Still
+    **consistent with working rather than proven**: no alert fired in the window,
+    so the record-then-send path was not exercised under contention.
+  - `clinical-trials` `v0.1.0`: "Streamed 399 recently-updated trials", the same
+    constant as yesterday, and zero alerts. Filed as backlog #35 — a constant
+    looks like a page size, not a count of what changed.
+  - `edgar-mna` `v0.1.0`: cycles 62780–62787, healthy.
+  - No alerts from any service in the window. 08:22Z is 04:22 ET, so low filing
+    activity is the likely explanation rather than a fault.
+- Learned while building it: the wrapper already accepted `--since`; only the SSM
+  document failed to pass it, so this needed no wrapper change. Also that the
+  wrapper's `valid_since` accepts `30m`, which journalctl rejects — verified both
+  ends. The document's `allowedValues` excludes it.
+- A concurrent session (`session_01UskzePof4vxaggFHb9jazF`) built the alert
+  archive in #35 while this run was going: `alertlib.AlertArchive`,
+  `Service.send_alert`, ADR 0005, 23 tests. Backlog #27 still said `todo`, now
+  corrected — (a) and (b) done, (c) the `alerts` verb blocked on the wrapper
+  rather than on infra, (d) console panel open. **Read ADR 0005 before touching
+  the archive.**
+- Next: `v0.3.0` is the only thing between us and an answer on the dead feeds, and
+  it needs the owner. Unblocked meanwhile: #23 (build stamp in `status`, verified
+  that `debug.ReadBuildInfo` stamps under `-mod=vendor`), #27(d) the console
+  panel, and #35 above.
