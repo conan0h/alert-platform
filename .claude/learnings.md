@@ -512,3 +512,31 @@ Related trap in the fix: the natural sentinel for "nothing compared yet" was
 `""`, which is also the shape of "every source healthy" — so the first
 all-healthy line, the one most worth seeing at startup, would have been
 swallowed. A sentinel must be a value the domain cannot produce.
+
+## `drift` exit 0 does not mean production matches `main`
+*Learned 2026-09-22, by publishing a confident prediction and being wrong.*
+
+After merging a four-service ref roll to `v0.4.0` without applying it, I told the
+owner in a log entry, two PR bodies, a closed issue and a phone notification that
+`drift` would now report exit 3. It reported exit 0, `No drift: the target matches
+desired state.`
+
+`drift` compares the host's running services against **the specs in the host's own
+checkout**, which only `deploy.yml step=plan` syncs to `origin/main` (§6). No plan
+had run since the merge, so the host still held the pre-`v0.4.0` specs, its services
+matched them, and exit 0 was correct.
+
+- **`drift` answers "does this host match the spec it has", not "does production
+  match `main`".** Those diverge for exactly as long as a merged release goes
+  unapplied, which is the window where you most want the second answer.
+- **A merged-but-unapplied release is therefore invisible to `drift`.** It is not a
+  safety net against forgetting to deploy. The log and the backlog are the only
+  record that a release is waiting.
+- This is the second time a stale host control plane has misled a verification —
+  backlog #23 (`observe` does not report which `alertctl` produced its answer) now
+  has two incidents behind it, not one. The fix is worth more than it looked.
+
+The general trap: **verify a prediction about a tool's output by running it, not by
+reasoning about what it should say.** I had the mechanism available and reasoned
+instead, then published the reasoning as fact in five places. Running the read-only
+verb first would have cost one workflow run.

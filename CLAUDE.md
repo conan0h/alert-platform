@@ -416,8 +416,11 @@ truncation itself is still unfixed (backlog #32).
 **Known gaps.** Content drift: in-place edits inside a release directory are
 invisible to `drift`. `dedup.keys` is declared but not consumed. `state.backup`
 is declared with no job behind it. `observe` does not report which `alertctl`
-produced its answer, so a stale control plane reads as current (backlog #23;
-this has already misled one verification). Alert output is recorded as of #35
+produced its answer, so a stale control plane reads as current (backlog #23; this
+has now misled two verifications). Relatedly, **`drift` compares the host's
+services against the specs in the host's own checkout, not against `origin/main`**,
+which only a `plan` syncs — so a merged release that has not been applied shows no
+drift and exit 0. `drift` is not a backstop against forgetting to deploy. Alert output is recorded as of #35
 but only in `main`: nothing is being written on the host until that ships in a
 release, and there is no read path off the host until the `alerts` verb exists
 (backlog #27c).
