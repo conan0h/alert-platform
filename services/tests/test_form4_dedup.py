@@ -10,17 +10,12 @@ Run: python3 -m pytest services/tests -q     (from the repo root)
 from __future__ import annotations
 
 import sqlite3
-import sys
-from pathlib import Path
 
 import pytest
+from _loader import load_service_main  # noqa: E402
 
-SERVICES = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(SERVICES))
-sys.path.insert(0, str(SERVICES / "form4_insider"))
-
-import form4_common  # noqa: E402
-import main as form4  # noqa: E402
+form4 = load_service_main("form4_insider", "form4_insider_main")
+import form4_common  # noqa: E402  (its directory is on sys.path by now)
 
 ACCESSION = "0001193125-26-396718"
 CIK = "0000826083"

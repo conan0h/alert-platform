@@ -56,6 +56,14 @@ class Metrics:
         self.declare_counter("alert_delivery_failures_total", "Delivery attempts that failed.")
         self.declare_counter("alert_sends_refused_total",
                              "Sends withheld because the dedup record would not persist.")
+        self.declare_counter("alert_source_fetches_total", "Source fetches attempted.")
+        self.declare_counter("alert_source_fetch_failures_total", "Source fetches that failed.")
+        # A cycle can complete while a source is permanently broken, so the
+        # count of failing sources is its own signal rather than an error rate.
+        self.declare_gauge("alert_sources_failing",
+                           "Sources currently in a run of consecutive failures.")
+        self.declare_gauge("alert_sources_presumed_dead",
+                           "Sources that have failed long enough to be presumed dead.")
         self.declare_gauge("alert_last_success_timestamp_seconds",
                            "Unix time of the last fully successful poll cycle.")
         self.declare_gauge("alert_last_poll_duration_seconds",

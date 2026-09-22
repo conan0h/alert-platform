@@ -42,7 +42,7 @@ import requests
 # Configuration, credentials, state location, logging and delivery all come
 # from the platform (see services/alertlib). Nothing is read from a local
 # .env and no path is relative to the working directory.
-from alertlib import Service, get_logger
+from alertlib import Service, SourceHealth, get_logger
 
 SVC: Service = None          # bound in main()
 log = get_logger("fda-catalysts")
@@ -438,6 +438,30 @@ def _fmt_published(entry) -> str:
 # Fetchers
 # ---------------------------------------------------------------------------
 
+# Fetch outcomes per source. Two of these feeds returned 403 on every cycle
+# from August to 2026-09-22 while the poll cycle kept reporting success, and
+# the per-cycle warning they produced was two thirds of everything this
+# service logged. SOURCES decides when a repeated failure is worth a line.
+SOURCES = SourceHealth()
+
+
+def _report_fetch(name: str, error: BaseException | None = None) -> None:
+    """Record one fetch outcome and log only when the tracker says to."""
+    SVC.metrics.inc("alert_source_fetches_total")
+    if error is None:
+        decision = SOURCES.record_success(name)
+    else:
+        SVC.metrics.inc("alert_source_fetch_failures_total")
+        decision = SOURCES.record_failure(name, str(error))
+
+    failing = SOURCES.failing()
+    SVC.metrics.set("alert_sources_failing", len(failing))
+    SVC.metrics.set("alert_sources_presumed_dead",
+                    sum(1 for s in failing if s.presumed_dead))
+
+    if decision:
+        getattr(log, decision.level)(decision.message)
+
 
 def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50) -> list[Hit]:
     """Generic RSS/Atom fetcher with classification."""
@@ -447,8 +471,9 @@ def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50
         resp.raise_for_status()
         feed = feedparser.parse(resp.content)
     except Exception as e:
-        log.warning("Failed to fetch %s: %s", name, e)
+        _report_fetch(name, error=e)
         return []
+    _report_fetch(name)
 
     for entry in getattr(feed, "entries", [])[:limit]:
         title = (getattr(entry, "title", "") or "").strip()
@@ -487,8 +512,9 @@ def fetch_edgar_8k(name: str, url: str) -> list[Hit]:
         resp.raise_for_status()
         feed = feedparser.parse(resp.content)
     except Exception as e:
-        log.warning("EDGAR fetch failed (%s): %s", name, e)
+        _report_fetch(name, error=e)
         return []
+    _report_fetch(name)
 
     for entry in getattr(feed, "entries", [])[:60]:
         title = (getattr(entry, "title", "") or "").strip()
@@ -659,6 +685,14 @@ def main():
                     if fda_sent:
                         log.info("FDA.gov alerts sent: %d", fda_sent)
                     last_fda_poll = now
+
+                # The dead-source condition this replaced was invisible because
+                # nothing ever stated the whole picture. Only changes are
+                # logged: the per-source escalation is the "still broken"
+                # heartbeat, so a steady state stays silent.
+                moved = SOURCES.summary_if_changed()
+                if moved:
+                    log.info("source health: %s", moved)
 
             SVC.sleep_until_next_poll(WIRE_POLL_INTERVAL_SECONDS)
 
