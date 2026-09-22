@@ -31,7 +31,7 @@ import form4_common
 # ---------------------------------------------------------------------------
 # Platform runtime
 # ---------------------------------------------------------------------------
-from alertlib import Service, get_logger
+from alertlib import Alert, Service, get_logger
 from form4_backfill import _ACCESSION_RE, fetch_primary_xml, parse_form4_xml
 from form4_common import edgar_get, init_db
 
@@ -177,6 +177,37 @@ def format_alert(parsed: dict, tx: dict, accession: str,
     )
 
 
+def build_alert(parsed: dict, tx: dict, accession: str, reason: str, body: str) -> Alert:
+    """The archive record for one transaction.
+
+    The dedup key is accession plus the transaction's position within the
+    filing, because one Form 4 can carry several qualifying trades and the
+    accession alone would collapse them into one row. `alerted` is keyed on
+    the accession; this is keyed on what was actually sent.
+    """
+    return Alert(
+        source="SEC EDGAR Form 4",
+        dedup_key=f"{accession}#{tx['tx_code']}:{tx['trade_date']}:{tx['shares']:.0f}",
+        title=f"{parsed.get('ticker') or '?'} {tx['tx_code']} ${tx['usd_value']:,.0f} "
+              f"by {parsed['insider_name'][:40]}",
+        body=body,
+        ticker=(parsed.get("ticker") or "").upper(),
+        reason=reason,
+        payload={
+            "accession": accession,
+            "issuer_cik": parsed.get("issuer_cik"),
+            "insider_cik": parsed.get("insider_cik"),
+            "insider_name": parsed.get("insider_name"),
+            "relationship": parsed.get("relationship"),
+            "tx_code": tx["tx_code"],
+            "trade_date": tx["trade_date"],
+            "shares": tx["shares"],
+            "price": tx["price"],
+            "usd_value": tx["usd_value"],
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fetch + process loop
 # ---------------------------------------------------------------------------
@@ -281,7 +312,7 @@ def process_filing(conn: sqlite3.Connection, accession: str, cik: str, alpha_cut
             continue
 
         msg = format_alert(parsed, tx, accession, insider_stats, reason)
-        if send_telegram(msg):
+        if SVC.send_alert(build_alert(parsed, tx, accession, reason, msg)):
             sent += 1
             log.info("Alert sent: %s %s [%s] %s $%.0f",
                      parsed.get("ticker"), tx["tx_code"],

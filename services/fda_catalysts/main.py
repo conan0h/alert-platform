@@ -42,7 +42,7 @@ import requests
 # Configuration, credentials, state location, logging and delivery all come
 # from the platform (see services/alertlib). Nothing is read from a local
 # .env and no path is relative to the working directory.
-from alertlib import Service, SourceHealth, get_logger
+from alertlib import Alert, Service, SourceHealth, get_logger
 
 SVC: Service = None          # bound in main()
 log = get_logger("fda-catalysts")
@@ -551,6 +551,31 @@ def send_telegram(text: str) -> bool:
     return SVC.telegram.send(text)
 
 
+def build_alert(hit: Hit, body: str) -> Alert:
+    """The archive record for one catalyst hit.
+
+    `source` is the feed the hit came from, so the archive answers "which
+    sources produce alerts anyone acts on" alongside SourceHealth's "which
+    sources still answer at all".
+    """
+    return Alert(
+        source=hit.source,
+        dedup_key=hit.fingerprint(),
+        title=hit.title[:200],
+        body=body,
+        ticker=(hit.ticker or "").upper(),
+        reason=hit.category,
+        payload={
+            "category": hit.category,
+            "link": hit.link,
+            "published": hit.published,
+            "summary": hit.summary[:2000],
+            "matched_phrase": hit.matched_phrase,
+            "urgency": category_meta(hit.category).get("urgency"),
+        },
+    )
+
+
 def format_alert(hit: Hit) -> str:
     meta = category_meta(hit.category)
     emoji = meta.get("emoji", "📢")
@@ -603,7 +628,7 @@ def _process_hits(conn, hits: list[Hit]) -> int:
             continue
         # Mark seen BEFORE sending — prevents duplicates if Telegram errors
         mark_seen(conn, hit)
-        if send_telegram(format_alert(hit)):
+        if SVC.send_alert(build_alert(hit, format_alert(hit))):
             sent += 1
             log.info("Alert sent: [%s] %s | %s",
                      category_meta(hit.category).get("urgency"),
