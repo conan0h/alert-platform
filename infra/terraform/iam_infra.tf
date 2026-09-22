@@ -125,9 +125,29 @@ data "aws_iam_policy_document" "infra_boundary" {
   }
 
   statement {
-    sid       = "NeverTheTrustAnchor"
-    effect    = "Deny"
-    actions   = ["iam:*OpenIDConnectProvider*"]
+    sid    = "NeverTheTrustAnchor"
+    effect = "Deny"
+    # Mutating actions only, enumerated. The first version was
+    # `iam:*OpenIDConnectProvider*`, and that wildcard made the infra role
+    # unusable rather than bounded: it also matches GetOpenIDConnectProvider and
+    # ListOpenIDConnectProviders, an explicit Deny beats the `iam:Get*` Allow in
+    # PlanNeedsToRead, and Terraform must refresh every resource in state —
+    # including this provider — before it can produce any plan. So every plan
+    # failed with AccessDenied before printing a single change. Proven by
+    # infra.yml run 3, 2026-09-22.
+    #
+    # Reading the provider is safe. Its URL, client-id list and thumbprint are
+    # public values, and knowing them confers no ability to change who may
+    # assume a role. Only mutation is the escalation, so only mutation is denied.
+    actions = [
+      "iam:CreateOpenIDConnectProvider",
+      "iam:DeleteOpenIDConnectProvider",
+      "iam:UpdateOpenIDConnectProviderThumbprint",
+      "iam:AddClientIDToOpenIDConnectProvider",
+      "iam:RemoveClientIDFromOpenIDConnectProvider",
+      "iam:TagOpenIDConnectProvider",
+      "iam:UntagOpenIDConnectProvider",
+    ]
     resources = ["*"]
   }
 
@@ -317,9 +337,29 @@ data "aws_iam_policy_document" "infra" {
   }
 
   statement {
-    sid       = "NeverTheTrustAnchor"
-    effect    = "Deny"
-    actions   = ["iam:*OpenIDConnectProvider*"]
+    sid    = "NeverTheTrustAnchor"
+    effect = "Deny"
+    # Mutating actions only, enumerated. The first version was
+    # `iam:*OpenIDConnectProvider*`, and that wildcard made the infra role
+    # unusable rather than bounded: it also matches GetOpenIDConnectProvider and
+    # ListOpenIDConnectProviders, an explicit Deny beats the `iam:Get*` Allow in
+    # PlanNeedsToRead, and Terraform must refresh every resource in state —
+    # including this provider — before it can produce any plan. So every plan
+    # failed with AccessDenied before printing a single change. Proven by
+    # infra.yml run 3, 2026-09-22.
+    #
+    # Reading the provider is safe. Its URL, client-id list and thumbprint are
+    # public values, and knowing them confers no ability to change who may
+    # assume a role. Only mutation is the escalation, so only mutation is denied.
+    actions = [
+      "iam:CreateOpenIDConnectProvider",
+      "iam:DeleteOpenIDConnectProvider",
+      "iam:UpdateOpenIDConnectProviderThumbprint",
+      "iam:AddClientIDToOpenIDConnectProvider",
+      "iam:RemoveClientIDFromOpenIDConnectProvider",
+      "iam:TagOpenIDConnectProvider",
+      "iam:UntagOpenIDConnectProvider",
+    ]
     resources = ["*"]
   }
 

@@ -106,12 +106,22 @@ jobs:
           terraform_wrapper: false
       - name: Formatting is canonical
         run: terraform fmt -check -recursive -diff infra/
-      # -backend=false: this validates the configuration, it does not touch
-      # any state and cannot reach the account. Applying is a human act done
-      # from CloudShell — never from CI, and never by the agent.
+
+      # An explicit Deny beats every Allow, so a wildcard in a Deny action list
+      # is a claim about every action name that matches it — including the reads
+      # a plan cannot run without. `iam:*OpenIDConnectProvider*` made the infra
+      # role unable to plan at all (infra.yml run 3, 2026-09-22), because
+      # Terraform refreshes every resource in state before planning and that
+      # deny covered GetOpenIDConnectProvider. Cheap to check, and it cannot be
+      # caught by `validate`.
+      - name: Deny statements enumerate their actions
+        run: python3 tools/check_iam_denies.py
+
       # -backend=false: this validates the configuration, it does not touch any
       # state and cannot reach the account. It also means the S3 backend block in
       # infra/terraform does not need the bucket to exist or any credential.
+      # Applying is done by infra.yml (ADR 0003), except the one-time bootstrap
+      # that grants the infra role its permissions, which is the owner's.
       - name: Configuration is valid
         run: |
           terraform -chdir=infra/terraform init -backend=false -input=false

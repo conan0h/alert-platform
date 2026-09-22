@@ -385,3 +385,45 @@ control you know to be working has measured something other than what you asked.
 Same shape as the earlier "a failed command produces zeros" entry: a result that
 agreed with what I already suspected, produced by a mechanism that could not
 have measured it.
+
+## A wildcard in a Deny is a wildcard over reads too
+*Learned 2026-09-22, from a guardrail that locked the control plane out of its
+own account.*
+
+ADR 0003's infra role was written to be unable to repoint its own trust anchor:
+
+    statement {
+      sid       = "NeverTheTrustAnchor"
+      effect    = "Deny"
+      actions   = ["iam:*OpenIDConnectProvider*"]
+      resources = ["*"]
+    }
+
+The intent was right and the implementation made the role useless. That pattern
+also matches `iam:GetOpenIDConnectProvider` and `iam:ListOpenIDConnectProviders`.
+An explicit Deny beats every Allow, so it overrode the `iam:Get*` in the role's
+own `PlanNeedsToRead`. And Terraform refreshes every resource in state before it
+plans anything — including the OIDC provider the module manages. So every plan
+died with `AccessDenied` before printing a single proposed change.
+
+The failure mode is worth naming: **the role could not read the resource it was
+forbidden to change, so it could do nothing at all.** Not a narrowed permission
+— a bricked one.
+
+- **Enumerate the actions in a Deny.** Writing them out forces a decision, per
+  action, about whether it mutates. `tools/check_iam_denies.py` now fails CI on
+  any wildcard inside a Deny action list; an Allow may still use them, because
+  `ec2:Describe*` is genuinely what a plan needs and over-granting there is
+  caught by the boundary.
+- **Reading a trust anchor is not escalation.** Its URL, client-id list and
+  thumbprint are public values; knowing them confers no ability to change who
+  may assume a role. Only mutation is the escalation, so only mutation belongs
+  in the Deny.
+- **`terraform validate` cannot catch this and neither can review of the diff in
+  isolation.** It only appears when a principal bounded by the policy tries to
+  plan the module that contains the denied resource. The static check exists
+  because the dynamic one costs a round trip through a human's CloudShell.
+
+Generalising: a Deny is not "a bit of extra safety" — it is a hard assertion
+that no legitimate operation will ever need any action matching that pattern.
+Refresh-before-plan means almost every write path needs a read path first.
