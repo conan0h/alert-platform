@@ -30,6 +30,7 @@ from .config import ConfigError, ServiceConfig
 from .health import HealthServer, Metrics
 from .log import configure_logging, get_logger
 from .service import Service
+from .sources import SourceHealth, SourceState
 from .state import state_path
 from .telegram import TelegramClient
 
@@ -39,6 +40,8 @@ __all__ = [
     "Metrics",
     "Service",
     "ServiceConfig",
+    "SourceHealth",
+    "SourceState",
     "TelegramClient",
     "configure_logging",
     "get_logger",

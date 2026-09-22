@@ -352,3 +352,36 @@ Also: **name the target shell in the imperative, not just the prose.** #27 said
 on the EC2 host as well, where `apt` does not exist and the instance role cannot
 create IAM. Every step needs to say where it runs, because steps get pasted
 individually and headers do not travel with them.
+
+## A 403 from your own proxy is not a 403 from the site
+*Learned 2026-09-22, one conclusion away from deleting two working feeds.*
+
+Two `fda-catalysts` feeds return 403 on every poll. To find out whether that was
+a dead endpoint or a blocked User-Agent, I probed eight feeds with two UAs each.
+All sixteen returned 403. The obvious reading — every one of these publishers
+blocks us — was wrong.
+
+The error text said `Tunnel connection failed: 403 Forbidden`, and
+`$HTTPS_PROXY/__agentproxy/status` named it exactly:
+
+    "kind": "connect_rejected",
+    "detail": "gateway answered 403 to CONNECT (policy denial or upstream failure)"
+
+The 403s came from this session's egress policy refusing CONNECT, not from the
+origins. The tell was in the results all along: `fda.gov` also returned 403, and
+the host polls `fda.gov` successfully every ten minutes. A probe that condemns a
+control you know to be working has measured something other than what you asked.
+
+- **An HTTP status is only evidence if you know which hop produced it.** Read the
+  exception type and text, not just the number. `URLError: Tunnel connection
+  failed` is the proxy; `HTTPError: 403` is the server.
+- **Put a known-good control in any reachability probe**, and stop if the control
+  fails. One line of output would have ended this in seconds.
+- **Where the network differs, move the measurement, not the guess.** The fix was
+  not a better probe from here — it was shipping per-source accounting so the
+  host reports which feeds work, from the only vantage point whose network
+  matters.
+
+Same shape as the earlier "a failed command produces zeros" entry: a result that
+agreed with what I already suspected, produced by a mechanism that could not
+have measured it.

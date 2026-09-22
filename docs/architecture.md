@@ -213,6 +213,25 @@ alert rules from those specs, and CI fails if the generated config has drifted
 from them. Swapping Prometheus for another scraper means changing the
 generator, not the services.
 
+### Source health is its own signal
+
+A poll cycle can complete successfully while one of the sources it polls is
+permanently broken, so the cycle counters cannot see the condition that matters
+most to alert quality: a feed that stopped answering. `fda-catalysts` ran that
+way from August to 2026-09-22 with two feeds returning 403 every cycle.
+
+`alertlib.SourceHealth` keeps per-source outcome counts and the length of the
+current failing run, and decides when a repeated failure is worth a log line:
+the first, then at widening intervals, then once when the source is presumed
+dead, then once on recovery. It exposes `alert_source_fetches_total`,
+`alert_source_fetch_failures_total`, `alert_sources_failing` and
+`alert_sources_presumed_dead`.
+
+The logging schedule is not cosmetic. An unconditional warning per failed fetch
+costs about 1,900 lines per source per day at a 45-second cadence, and the
+`logs` read verb captures roughly the first 24 KB of its window — so source
+spam displaces the alert output an operator opened the log to read.
+
 ## What is still deliberately absent
 
 - **Multi-host scheduling.** `targets` models one EC2 host. The shape leaves
