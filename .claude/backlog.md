@@ -103,37 +103,38 @@ actually emit.
     whether or not it is what 403s here.
 
 27. **Persist alert content, and give it a reader.**
-    `(a)(b) done 2026-09-22 (#35); (c)(d) open — and (a)(b) need a deploy`
-    Alerts existed only as a Telegram message and a journald line. There was no
-    record to query, so "is this signal any good" could not be answered, and the
-    website in CLAUDE.md §1 had nothing to render.
+    `(a)(b) done 2026-09-22 in #35; (c) blocked on ADR 0004; (d) todo, unblocked`
+    Alerts existed only as a Telegram message and a journald line, so "is this
+    signal any good" could not be answered and the website had nothing to
+    render. This is the prerequisite for priorities 1 and 2 and for the site,
+    and it comes before more filtering work so that filtering can be judged
+    against recorded output rather than impressions.
 
-    **(a) and (b) done 2026-09-22.** `alertlib.AlertArchive` writes every alert
-    to an append-only SQLite table before sending and settles the delivery
-    outcome afterwards: service, deployed ref, source, dedup key, ticker,
-    reason, the message as sent, JSON payload, `pending | sent | failed`. All
-    four services route through `Service.send_alert`, so recording is a property
-    of the send path rather than a convention. 23 tests; **ADR 0005** argues the
-    two decisions a reviewer will ask about — one database per service rather
-    than a shared one (the last incident here was a SQLite lock storm), and a
-    write failure that is counted rather than raised (a missing row is lost
-    measurement; a missing dedup row is duplicate alerts).
+    **(a) and (b) done.** `alertlib.AlertArchive` plus `Service.send_alert`:
+    every alert is recorded to an append-only SQLite table before it is sent and
+    the delivery outcome settled afterwards — service, deployed ref, source,
+    dedup key, ticker, reason, the message as sent, JSON payload,
+    `pending | sent | failed`. All four services route through one method, so
+    recording is a property of the send path rather than a convention. 23 tests.
+    **Read ADR 0005 before touching it**: it argues the two decisions a reviewer
+    will ask about — one database per service rather than a shared one (the last
+    incident here was a SQLite lock storm), and a write failure that is counted
+    rather than raised (a missing archive row is lost measurement; a missing
+    dedup row is duplicate alerts that reach a human).
 
-    **Nothing is being recorded in production yet.** The code runs on the host,
-    so it needs a release and a deploy, and this session cannot cut a tag (#31).
-    Until then the table exists only in `main`.
+    **Nothing is being recorded in production yet.** This runs on the host, so
+    it needs a release and a deploy, and no session can cut a tag (#31). Until
+    then the table exists only in `main`.
 
-    **(c) the `alerts` read verb.** The SSM document side is now genuinely
-    unblocked — `infra.yml` plan reported no changes on 2026-09-22 (run 6), so
-    the pipeline works. The *wrapper* side is not: adding a verb to
-    `alert-deploy` still needs a root install, which is #24, which is blocked on
-    the installer the sandbox refuses to author. So (c) is: alertctl subcommand
-    and SSM document by the agent, wrapper verb by Conan or via #24.
-    (d) console panel, after (c).
+    **(c) the `alerts` read verb — blocked on the wrapper, not on infra.** The
+    SSM document half is ours now that #28 is done. But `READONLY_VERBS` in
+    `deploy/ops/alert-deploy` does not include `alerts`, and the wrapper is not
+    ours to change until ADR 0004's adopter exists.
+    **(d) the console panel — unblocked, and needs nothing from anyone.**
 
-    Design note for whoever builds (c): the archive is one file per service, so
-    a reader unions four. `AlertArchive.recent()` and `.count()` already exist
-    and `PRAGMA user_version` carries the schema version.
+    Design note for whoever builds either: the archive is one file per service,
+    so a reader unions four. `AlertArchive.recent()` and `.count()` already
+    exist, and `PRAGMA user_version` carries the schema version.
 
 28. **Own the AWS infrastructure: remote state and an `infra.yml` workflow.**
     `DONE 2026-09-22 — verified by infra.yml run 5, "No changes"`
@@ -228,9 +229,18 @@ actually emit.
     change and therefore #28. **#28 is done as of 2026-09-22, so this is now
     ordinary work**: the SSM document is `infra/terraform/ssm_documents.tf` and
     `infra.yml` applies it. The wrapper half still needs ADR 0004's adopter.
-    Partly mitigated 2026-09-22 from the other end: #26(a) removed the ~3,800
-    daily warning lines that were the main thing filling the 24 KB, so a window
-    now holds far more of what an operator actually opened it to read.
+    **Half done 2026-09-22.** `observe.yml` can now pass `--since`, as a choice
+    input constrained again by `allowedValues` on the SSM document, so a caller
+    can ask for 10 minutes instead of an hour and get all of it. The wrapper
+    already accepted `--since`; only the document did not pass it. Also mitigated
+    from the other end: #26(a) removed the ~3,800 daily warning lines that were
+    the main thing filling the 24 KB.
+    Still open: bounding output with `journalctl -n` so the *tail* survives
+    regardless of window length. That is a wrapper change, so ADR 0004.
+    Found while doing this: **the wrapper's `valid_since` accepts `30m`, which
+    journalctl rejects** — verified both locally. So that form passes validation
+    and then fails at runtime with a confusing error. The document's
+    `allowedValues` excludes it; fixing the wrapper's validator needs ADR 0004.
     Note the window is one hour, not one day — an earlier log entry wrongly
     expected it to slide far enough to show a 22:16 event the next morning.
 

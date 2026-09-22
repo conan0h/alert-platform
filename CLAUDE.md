@@ -392,10 +392,13 @@ alert has fired in any observed window, so the record-then-send path has never
 run under contention. Do not upgrade this to "confirmed" without a window
 containing an actual send.
 
-Note the `logs` window is **one hour**, not one day, and it returns the *oldest*
-part of it: on 2026-09-22 a 07:03–08:03 request returned 07:03:14 to 07:16:44
-and then `--output truncated--`. Backlog #32. Two earlier log entries expected
-that window to slide far enough to show a previous evening's event; it cannot.
+Note the `logs` window **defaults to one hour**, not one day, and it returns the
+*oldest* part of it: on 2026-09-22 at 08:03 a one-hour request returned 07:03:14
+to 07:16:44 and then `--output truncated--` — thirteen minutes of sixty, from
+the wrong end. Two earlier log entries expected that window to slide far enough
+to show a previous evening's event; it cannot. Since #39 `observe.yml` takes a
+`--since` input, so asking for a short window is how you see all of it; the
+truncation itself is still unfixed (backlog #32).
 
 **Open production questions.**
 1. Resolved 2026-09-21: **secret resolution works.** The first apply through the
