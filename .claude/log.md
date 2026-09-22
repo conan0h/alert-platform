@@ -867,3 +867,49 @@ Format:
   it needs the owner. Unblocked meanwhile: #23 (build stamp in `status`, verified
   that `debug.ReadBuildInfo` stamps under `-mod=vendor`), #27(d) the console
   panel, and #35 above.
+
+## 2026-09-22 (sixth) — v0.3.0 deployed; a dead feed was the User-Agent
+- **Deployed `fda-catalysts` v0.1.0 → v0.3.0.** Plan `4f81a414c59e` read before
+  applying: `1 to change, 3 unchanged`, exactly as predicted. Health gate passed,
+  78s, nothing rolled back. Second service ever deployed by this pipeline.
+
+        fda-catalysts  v0.3.0  active  enabled  2026-09-22T08:38:32Z  gha:35705787906
+
+  The plan's `environment` hash change was expected rather than surprising: the
+  ref is passed to the service through its env, so rolling the ref necessarily
+  moves that hash.
+- **Backlog #26(a) answered. The User-Agent was the cause — for one of the two.**
+
+        source health: 14/15 sources healthy; failing: FiercePharma (x1)
+
+  Before the deploy both FiercePharma and EndpointsNews returned 403 on every
+  cycle. After it, **only FiercePharma does.** So `main()` writing the SEC contact
+  string into `HTTP_HEADERS_DEFAULT` was what Endpoints refused, and removing it
+  recovered a feed that had been dead since August. FiercePharma is genuinely
+  blocking us — now a fact rather than a hypothesis, and the remaining question is
+  whether it is IP, Cloudflare or a subscription.
+- **Three CRITICAL alerts fired on the first cycle of `v0.3.0`:**
+
+        [CRITICAL] FDA_APPROVAL | FDA approves ataxia-telangiectasia drug; Alkermes reports ADHD data
+        [CRITICAL] FDA_APPROVAL | FDA approves Lilly's oral SERD combo for second-line breast cancer therapy
+        [CRITICAL] FDA_APPROVAL | FDA approves Ultragenyx's gene therapy for Sanfilippo syndrome type A
+
+  Which is the point of the project. **Attribution to the recovered feed is not
+  proven**: the journal line does not name a source per alert. The alert archive
+  from #35 would, and it is not in `v0.3.0` — a good argument for getting it
+  deployed, because "which source produced the actionable alerts" is the question
+  priority 1 turns on.
+- **And the deploy found a bug in my own change**, by output rather than by test:
+  the summary printed every cycle, because `summary_if_changed` compared the
+  rendered string and the failure count is in it. So #30's real effect was 3 log
+  lines per cycle down to 2, not down to a handful as its PR claimed. Fixed in
+  #43, comparing the failing *set* instead; the new test fails against the
+  deployed version with the observed symptom. Learnings entry added — a test that
+  runs one iteration cannot see a per-iteration bug, and a change-detector whose
+  key contains a monotonic value fires unconditionally while looking correct.
+- The fix is merged but not deployed, so `fda-catalysts` keeps one summary line
+  per cycle until the next release. Judged not worth a release of its own.
+- Also this run: `clinical-trials` still streams exactly 399 trials per cycle
+  (backlog #35), unchanged across three readings.
+- Next: get the alert archive deployed so alerts are attributable to sources;
+  then #35's 399; then #23's build stamp, which needs no tag.
