@@ -198,13 +198,15 @@ actually emit.
     release, roll the specs, then apply and verify.
 
 31. **This session cannot cut a release tag.**
-    `needs-conan — open: issue #41 asks for v0.3.0 at 8bcd585`
-    **Issue #41 (2026-09-22) is the live request.** `main` is green at `8bcd585`
-    and carries three merged changes no tag contains — the source-health
-    accounting and UA fix (#30), the alert archive (#35), and `logs --since`
-    (#39). None of them is running in production until that tag exists. Check
-    whether it does before planning anything else; if it does, the next run's
-    first task is the four-service roll and deploy described in the issue.
+    `needs-conan — no open request; ask again when a release is due`
+    **Issue #41 is closed.** Conan cut `v0.3.0` (at `0f0541b`) and `v0.4.0` (at
+    `4036ffa`) on 2026-09-22. Both are deployed or rolled: `v0.3.0` is live on
+    `fda-catalysts` and verified over 329 cycles; `v0.4.0` is rolled into all
+    four specs (#46) and **awaits its apply**, which is the next run's first
+    task. Note the coordination failure worth not repeating: two concurrent
+    sessions asked for `v0.3.0` at different commits, the tag landed on one of
+    them, and the issue's four-service plan was then wrong for the tag that
+    existed. Verify what a tag contains by ancestry before rolling to it.
     Verified 2026-09-21 by trying all three routes: `git push origin v0.2.0` →
     403; `POST /releases` → 403 "Creating, editing, or deleting releases is not
     permitted for this session type"; `POST /git/refs` → 403 "Write access to
