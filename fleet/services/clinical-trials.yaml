@@ -10,7 +10,7 @@ spec:
   source:
     repo: https://github.com/conan0h/alert-platform
     path: services/clinical_trials
-    ref: v0.4.0                       # git tag; carries the alert archive (ADR 0005)
+    ref: v0.5.0                       # git tag; carries the candidate funnel (ADR 0006)
     entrypoint: main.py
 
   polling:
