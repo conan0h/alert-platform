@@ -13,6 +13,8 @@ enough that he can review it afterwards and defend it to a senior engineer.
 
 Read this file, then `.claude/backlog.md`, the last five entries of
 `.claude/log.md`, and `.claude/learnings.md`, before doing anything.
+Older run entries are in `.claude/log-archive.md`; read them only when you
+need the history behind something specific.
 
 ---
 
@@ -190,8 +192,11 @@ release and deploy; a closed gap; a measurable improvement to signal quality.
 10. **Release and deploy** if the merged work changes anything that runs on the
     host (§6). Docs-only or CI-only work does not need a release.
 11. **Verify production** after any deploy and record the evidence.
-12. **Record.** Update `.claude/backlog.md`, append to `.claude/log.md`, add
-    durable lessons to `.claude/learnings.md`.
+12. **Record, then tidy.** Update `.claude/backlog.md`, append to
+    `.claude/log.md`, add durable lessons to `.claude/learnings.md`. Then leave
+    the documentation in the state you would want to inherit (§12). This is part
+    of the run, not a separate errand: docs written during a run describe the
+    state mid-run, and the next reader takes them as current.
 
 If you hit something only Conan can answer, write it up (§10), log it, and move
 to the next unblocked item.
@@ -433,10 +438,12 @@ produced its answer, so a stale control plane reads as current (backlog #23; thi
 has now misled two verifications). Relatedly, **`drift` compares the host's
 services against the specs in the host's own checkout, not against `origin/main`**,
 which only a `plan` syncs — so a merged release that has not been applied shows no
-drift and exit 0. `drift` is not a backstop against forgetting to deploy. Alert output is recorded as of #35
-but only in `main`: nothing is being written on the host until that ships in a
-release, and there is no read path off the host until the `alerts` verb exists
-(backlog #27c).
+drift and exit 0. `drift` is not a backstop against forgetting to deploy.
+Alert output has been recorded on the host since the `v0.4.0` apply on
+2026-09-23, the first time any alert has been persisted anywhere. There is still no read path off the host: that needs
+the `alerts` verb, which needs a wrapper change (backlog #27c). So the rows
+accumulate where only the host can see them, and the first run able to read them
+should check that the table is actually filling.
 
 **Also unfixed.** Root account access keys are in use. A host-side edit to
 `services/form4_insider/main.py` (`alerted_this_filing`) is not in git.
@@ -463,3 +470,35 @@ from memory.
 The GitHub check-runs endpoint and a run's top-level status are both sometimes
 stale. A job's archived logs — 404 until it completes — are reliable. If checks
 appear to be missing entirely, read `mergeable_state` before blaming the API.
+
+---
+
+## 12. Tidy the documentation before you stop
+
+Every run adds prose. Without a pass to remove what it superseded, the files a
+run is required to read first grow into the least accurate thing in the
+repository. Each run, check these and fix what it found:
+
+- **Close what you closed.** A gap you fixed, a question you answered or an
+  outstanding action someone completed is removed from `README.md`'s known
+  gaps, from CLAUDE.md §11 and from the runbook that told a reader to do it —
+  not left with a note beside it. A stale "you must still do X" is worse than
+  no note, because a reader acts on it.
+- **Move a finished investigation out of the backlog.** When an item is done,
+  compress it to its outcome in `## Done` and let the detail live where it
+  already does: the ADR, the incident write-up, the log. The backlog is a list
+  of work, not an archive of reasoning.
+- **Keep `log.md` the length it is read at.** §5 reads the last five entries.
+  Move older ones verbatim into `.claude/log-archive.md`; never delete them,
+  since they are the evidence behind the production claims in the docs.
+- **Deduplicate `learnings.md`.** Two sessions can run at once and write the
+  same lesson twice — this has happened. Before appending, read the existing
+  headings; if yours restates one, extend that entry instead. Merge duplicates
+  you find.
+- **Say it once, in the right file.** A fact belongs in one place: CLAUDE.md
+  §11 for current state, the ADR for a decision, the runbook for a procedure,
+  `learnings.md` for a durable lesson. When the same paragraph appears twice,
+  keep the one whose file owns it and link from the other.
+
+Cutting a correct sentence is cheap; leaving a wrong one is not. When a claim
+cannot be checked any more, delete it rather than softening it.

@@ -420,39 +420,17 @@ forbidden to change, so it could do nothing at all.** Not a narrowed permission
   may assume a role. Only mutation is the escalation, so only mutation belongs
   in the Deny.
 - **`terraform validate` cannot catch this and neither can review of the diff in
-  isolation.** It only appears when a principal bounded by the policy tries to
-  plan the module that contains the denied resource. The static check exists
-  because the dynamic one costs a round trip through a human's CloudShell.
+  isolation.** `fmt` and `validate` both pass: it is valid HCL and a valid
+  policy. It only appears when a principal bounded by the policy tries to plan
+  the module that contains the denied resource, which needs real credentials CI
+  does not have. Same shape as the eight deploy-path bugs — the untestable half,
+  found in production — and the same answer: a static check that runs without
+  credentials beats a correct-looking policy nobody can exercise. The dynamic
+  one costs a round trip through a human's CloudShell.
 
 Generalising: a Deny is not "a bit of extra safety" — it is a hard assertion
 that no legitimate operation will ever need any action matching that pattern.
 Refresh-before-plan means almost every write path needs a read path first.
-
-## A wildcard in a Deny denies by spelling, not by effect
-*Learned 2026-09-22, on the first real use of `infra.yml`.*
-
-The infra guardrail said:
-
-    actions = ["iam:*OpenIDConnectProvider*"]
-
-which reads as "nothing to do with the trust anchor" and means "including
-looking at it". `iam:GetOpenIDConnectProvider` matched, an explicit Deny beats
-every Allow, and Terraform refreshes every resource it manages before planning —
-so the workflow could not produce one plan. The role was forbidden to read the
-resource it was forbidden to change, and could therefore do nothing at all.
-
-Nothing in the repository could have caught it. `terraform fmt` and
-`terraform validate` both pass: it is valid HCL and a valid policy. It only
-appears when a principal actually bounded by the policy tries to plan, which
-needs real credentials, which CI does not have. It is the same shape as the
-eight deploy-path bugs — untestable half, found in production — and the same
-answer applies: `tools/check_iam_denies.py` now fails CI on any wildcard inside
-a Deny action list, because a static check that runs without credentials is
-better than a correct-looking policy nobody can exercise.
-
-The general form: when writing a Deny, enumerate the actions that *change*
-something. A wildcard over an action name will eventually swallow a read, and
-a denied read fails in a place far from the policy that caused it.
 
 ## Two scheduled sessions can run against this repository at once
 *Learned 2026-09-22, at the cost of one duplicated milestone.*

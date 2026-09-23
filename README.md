@@ -242,13 +242,13 @@ Stated because they are real, not because they are planned away.
   So the gap is between candidate and signal, not in the fetch. The next
   release carries per-cycle funnel counts that say which stage the candidates
   stop at.
-- **The alert archive has no reader yet.** As of 2026-09-22 every alert is
-  recorded to an append-only table in the service's state directory
-  ([ADR 0005](docs/adr/0005-alert-archive.md)), which closes the gap that
-  blocked measuring signal quality. Getting those rows *out* — an `alerts`
-  read verb and a console panel — needs an SSM document change, which needs
-  the Terraform bootstrap in issue #27. Until then the rows accumulate on the
-  host and can only be read there.
+- **The alert archive has no reader yet.** Since the `v0.4.0` deploy on
+  2026-09-23 every alert is recorded to an append-only table in the service's
+  state directory ([ADR 0005](docs/adr/0005-alert-archive.md)), which closes the
+  gap that blocked measuring signal quality. Getting those rows *out* — an
+  `alerts` read verb and a console panel — needs the wrapper to accept a new
+  read verb ([ADR 0004](docs/adr/0004-wrapper-adoption.md)). Until then the rows
+  accumulate on the host and can only be read there.
 - **Nothing backs the archive up.** `state.backup` is declared in the spec
   with no job behind it, and there is now data under `/var/lib/alert-platform/`
   whose loss would be irreversible rather than merely inconvenient.
@@ -257,16 +257,11 @@ Stated because they are real, not because they are planned away.
   from the wrong end.
 - **`observe` does not report which `alertctl` produced its answer.** Read
   verbs never rebuild the binary, so a stale control plane reads as current.
-  This has already misled one verification.
+  This has misled two verifications.
 - **`dedup.keys`** is declared in the spec but not consumed by the services.
 - **`drift` compares refs and unit hashes only**, so an in-place edit inside a
   release directory is invisible to it.
 - **Root account access keys are still in use.**
-- **The leaked Telegram token has not been confirmed rotated.** A bot token was
-  committed in this repository's history, and history rewriting is not a remedy
-  for a credential that has been published — only rotation is. The
-  [migration guide](docs/migration.md) asks for it and nothing has confirmed it
-  was done, so treat it as outstanding.
 - **A host-side edit to `services/form4_insider/main.py` is not in git.** A
   traceback from the 2026-09-21 incident places a function four lines from where
   the repository has it, so the host has been running code that no commit
