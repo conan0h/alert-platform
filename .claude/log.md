@@ -398,3 +398,92 @@ twelve single-iteration tests could not see.
 - Noted again, since it cost time twice this run: the **check-runs endpoint and a
   run's top-level status are both stale** here. `actions_list` on the run's jobs,
   and a job's archived log going from 404 to available, are the reliable signals.
+
+## 2026-09-23 (second) — v0.5.0 deployed; the funnel answered #35
+Conan cut `v0.5.0` from issue #50, so the funnel reached the host and the
+question it was built for is answered.
+
+### Production report
+**Tag verified by ancestry before rolling**, per the `v0.3.0` coordination
+failure: `v0.5.0` is `837b327` exactly, and `git merge-base --is-ancestor`
+confirms the funnel commit is in it.
+
+**Roll (#53).** `clinical-trials` alone. One service on §6's criteria, checked
+against the tag by diff: only `clinical_trials/main.py` changed among the four,
+and the `alertlib` delta is a new module plus two export lines that nothing
+else imports. Rolling the other three would have restarted them for no change
+in behaviour. CI run 121 green on all six jobs.
+
+**Plan `d237e2d4a7cf`** (deploy run 9):
+
+    ~ clinical-trials  UPDATE   source.ref  v0.4.0 -> v0.5.0
+    = edgar-mna        no changes (v0.4.0)
+    = fda-catalysts    no changes (v0.4.0)
+    = form4-insider    no changes (v0.4.0)
+    1 to change, 3 unchanged.
+
+**Apply** (run 10): `✓ clinical-trials healthy at v0.5.0`, `Applied 1
+change(s)`, host exit 0, 88s, actor `gha:35839768109`. Restart at 08:54:35,
+the next line carrying `"ref": "v0.5.0"`. The other three were not touched.
+
+### The funnel, first cycle on the host
+
+    Streamed 787 of 787 recently-updated trials from ClinicalTrials.gov in 4 page(s)
+    funnel: streamed=787 parsed=787 known=787 first_sight=0
+            first_sight_completed=0 changed=0 signals=0 sent=0 new_in_window=?
+
+Four things this settles, in order of how much they change the picture.
+
+**`changed=0` is the answer to #35.** Of 787 trials whose last-update date moved
+inside the window, not one had a status different from the one we stored. There
+are no signals because `detect_signal` fires only on a status transition, and no
+status transitioned. The updates are real; they are not status changes.
+
+**`first_sight_completed=0` refutes the hypothesis the counter was built to
+test.** ADR 0006 argued the likely cause was trials entering view *because* of
+the update that matters, arriving already COMPLETED with no earlier status to
+compare against, and being dropped by signal 5's `prev_status not in
+("COMPLETED", None)`. That path never ran: `first_sight=0`, so every trial was
+already known. The counter earned its place by being zero.
+
+**`787 of 787 ... in 4 page(s)` ends the pagination question.** The fetch reads
+the entire match; the cap is not reached. Backlog #35's original framing — a
+query stuck on its first page — is now disproved twice over.
+
+**`new_in_window=?`** on the first cycle is the sentinel working: nothing to
+compare against yet, and `?` rather than `0` because zero is a real answer a
+later cycle can give.
+
+### Second cycle, and `new_in_window` is the decisive number
+Cycle 2 at 08:59:37, five minutes later:
+
+    Streamed 787 of 787 recently-updated trials from ClinicalTrials.gov in 4 page(s)
+    funnel: streamed=787 parsed=787 known=787 first_sight=0
+            first_sight_completed=0 changed=0 signals=0 sent=0 new_in_window=0
+
+**`new_in_window=0`: not one of the 787 ids is new since the previous cycle.**
+The feed returns an identical set. That is expected rather than broken —
+`LastUpdatePostDate` is date-granular, so membership of a two-day window can
+only change when the date rolls — but it has a consequence worth stating: at a
+300-second interval the service re-examines the same 787 rows about 288 times a
+day, and the set it is watching refreshes once. The poll rate and the rate at
+which the underlying data can move are three orders of magnitude apart.
+
+Both counters agree across two cycles, which is more than the first line alone
+could claim: the set is static and no status moved within five minutes.
+
+### Not concluded from two cycles
+Two cycles five minutes apart still do not establish the *daily* rate of status
+changes — they establish that nothing moved in one five-minute gap, which is
+about what you would expect even from a healthy feed. The mechanism argues
+alerts should eventually fire: a trial whose previous update fell outside the two-day window
+leaves our view, and on re-entry its stored status is weeks old, so a flip to
+COMPLETED reads as a change and signal 5 fires. What is needed is the
+cumulative counter over a day — `alert_funnel_changed_total` — not another
+single line. The funnel makes that a read rather than an investigation.
+
+### Smaller finding
+The startup Telegram message goes through `send_telegram` directly rather than
+`Service.send_alert`, so it is neither archived nor counted. Harmless for
+signal quality, but it means "the archive holds every message the bot sent" is
+not quite true. Recorded in the backlog.

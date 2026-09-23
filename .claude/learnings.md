@@ -593,3 +593,61 @@ and in particular to ask what each one reports when the code around it does not
 complete. The second defect was found only because a test closed the generator
 early, which is not an obvious case to write until you decide the tally is a
 contract rather than a convenience.
+
+## A counter that comes back zero can still be the one that paid for itself
+*Learned 2026-09-23, when the hypothesis I built a counter to test was wrong.*
+
+ADR 0006 argued a specific cause for `clinical-trials` alerting on nothing: the
+query selects on last-update date, so a trial usually enters view *because* of
+the update that matters, arrives already COMPLETED with no earlier status to
+compare against, and is dropped by `detect_signal`'s
+`prev_status not in ("COMPLETED", None)`. `first_sight_completed` existed to
+measure what that cost per cycle.
+
+It came back 0, and so did `first_sight`. Every trial was already known, so the
+path I had reasoned about never runs at all. The real cause was the neighbouring
+counter: `changed=0`. Nothing alerts because no status ever differs from the
+stored one.
+
+Two things worth keeping:
+
+- **Instrument the hypothesis *and* its alternatives.** Had the funnel carried
+  only `first_sight_completed`, the answer would have been "not that" with no
+  indication of what instead, and the next run would have needed another
+  deploy. `changed`, `known` and `first_sight` cost nothing extra and one of
+  them held the answer.
+- **A zero is a result.** The instinct on seeing the counter you cared about
+  read 0 is that the measurement failed. Here it succeeded: it refuted a
+  plausible, carefully argued story that would otherwise have become the
+  explanation by default, and it did so on the first cycle.
+
+The general form: when you write a counter to confirm a theory, write the
+counters that would show you a different theory at the same time. The marginal
+cost is a word in a log line; the marginal value is not needing a second
+release to ask the obvious follow-up.
+
+## Don't mistake a slow API for a slow system, or a stale sleep for a wait
+*Learned 2026-09-23, twice in one deploy.*
+
+Two mistakes, same root: reading my own instrumentation as if it measured the
+thing I cared about.
+
+**The apply looked stuck for "fifteen minutes."** A one-service apply that
+should take ~90s appeared to run far past it, and I said so. It had in fact
+finished in 88s — `duration_ms=87641`, health gate passed. What I was watching
+was the *archived job log*, which returns 404 until well after a job completes.
+CLAUDE.md records "404 until it completes" as the reliable completion signal;
+the inverse does not hold, and a 404 long after completion is normal.
+
+**And my wall clock was wrong.** I had been starting `sleep` in the background,
+immediately reading its output file, seeing it empty, and proceeding — so the
+waits never happened. Almost no real time passed between "checks" that I
+narrated as minutes apart. A backgrounded sleep is only a wait if something
+blocks on it; polling its output file and continuing is just a no-op with extra
+steps. Use a blocking wait (`Monitor` with an `until` loop) when the point is to
+let real time pass.
+
+Both errors pointed the same way — toward believing something was wrong with
+production when the only thing wrong was my measurement of it. That is the
+expensive direction: it invites a second apply, a rollback, or an incident
+write-up for a deploy that had already succeeded.

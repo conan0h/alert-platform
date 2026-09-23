@@ -359,11 +359,11 @@ the evidence, and continue.
 
 Verify and update this section as you learn.
 
-**Repository.** `main` is green. Tags `v0.1.0`–`v0.4.0`. All four services pin
-and run `v0.4.0` as of 2026-09-23 — the fleet is on one tag for the first time
-since August. `main` carries one merged change no tag contains: the candidate
-funnel (#49, `837b327`), which needs `v0.5.0` before it runs anywhere.
-Handoff issue #50 asks for that tag. The `go.mod` module path is
+**Repository.** `main` is green. Tags `v0.1.0`–`v0.5.0`, all of them released
+by Conan on request. `clinical-trials` runs `v0.5.0`; the other three run
+`v0.4.0`, deliberately — `v0.5.0` changes only `clinical_trials/main.py` plus a
+new `alertlib` module nothing else imports. No merged change is missing from a
+tag. The `go.mod` module path is
 `github.com/conan0h/alert-platform`; tags up to `v0.1.2` predate the rename and
 carry `conanohara`, so `go install …@latest` needs a newer tag.
 
@@ -371,15 +371,15 @@ carry `conanohara`, so `go install …@latest` needs a newer tag.
 and answer `/healthz`. `drift` reports no drift, exit 0.
 
     SERVICE          REF      STATE   DEPLOYED               BY
-    clinical-trials  v0.4.0   active  2026-09-23T08:19:59Z   gha:35836370892
+    clinical-trials  v0.5.0   active  2026-09-23T08:54Z      gha:35839768109
     edgar-mna        v0.4.0   active  2026-09-23T08:21:12Z   gha:35836370892
     fda-catalysts    v0.4.0   active  2026-09-23T08:22:26Z   gha:35836370892
     form4-insider    v0.4.0   active  2026-09-23T08:23:39Z   gha:35836370892
 
-`deploy.yml` run 8 applied plan `345baa3a5442` — four UPDATEs, no creates or
-removes, standard tier before critical, a health gate between each,
-`Applied 4 change(s)` in 303s. Four applies have now gone through the pipeline
-and none has needed a rollback.
+`deploy.yml` run 8 applied plan `345baa3a5442` — four UPDATEs, `Applied 4
+change(s)` in 303s. Run 10 applied `d237e2d4a7cf` — `1 to change, 3 unchanged`,
+`✓ clinical-trials healthy at v0.5.0`, 88s. Five applies have now gone through
+the pipeline and none has needed a rollback.
 
 **`infra.yml` is proven, 2026-09-22.** Run 6 on `f5ac4f5` assumed the infra role
 via OIDC, read remote state, and reported `No changes. Your infrastructure
@@ -397,11 +397,16 @@ correct descriptive UA too and is presumed dead. The same read confirmed the
 #43 source-health fix in production: printed every cycle with a climbing
 counter on `v0.3.0`, once at cycle 1 and then silent on `v0.4.0`.
 
-**`clinical-trials` does not stream a constant.** Backlog #35 was opened on
-"exactly 399 every cycle" and read that as a page size or a cap. The host read
-787 on 2026-09-23 — four pages of 200, cap 2000 — so the fetch works and the gap
-is between candidate and signal. The funnel in `837b327` measures it, and needs
-`v0.5.0` to run.
+**`clinical-trials` alerts on nothing because no status ever changes.**
+Measured, not inferred — the funnel's first cycle on `v0.5.0`:
+`streamed=787 parsed=787 known=787 first_sight=0 first_sight_completed=0
+changed=0 signals=0 sent=0`, after `Streamed 787 of 787 … in 4 page(s)`. The
+fetch reads the whole match, every trial is already known, and none has a status
+different from the stored one. Backlog #35's original "stuck on page one" theory
+and ADR 0006's "the transition arrives before we do" hypothesis are both
+disproved. **The rate is not yet established** — one cycle after a restart
+cannot give it. Read `alert_funnel_changed_total` over a day before concluding
+anything about how often a status really moves.
 
 **Not yet observed:** whether the duplicate-alert loop actually stopped. Roughly
 267 cycles since the deploy show no `database is locked`, no repeated send and
