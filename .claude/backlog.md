@@ -218,7 +218,14 @@ actually emit.
     - **`787 of 787 in 4 page(s)`** ends the pagination theory the item was
       opened on. The fetch reads the whole match and never hits the cap.
 
-    **Not yet established: the rate.** One cycle right after a restart cannot
+    **Cycle 2 added `new_in_window=0`**: not one of the 787 ids is new since the
+    previous cycle. The feed returns an identical set, which is expected —
+    `LastUpdatePostDate` is date-granular, so a two-day window's membership can
+    only change when the date rolls. The consequence is worth stating: at a
+    300-second interval the service re-examines the same 787 rows about 288
+    times a day against a set that refreshes once.
+
+    **Not yet established: the rate.** Two cycles five minutes apart cannot
     give it, and the mechanism argues alerts should eventually fire — a trial
     whose previous update fell outside the two-day window leaves our view, so on
     re-entry its stored status is weeks old and a flip to COMPLETED reads as a

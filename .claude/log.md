@@ -454,11 +454,29 @@ query stuck on its first page — is now disproved twice over.
 compare against yet, and `?` rather than `0` because zero is a real answer a
 later cycle can give.
 
-### Not concluded from one cycle
-One cycle immediately after a restart is exactly the shape that hid the
-source-health defect on 2026-09-22. `changed=0` on a single cycle does not
-establish the *rate* of status changes, and the mechanism argues alerts should
-eventually fire: a trial whose previous update fell outside the two-day window
+### Second cycle, and `new_in_window` is the decisive number
+Cycle 2 at 08:59:37, five minutes later:
+
+    Streamed 787 of 787 recently-updated trials from ClinicalTrials.gov in 4 page(s)
+    funnel: streamed=787 parsed=787 known=787 first_sight=0
+            first_sight_completed=0 changed=0 signals=0 sent=0 new_in_window=0
+
+**`new_in_window=0`: not one of the 787 ids is new since the previous cycle.**
+The feed returns an identical set. That is expected rather than broken —
+`LastUpdatePostDate` is date-granular, so membership of a two-day window can
+only change when the date rolls — but it has a consequence worth stating: at a
+300-second interval the service re-examines the same 787 rows about 288 times a
+day, and the set it is watching refreshes once. The poll rate and the rate at
+which the underlying data can move are three orders of magnitude apart.
+
+Both counters agree across two cycles, which is more than the first line alone
+could claim: the set is static and no status moved within five minutes.
+
+### Not concluded from two cycles
+Two cycles five minutes apart still do not establish the *daily* rate of status
+changes — they establish that nothing moved in one five-minute gap, which is
+about what you would expect even from a healthy feed. The mechanism argues
+alerts should eventually fire: a trial whose previous update fell outside the two-day window
 leaves our view, and on re-entry its stored status is weeks old, so a flip to
 COMPLETED reads as a change and signal 5 fires. What is needed is the
 cumulative counter over a day — `alert_funnel_changed_total` — not another
