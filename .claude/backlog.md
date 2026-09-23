@@ -95,7 +95,9 @@ actually emit.
     (b) surface it in `history` and the console, (c) test both paths.
 
 31. **This session cannot cut a release tag.**
-    `needs-conan — v0.5.0 requested 2026-09-23 in issue #50, at 837b327`
+    `needs-conan — no open request; ask again when a release is due`
+    Issue #50 is closed: Conan cut `v0.5.0` at `837b327`, verified by ancestry,
+    rolled in #53 and applied. Four tags have now been cut this way.
     `v0.4.0` is deployed on all four services as of 2026-09-23. The funnel
     accounting for #35 is merged to `main` and needs `v0.5.0` before it can run
     anywhere, which is the whole point of it.
@@ -199,39 +201,43 @@ actually emit.
     incident. Recover it before changing that file, or the fix will silently
     revert someone's patch.
 
-35. **`clinical-trials` examines hundreds of trials every cycle and alerts on
-    none.** `instrumented 2026-09-23; needs a release, then one `logs` read`
-    **The "exactly 399" framing was wrong, and the correction matters.** This
-    item was opened on the reading that a constant count looked like a page size
-    or a cap — a query stuck on its first page. On 2026-09-23, with `v0.4.0`
-    live, the same line reads:
+35. **`clinical-trials`: no trial's status ever changes, so nothing alerts.**
+    `measured 2026-09-23 on v0.5.0; the remaining work is a decision, not a bug`
+    **Answered by the funnel, first cycle on the host:**
 
-        Streamed 787 recently-updated trials from ClinicalTrials.gov
+        Streamed 787 of 787 recently-updated trials from ClinicalTrials.gov in 4 page(s)
+        funnel: streamed=787 parsed=787 known=787 first_sight=0
+                first_sight_completed=0 changed=0 signals=0 sent=0 new_in_window=?
 
-    787, twice in a row, five minutes apart. The count tracks the real size of
-    the two-day window and needs four pages of 200 to carry it, so the query
-    paginates and the 2000-candidate cap is not being hit. **The fetch is
-    working.** 399 was that day's window, not a constant of the system.
-    So the gap is between candidate and signal, and nothing recorded it: the
-    service logged what it streamed and what it sent, with nothing in between.
-    Three different faults produce identical output — a filter nothing can
-    match, an upstream query returning the same rows every cycle, and a
-    transition observed one cycle too late.
-    **Instrumented, not fixed.** `alertlib.CycleFunnel` (ADR 0006) counts the
-    stages and logs one line per cycle:
-    `streamed parsed known first_sight first_sight_completed changed signals
-    sent new_in_window`. Two counts test specific explanations. `new_in_window`
-    compares this cycle's id set against the previous cycle's, which is the
-    direct test of a stuck query — "new to our database" does not answer it.
-    `first_sight_completed` counts trials first seen already COMPLETED, which
-    `detect_signal` deliberately drops (signal 5 requires `prev_status not in
-    ("COMPLETED", None)`): the query selects on last-update date, so a trial
-    usually enters view *because* of the update we care about, and there is then
-    no earlier status to compare against. That reasoning is defensible and its
-    cost has never been measured.
-    **Next step: cut a release, deploy, then read one `logs` window.** The line
-    names which stage the candidates stop at, and the answer decides whether the
-    fix is a filter change or a decision about first-sight events.
+    - **`changed=0` is the cause.** Of 787 trials whose last-update date moved,
+      none had a status different from the stored one. `detect_signal` fires
+      only on a status transition; the updates are real but administrative.
+    - **`first_sight_completed=0` refutes ADR 0006's leading hypothesis.** The
+      "transition arrives before we do" path never runs, because `first_sight`
+      is 0 — every trial is already known.
+    - **`787 of 787 in 4 page(s)`** ends the pagination theory the item was
+      opened on. The fetch reads the whole match and never hits the cap.
+
+    **Not yet established: the rate.** One cycle right after a restart cannot
+    give it, and the mechanism argues alerts should eventually fire — a trial
+    whose previous update fell outside the two-day window leaves our view, so on
+    re-entry its stored status is weeks old and a flip to COMPLETED reads as a
+    change. Next step is a read, not an investigation:
+    `alert_funnel_changed_total` over a day, from `/metrics`.
+
+    **Then a decision for Conan, not a fix for me.** If the rate really is near
+    zero, the service is watching a stream in which its declared events are
+    rare, and the options are to widen what counts as an event (results posted,
+    enrollment changes, completion-date moves) or to accept a feed that is quiet
+    by design. That is a signal-quality judgment about what the channel is for.
+
+37. **The startup Telegram message bypasses the archive.** `todo`
+    Each service sends a "bot started" message through `send_telegram` directly
+    rather than `Service.send_alert`, so it is neither recorded nor counted.
+    Harmless for signal quality, but it makes "the archive holds every message
+    the bot sent" untrue, and the archive is the measurement substrate for
+    priority 2. Either route it through `send_alert` with a `startup` source, or
+    state the exclusion in ADR 0005.
 
 ## P1 — Close the documented gaps (strong design-review material)
 

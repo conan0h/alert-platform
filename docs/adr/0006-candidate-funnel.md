@@ -88,3 +88,28 @@ This is measurement, not a fix. It changes no filter and no alert. The next run
 reads the line from the host and then knows which of the three faults above it
 is looking at — which is the step backlog #35 has been missing since it was
 opened.
+
+## Outcome, 2026-09-23
+
+Deployed in `v0.5.0`. First cycle on the host:
+
+    Streamed 787 of 787 recently-updated trials from ClinicalTrials.gov in 4 page(s)
+    funnel: streamed=787 parsed=787 known=787 first_sight=0
+            first_sight_completed=0 changed=0 signals=0 sent=0 new_in_window=?
+
+**The hypothesis above is wrong.** `first_sight_completed` is 0, and so is
+`first_sight`: every trial is already known, so the "an unobserved transition is
+not a transition" rule never fires and costs nothing. The cause is the
+neighbouring counter — `changed=0`. No trial's status differs from the stored
+one, and `detect_signal` fires only on a transition.
+
+The decision stands and the reasoning for it is unchanged: the counters that
+refuted the hypothesis are the same ones that produced the answer, which is the
+argument for instrumenting the alternatives rather than only the theory.
+
+The rate is not established. One cycle immediately after a restart cannot give
+it, and the mechanism argues alerts should eventually fire: a trial whose
+previous update fell outside the two-day window leaves our view, so on re-entry
+its stored status is weeks old and a flip reads as a change. Read
+`alert_funnel_changed_total` over a day before concluding how often a status
+really moves.
