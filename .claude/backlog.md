@@ -222,7 +222,7 @@ actually emit.
     release, roll the specs, then apply and verify.
 
 31. **This session cannot cut a release tag.**
-    `needs-conan — v0.5.0 requested 2026-09-23, see the open Handoff issue`
+    `needs-conan — v0.5.0 requested 2026-09-23 in issue #50, at 837b327`
     `v0.4.0` is deployed on all four services as of 2026-09-23. The funnel
     accounting for #35 is merged to `main` and needs `v0.5.0` before it can run
     anywhere, which is the whole point of it.
