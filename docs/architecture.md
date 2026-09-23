@@ -232,6 +232,34 @@ costs about 1,900 lines per source per day at a 45-second cadence, and the
 `logs` read verb captures roughly the first 24 KB of its window — so source
 spam displaces the alert output an operator opened the log to read.
 
+### The candidate funnel
+
+Source health answers "is the feed answering". It does not answer the question
+`clinical-trials` raised: the feed answers, the service examines hundreds of
+candidates a cycle, and nothing comes out. Only the two ends of that pipeline
+were recorded, so a filter that is too tight, an upstream query returning the
+same rows every cycle, and a transition observed one cycle too late all
+produced identical output.
+
+`alertlib.CycleFunnel` records the middle. A service declares the stages its
+candidates pass through, counts each one during a cycle, and emits one line per
+cycle naming every stage; each stage is also an `alert_funnel_<stage>_total`
+counter on `/metrics`. Counting against an undeclared stage raises, because a
+funnel that grows a stage on a typo renders a line that looks like a
+measurement and is not one.
+
+`alert_funnel_new_in_window` is the part that needs explaining. It compares
+this cycle's candidate ids against the previous cycle's, which is the direct
+test of a stuck upstream query. "New to our database" does not test it: a
+candidate can be long known and still be a fresh arrival in the polling window.
+Before any comparison exists the line reports `?` rather than `0`, since zero is
+a real answer a later cycle can give.
+
+`clinical-trials` is the first adopter, with `first_sight_completed` as a stage
+chosen to test one specific explanation — see
+[ADR 0006](adr/0006-candidate-funnel.md). The other three services can adopt it
+by declaring their own stages; nothing in the class is specific to trials.
+
 ### The alert archive
 
 Every alert is recorded before it is sent and settled with its delivery

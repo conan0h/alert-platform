@@ -998,3 +998,88 @@ Format:
   `form4-insider` `v0.2.0`, the other two `v0.1.0`; `drift` exit 0 against the host's
   own specs. Spec in `main` reads `v0.4.0` for all four, awaiting the next run's
   apply.
+
+## 2026-09-23 — v0.4.0 applied to the whole fleet; 399 was never a constant
+- **The fleet runs one tag for the first time since August.** `deploy.yml` run 7
+  planned, run 8 applied plan `345baa3a5442`.
+
+### Production report
+`status` before the apply (observe run 37): four services `active`, `enabled`,
+`clinical-trials` and `edgar-mna` on `v0.1.0`, `fda-catalysts` `v0.3.0`,
+`form4-insider` `v0.2.0`.
+
+**Plan `345baa3a5442`** — four UPDATEs, no creates, no removes:
+
+    ~ clinical-trials  v0.1.0 -> v0.4.0
+    ~ edgar-mna        v0.1.0 -> v0.4.0
+    ~ fda-catalysts    v0.3.0 -> v0.4.0
+    ~ form4-insider    v0.2.0 -> v0.4.0
+    4 to change, 0 unchanged.
+
+Every service also showed an `environment` hash change, which the roll did not
+obviously explain. Checked before applying rather than assumed: `RenderEnv`
+includes `ALERT_DEPLOYED_REF` (`internal/engine/unit.go:145`), so the env hash
+necessarily moves with the ref. Nothing in the plan was unaccounted for.
+
+**Apply** — `Applied 4 change(s)`, 303s, host exit 0. Standard tier
+(`clinical-trials`, `edgar-mna`, `fda-catalysts`) before critical
+(`form4-insider`), one at a time, each `✓ healthy at v0.4.0` through its own
+health gate. Audit actor `gha:35836370892`. `drift` afterwards: exit 0.
+
+Restarts confirmed in journald, each service's next line carrying
+`"ref": "v0.4.0"`: clinical-trials 08:18:59, edgar-mna 08:20:12, fda-catalysts
+08:21:26, form4-insider 08:22:39.
+
+### Reading the alerts — three findings, none of them expected
+**1. `clinical-trials` does not stream a constant, and #35's premise was wrong.**
+The line now reads `Streamed 787 recently-updated trials`, twice, five minutes
+apart. 399 was that day's two-day window, not a page size and not a cap: 787
+needs four pages of 200 and the cap is 2000. The fetch works. The gap is between
+candidate and signal, which is a different investigation from the one the
+backlog described, and the reason this run's milestone is instrumentation rather
+than a filter change.
+
+**2. `fda-catalysts` has one dead source, not two.** From the host:
+`source health: 14/15 sources healthy; failing: FiercePharma (x1)`.
+`EndpointsNews` answers again. The per-destination User-Agent in `v0.3.0` is the
+only change that could account for it. So #26(a) is resolved without a
+speculative patch and without a probe from this sandbox, which cannot reach
+either domain — the accounting was shipped to the host and the host answered.
+
+**3. The #43 source-health fix is confirmed in production.** On `v0.3.0` the
+summary printed every cycle with a climbing counter (x1892, x1893, x1894 …); on
+`v0.4.0` it printed once at cycle 1 and stayed silent through cycles 2–6. The
+previous entry could only say the fix looked right.
+
+### Milestone: the candidate funnel (#35)
+`alertlib.CycleFunnel` — declared stages, per-cycle counts, one log line per
+cycle, an `alert_funnel_<stage>_total` counter each. `clinical-trials` is the
+first adopter. ADR 0006 argues the three choices a reviewer will ask about.
+Two counters were chosen to test named explanations rather than to be thorough:
+`new_in_window` compares consecutive cycles' id sets (the direct test of a stuck
+query, which "new to our database" does not answer), and
+`first_sight_completed` measures what `detect_signal`'s "an unobserved
+transition is not a transition" rule costs per cycle.
+
+Three measurement defects fell out, each found by writing the test first:
+- the fetch tally sat after the loop, so both early returns skipped it — a cycle
+  that died on page two logged nothing, identical to a cycle that never ran;
+- `total_yielded` incremented after `yield`, so an abandoned generator
+  under-reported by one;
+- `countTotal` was `"false"`, so nothing distinguished "787 is everything that
+  matched" from "787 is where we stopped reading". The line now reads
+  `Streamed N of M ... in P page(s)` and says so when the cap truncates.
+
+104 pytest tests (13 new), Go suite green, `validate` and
+`gen_observability --check` clean. The funnel suite runs 20 cycles rather than
+one, because the 2026-09-22 source-health defect was a per-iteration bug that
+twelve single-iteration tests could not see.
+
+### What is not done
+- **This needs `v0.5.0` to run anywhere**, and no session can cut a tag (#31).
+  Handoff issue opened.
+- **No second apply.** §2 allows one per run and it went to `v0.4.0`.
+- **Still not observed: whether the duplicate-alert loop stopped.** No alert
+  fired in any window read this run, so the record-then-send path has still
+  never run under contention. Unchanged from the previous entry, deliberately
+  not upgraded.
