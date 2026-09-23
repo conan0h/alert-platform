@@ -48,83 +48,6 @@ actually emit.
     previous deploy's failure is uninvestigated), which makes #20 urgent rather
     than tidy.
 
-26. **`fda-catalysts` has one dead source, not two.**
-    `(a) RESOLVED 2026-09-23 from the host; (b)(c)(d) done 2026-09-22`
-    **Answered by the host, which is the only vantage point whose network
-    counts.** After the `v0.4.0` apply on 2026-09-23 the service reports:
-
-        source FiercePharma failed (1 consecutive): 403 Client Error: Forbidden
-          for url: https://www.fiercepharma.com/rss/xml
-        source health: 14/15 sources healthy; failing: FiercePharma (x1)
-
-    **14 of 15, with `FiercePharma` alone failing.** `EndpointsNews`, which had
-    403'd on every cycle since August, answers again. The per-destination
-    User-Agent in `v0.3.0` (slice (d)) is the only change that could account for
-    it, so the User-Agent hypothesis was right for that feed and wrong as a
-    general explanation — `FiercePharma` refuses a correct descriptive UA too,
-    and is either gone or blocking the host's IP. Nothing further is worth
-    spending on it; it is named, counted and quiet.
-    Note what settled this: not a better probe from the agent's sandbox, whose
-    egress proxy 403s both domains regardless of UA, but shipping the
-    accounting and reading it from the host. Recorded in learnings.
-    **Also confirmed here: the #43 summary fix works in production.** On
-    `v0.3.0` the source-health line printed every cycle with a climbing counter
-    (x1892, x1893, x1894 …). On `v0.4.0` it printed once at cycle 1 and stayed
-    silent through cycles 2–6. That is the first production evidence for the
-    fix, which is what the previous entry could not claim.
-
-    Confirmed still live in observe run 21 (2026-09-22T07:34Z). Every poll cycle
-    logs, at WARNING:
-
-        Failed to fetch FiercePharma: 403 Client Error: Forbidden for url: https://www.fiercepharma.com/rss/xml
-        Failed to fetch EndpointsNews: 403 Client Error: Forbidden for url: https://endpoints.news/feed/
-
-    Both 403, so the service has been running with a fraction of its intended
-    coverage since August while reporting healthy.
-
-    **(b) and (c) done 2026-09-22.** `alertlib.SourceHealth` tracks per-source
-    outcomes, logs a repeated failure on a widening schedule instead of every
-    cycle, names a source presumed dead after 20 consecutive failures, and
-    exposes four metrics. This also removes ~3,800 warning lines a day, which
-    were displacing alert content from the 24 KB `logs` returns (#32).
-
-    **(d) done 2026-09-22.** The global User-Agent overwrite is gone; each
-    destination now carries its own. Correct on its own merits either way, and
-    it makes the next observation informative rather than a repeat.
-
-    **(a) still open, and needs the deploy first.** Whether each remaining 403 is
-    a dead endpoint or a blocked User-Agent still cannot be settled from a cloud
-    session — re-confirmed 2026-09-22, and the proxy now names the reason:
-    `connect_rejected`, "gateway answered 403 to CONNECT (policy denial)", for
-    all of these hosts including `fda.gov`, which the host polls successfully.
-    Every probe from here returns the proxy's 403, not the origin's, and proves
-    nothing. Once (b)–(d) are deployed, one `logs` read names each source and its
-    consecutive-failure count from the host, where the network is the one that
-    matters. Do not guess at User-Agent strings from here.
-    **Investigated 2026-09-21, not fixed.** What was established:
-    - The URLs are not stale. Both `v0.1.0` and `main` list
-      `https://endpts.com/feed/`; `requests` reports the post-redirect URL, so
-      the log's `endpoints.news` is that redirect, not a host-code difference.
-    - **Leading hypothesis, unverified:** `main.py:600` does
-      `HTTP_HEADERS_DEFAULT["User-Agent"] = EDGAR_USER_AGENT`, replacing the
-      descriptive `FDA-CatalystBot/1.0` default with the SEC contact-info string
-      for *every* feed. Commercial press behind Cloudflare commonly refuses
-      that. The EDGAR path sets its own UA explicitly at `main.py:485`, so the
-      global overwrite is redundant where it is needed and applied where it
-      probably hurts.
-    - **It could not be tested from the agent's environment**: the egress proxy
-      refuses both domains outright (`curl` returns `000` for every UA tried),
-      so no measurement distinguishes the UA theory from IP blocking or a feed
-      that now requires a subscription. Do not ship the UA change as a fix on
-      this evidence alone.
-    Slices: (b) and (c) first, because they are unambiguous and independent of
-    the diagnosis — a per-source success metric, and a health signal or alert
-    once a declared source has failed for N consecutive cycles. Then (a): get a
-    real response from the host, where the requests actually originate, via a
-    one-off diagnostic rather than a speculative patch. (d) Separately, stop the
-    global UA overwrite on its own merits: one UA per destination is right
-    whether or not it is what 403s here.
-
 27. **Persist alert content, and give it a reader.**
     `(a)(b) done 2026-09-22 in #35; (c) blocked on ADR 0004; (d) todo, unblocked`
     Alerts existed only as a Telegram message and a journald line, so "is this
@@ -159,49 +82,6 @@ actually emit.
     so a reader unions four. `AlertArchive.recent()` and `.count()` already
     exist, and `PRAGMA user_version` carries the schema version.
 
-28. **Own the AWS infrastructure: remote state and an `infra.yml` workflow.**
-    `DONE 2026-09-22 — verified by infra.yml run 5, "No changes"`
-    AWS is now changed through `infra.yml` and needs no human. Issue #27 closed
-    with the evidence. One defect found in the process and fixed in #36: the
-    `NeverTheTrustAnchor` deny used `iam:*OpenIDConnectProvider*`, which also
-    matched the read Terraform needs to refresh before it can plan, so the role
-    could not plan at all. `tools/check_iam_denies.py` now guards that class.
-    Granted by the owner on 2026-09-21, when Terraform state was local and every
-    SSM-document or IAM change was a handoff.
-    Slices (a) S3 state bucket with versioning and a DynamoDB lock table in
-    `infra/bootstrap`, a separate root module because a backend cannot reference
-    the module that defines it; (b) the `alert-platform-infra` role with a
-    permissions boundary and explicit denies on its own role, its own policies,
-    the boundary, the OIDC provider, the state, and terminating the instance;
-    (c) `infra.yml` with plan then apply — **all done**, ADR 0003.
-    (d) The handoff for the bootstrap apply — **done and verified 2026-09-22**,
-    independently twice: `infra.yml` runs 5 and 6, both `No changes. Your
-    infrastructure matches the configuration.`
-    (e) After it is proven: delete the root access keys and close port 22.
-    Once this lands, #27's `alerts` verb and #32's `--since` parameter both stop
-    being handoffs, since both are SSM document changes.
-    The guardrails are the point. An IAM-capable role is close to account
-    admin, so the boundary and the self-modification denies are what make this
-    defensible rather than a shrug.
-
-20. **The audit log records rollbacks as `failed` when they appear to have
-    worked.** `done — no defect; the log was correct`
-    Resolved 2026-09-21 by reading the code path rather than inferring from the
-    outcome. `applyService` resolves secrets before its first mutating step, and
-    `rollbackTo` calls the same `applyService`. So the August apply failed at the
-    gate having changed nothing, the rollback failed at the same gate having
-    changed nothing, and `clinical-trials` stayed on `v0.1.0` because nothing
-    ever moved it. Both `failed` statuses were accurate. The faulty step was my
-    inference from "healthy at the previous ref" to "the rollback worked".
-    Durations agree: 1.5–3.5s, far too short to clone a tag and build a venv.
-    Pinned by `internal/engine/secretgate_test.go` — resolver called twice, both
-    entries `failed`, no mutating command on either pass. Removing the gate's
-    `return` makes it fail. Write-up:
-    `docs/incidents/2026-08-20-v0.1.2-apply-blocked-by-secret-gate.md`.
-    Consequence: **the deploy path is unblocked**, and an apply is safe to
-    attempt even if the gate is still broken, because that failure mutates
-    nothing.
-
 30. **The audit log cannot distinguish "refused before acting" from "failed
     while acting".** `todo`
     Both are `failed`, which is what made #20 take a month to read. A pre-flight
@@ -213,13 +93,6 @@ actually emit.
     and it answers the question that actually matters ("is the host in a state
     someone needs to fix"). Slices: (a) thread it through `applyService`,
     (b) surface it in `history` and the console, (c) test both paths.
-
-29. **Release and first deploy through the pipeline.**
-    `DONE — four applies through the pipeline as of 2026-09-23`
-    The fleet runs `v0.1.0`; specs pin `v0.1.2`; no tag contains ADR 0002's exit
-    codes. `deploy.yml` has planned successfully (`4 to change, 0 unchanged`,
-    plan `a7d096877d55`) and never applied. Sequence: clear #20, land #25, cut a
-    release, roll the specs, then apply and verify.
 
 31. **This session cannot cut a release tag.**
     `needs-conan — v0.5.0 requested 2026-09-23 in issue #50, at 837b327`
@@ -280,20 +153,7 @@ actually emit.
     Note the window is one hour, not one day — an earlier log entry wrongly
     expected it to slide far enough to show a 22:16 event the next morning.
 
-33. **Roll the remaining three services to a current tag.**
-    `DONE 2026-09-23 — all four run v0.4.0`
-    `deploy.yml` run 8 applied plan `345baa3a5442`: four UPDATEs, standard tier
-    before critical, a health gate between each, `Applied 4 change(s)` in 303s.
-    The fleet is on one tag for the first time since August.
-
-
 ## P0 — Carried forward
-
-21. **`observe.yml` cannot tell a finding from a failure.**
-    `done (#15), verified in production`
-    Four named exit codes in `alertctl`, `drift`'s finding is 3, `ssm-run` takes
-    `finding-exit-codes`, ADR 0002. Verified by observe run 12: host exit 3,
-    annotated, job green, drift still reported.
 
 22. **End-to-end test target.** `todo` (larger; slice it)
     A container with sshd and a systemd stand-in that `alertctl` can target in
@@ -440,6 +300,11 @@ actually emit.
     → history against `-target dry`, plus a VHS/asciinema script for a README
     GIF. Label it clearly as a dry-run demo.
 
+36. **Delete the root account access keys and close port 22.** `todo`
+    Was slice (e) of #28, which is otherwise done. Both are goals in CLAUDE.md
+    §2 rather than optional, and the pipeline that replaces them is now proven:
+    `infra.yml` has planned and applied from `main` with no human step.
+
 34. **Neither Terraform module has a `.terraform.lock.hcl`.** `todo`
     Both pin `~> 5.0`, so an `init` resolves whatever the registry currently
     offers — CloudShell got `hashicorp/aws v5.100.0` on 2026-09-22 and CI could
@@ -484,6 +349,37 @@ actually emit.
   CI. That is how backlog #1 stayed half-hidden.
 
 ## Done
+
+- **#21 — `observe.yml` could not tell a finding from a failure.** Four named
+  exit codes, `drift`'s finding is 3, `ssm-run` takes `finding-exit-codes`.
+  ADR 0002, verified in production by observe run 12.
+
+- **#20 — Rollbacks logged `failed` that looked successful.** No defect: the
+  secret gate returns before the first mutating step, so both passes changed
+  nothing and both `failed` entries were accurate. Pinned by
+  `internal/engine/secretgate_test.go`; write-up in
+  `docs/incidents/2026-08-20-v0.1.2-apply-blocked-by-secret-gate.md`.
+
+- **#29 — Release and first deploy through the pipeline.** Done; four applies
+  have since run and none has needed a rollback.
+
+- **#28 — Own the AWS infrastructure.** S3/DynamoDB remote state, the
+  `alert-platform-infra` role with a permissions boundary, and `infra.yml`.
+  Verified by runs 5 and 6, both `No changes`. ADR 0003. The guardrail defect
+  found in the process was fixed in PR #36 and is a learnings entry. Slice (e) —
+  delete the
+  root access keys and close port 22 — is now backlog item 36.
+
+- **#26 — `fda-catalysts` dead sources.** Per-source health accounting, a
+  widening log schedule and four metrics (`alertlib.SourceHealth`), plus one
+  User-Agent per destination. Settled from the host on 2026-09-23: `14/15
+  sources healthy; failing: FiercePharma (x1)`. `EndpointsNews` recovered
+  with the User-Agent change; `FiercePharma` is presumed dead.
+
+- **#33 — Roll the fleet to a current tag.** All four services run `v0.4.0` as
+  of 2026-09-23: `deploy.yml` run 8, plan `345baa3a5442`, `Applied 4
+  change(s)` in 303s. One tag across the fleet for the first time since
+  August.
 
 - **#1 — Make `main` green.** Two independent failures: engine tests coupled
   to live fleet refs, and a relative schema `$id` that old `jsonschema`

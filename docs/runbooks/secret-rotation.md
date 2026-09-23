@@ -1,8 +1,6 @@
 # Runbook: rotate a secret
 
-**When:** a credential is compromised, expiring, or being replaced. Also
-required once, immediately: the pre-migration `.env` files committed to this
-repository exposed the Telegram bot token and every chat ID.
+**When:** a credential is compromised, expiring, or being replaced.
 
 ## Principle
 

@@ -121,12 +121,17 @@ production state), `*.log` (7 MB), `venv/`, and a stray `.test.swp`. CI fails
 the build if any of them come back, or if anything credential-shaped is
 committed.
 
-**The Telegram bot token and chat IDs in those `.env` files must be treated as
-compromised.** They were committed to git and distributed in an archive.
-Rotate them before the first deploy; see
-[`runbooks/secret-rotation.md`](runbooks/secret-rotation.md). Note that
-removing the files does not remove them from git history — if the repo has
-ever been shared, rotation is the only remedy.
+**The Telegram bot token and chat IDs in those `.env` files were committed to
+git and distributed in an archive, so they had to be treated as compromised.**
+**The bot token was rotated on 2026-09-23**, which closes it: the old value no
+longer authenticates. The chat IDs remain in history and are not rotatable, but
+they are identifiers rather than credentials — without a valid bot token they
+grant nothing. Procedure in
+[`runbooks/secret-rotation.md`](runbooks/secret-rotation.md).
+
+The general rule the episode leaves: removing a file from the working tree does
+not remove it from git history, so for anything published, rotation is the only
+remedy.
 
 ## Before the first deploy
 
@@ -134,8 +139,7 @@ The migration is code-complete and tested. Of the four things below, only the
 tag can be confirmed from this repository; the rest need a real host and real
 credentials, and nothing in git can tell you whether they have been done:
 
-1. **Rotate the leaked Telegram token.** Everything else can wait; this
-   cannot.
+1. ~~**Rotate the leaked Telegram token.**~~ **Done**, 2026-09-23.
 2. **Populate the secret store.** Under `/alert-platform/prod`, as
    `SecureString`: `tg_bot_token`, `tg_chat_mna`, `tg_chat_fda`,
    `tg_chat_trials`, `tg_chat_form4`, `edgar_user_agent`. Names must match
