@@ -354,27 +354,27 @@ the evidence, and continue.
 
 Verify and update this section as you learn.
 
-**Repository.** `main` is green. Tags `v0.1.0`–`v0.2.0`. `form4-insider` pins
-`v0.2.0`; the other three pin `v0.1.0` deliberately (#33). `main` now carries
-three merged changes no tag contains — the source-health accounting and the
-User-Agent fix (#30), and the alert archive (#35) — so the next deploy needs a
-release first. The `go.mod` module path is `github.com/conan0h/alert-platform`;
-tags up to `v0.1.2` predate the rename and carry `conanohara`, so
-`go install …@latest` needs a newer tag.
+**Repository.** `main` is green. Tags `v0.1.0`–`v0.4.0`. All four services pin
+and run `v0.4.0` as of 2026-09-23 — the fleet is on one tag for the first time
+since August. `main` carries one merged change no tag contains: the candidate
+funnel (#49, `837b327`), which needs `v0.5.0` before it runs anywhere.
+Handoff issue #50 asks for that tag. The `go.mod` module path is
+`github.com/conan0h/alert-platform`; tags up to `v0.1.2` predate the rename and
+carry `conanohara`, so `go install …@latest` needs a newer tag.
 
-**Production, verified 2026-09-22.** All four services are `active`, `enabled`
+**Production, verified 2026-09-23.** All four services are `active`, `enabled`
 and answer `/healthz`. `drift` reports no drift, exit 0.
 
     SERVICE          REF      STATE   DEPLOYED               BY
-    clinical-trials  v0.1.0   active  2026-08-20T11:46:25Z   ubuntu
-    edgar-mna        v0.1.0   active  2026-08-20T11:53:10Z   ubuntu
-    fda-catalysts    v0.1.0   active  2026-08-20T12:06:59Z   ubuntu
-    form4-insider    v0.2.0   active  2026-09-21T22:16:39Z   gha:35661685161
+    clinical-trials  v0.4.0   active  2026-09-23T08:19:59Z   gha:35836370892
+    edgar-mna        v0.4.0   active  2026-09-23T08:21:12Z   gha:35836370892
+    fda-catalysts    v0.4.0   active  2026-09-23T08:22:26Z   gha:35836370892
+    form4-insider    v0.4.0   active  2026-09-23T08:23:39Z   gha:35836370892
 
-`form4-insider` is the first service ever deployed by this pipeline rather than
-by hand. `deploy.yml` run 4 applied plan `54993f27b007` — one service, health
-gate passed, 88s, `Applied 1 change(s)` — and the audit actor is the workflow run
-id.
+`deploy.yml` run 8 applied plan `345baa3a5442` — four UPDATEs, no creates or
+removes, standard tier before critical, a health gate between each,
+`Applied 4 change(s)` in 303s. Four applies have now gone through the pipeline
+and none has needed a rollback.
 
 **`infra.yml` is proven, 2026-09-22.** Run 6 on `f5ac4f5` assumed the infra role
 via OIDC, read remote state, and reported `No changes. Your infrastructure
@@ -384,6 +384,19 @@ found why it had never worked: the guardrail denied `iam:*OpenIDConnectProvider*
 and that wildcard matches the read a plan's refresh needs, so every plan died
 before printing a change. Narrowed in #36, with `tools/check_iam_denies.py`
 failing CI on any wildcard inside a Deny.
+
+**`fda-catalysts` has one dead source, not two** (2026-09-23, from the host):
+`14/15 sources healthy; failing: FiercePharma (x1)`. `EndpointsNews` answers
+again after the `v0.3.0` per-destination User-Agent. `FiercePharma` refuses a
+correct descriptive UA too and is presumed dead. The same read confirmed the
+#43 source-health fix in production: printed every cycle with a climbing
+counter on `v0.3.0`, once at cycle 1 and then silent on `v0.4.0`.
+
+**`clinical-trials` does not stream a constant.** Backlog #35 was opened on
+"exactly 399 every cycle" and read that as a page size or a cap. The host read
+787 on 2026-09-23 — four pages of 200, cap 2000 — so the fetch works and the gap
+is between candidate and signal. The funnel in `837b327` measures it, and needs
+`v0.5.0` to run.
 
 **Not yet observed:** whether the duplicate-alert loop actually stopped. Roughly
 267 cycles since the deploy show no `database is locked`, no repeated send and

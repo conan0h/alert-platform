@@ -1028,7 +1028,15 @@ health gate. Audit actor `gha:35836370892`. `drift` afterwards: exit 0.
 
 Restarts confirmed in journald, each service's next line carrying
 `"ref": "v0.4.0"`: clinical-trials 08:18:59, edgar-mna 08:20:12, fda-catalysts
-08:21:26, form4-insider 08:22:39.
+08:21:26, form4-insider 08:22:39. `status` afterwards (observe run 40), which is
+the manifest rather than the restart and so lands about a minute later, once the
+health gate has passed:
+
+    SERVICE          REF      STATE   ENABLED  DEPLOYED               BY
+    clinical-trials  v0.4.0   active  enabled  2026-09-23T08:19:59Z   gha:35836370892
+    edgar-mna        v0.4.0   active  enabled  2026-09-23T08:21:12Z   gha:35836370892
+    fda-catalysts    v0.4.0   active  enabled  2026-09-23T08:22:26Z   gha:35836370892
+    form4-insider    v0.4.0   active  enabled  2026-09-23T08:23:39Z   gha:35836370892
 
 ### Reading the alerts — three findings, none of them expected
 **1. `clinical-trials` does not stream a constant, and #35's premise was wrong.**
@@ -1083,3 +1091,13 @@ twelve single-iteration tests could not see.
   fired in any window read this run, so the record-then-send path has still
   never run under contention. Unchanged from the previous entry, deliberately
   not upgraded.
+- **Merged as `837b327`** (PR #49), CI run 114 green on its head — all six jobs,
+  `golangci-lint` included. Branch reset onto `main` afterwards per §4.
+- **Handoff issue #50** asks for `v0.5.0` at `837b327`. Next run: verify the tag
+  by ancestry, roll `clinical-trials` alone (the funnel lives in shared
+  `alertlib` but only that service calls it, so restarting the other three buys
+  no behaviour change), plan, apply, then read one `logs` window for the funnel
+  line — which is the answer to #35.
+- Noted again, since it cost time twice this run: the **check-runs endpoint and a
+  run's top-level status are both stale** here. `actions_list` on the run's jobs,
+  and a job's archived log going from 404 to available, are the reliable signals.
