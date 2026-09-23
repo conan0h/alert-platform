@@ -540,3 +540,78 @@ The general trap: **verify a prediction about a tool's output by running it, not
 reasoning about what it should say.** I had the mechanism available and reasoned
 instead, then published the reasoning as fact in five places. Running the read-only
 verb first would have cost one workflow run.
+
+## A constant you have seen twice is a constant of the day, not of the system
+*Learned 2026-09-23, after an investigation was opened on the wrong premise.*
+
+Backlog #35 recorded that `clinical-trials` "streams exactly 399 trials every
+cycle" on two consecutive days, and reasoned from the constancy: 399 looks like
+a page size or a cap, so the query is probably stuck on its first page. It is a
+good inference and it was wrong. The same line now reads 787, which needs four
+pages of 200 to carry and is nowhere near the 2000-candidate cap. The count
+tracks the real size of the two-day window. The fetch was working the whole
+time.
+
+What made the reading look safe was the repetition — the same number twice. But
+both observations were of a *date-granular* window, so they could only have
+moved if the day had. Two samples from inside one period say nothing about the
+period.
+
+- **Before calling a number a constant, check what would have to change for it
+  to move, and whether that thing changed between your samples.** Here the
+  window advances daily and both readings were hours apart.
+- **A hypothesis about a mechanism (a page size, a cap) is cheap to test against
+  the mechanism's own arithmetic.** 399 is not 200, not 400, not 2000; it sits
+  between page boundaries, which already argued against every version of the
+  cap theory before any new data arrived.
+- The correction cost nothing because the item had not been acted on. Had it
+  been, the fix would have been to the one part of the service that worked.
+
+## Ship the measurement to where the network is, and the question answers itself
+*Learned 2026-09-23, closing a question two sessions could not settle.*
+
+Whether `fda-catalysts`' two 403ing feeds were dead endpoints or a blocked
+User-Agent had been open since August, and could not be settled from this
+sandbox: the egress proxy refuses CONNECT to both domains, so every probe
+returns the proxy's 403 and measures nothing (see the earlier entry on that).
+Two sessions wrote up theories.
+
+It was answered without a single probe. #26(b)(c) shipped per-source
+accounting, #26(d) gave each destination its own User-Agent, `v0.4.0` reached
+the host, and the host said:
+
+    source health: 14/15 sources healthy; failing: FiercePharma (x1)
+
+`EndpointsNews` works. `FiercePharma` does not. One feed's 403 was the
+User-Agent and the other's was not, which is exactly the answer no single
+theory would have produced — and the reason "ship the UA change as a fix" was
+correctly refused as a guess on the earlier evidence.
+
+The general form: when a question turns on a network you are not on, the
+cheapest path is usually not a better experiment from here. It is to make the
+system that *is* on that network report the answer as part of its normal
+output — which is also the version that keeps answering next month.
+
+## Write the test for the counter, not just for the code it counts
+*Learned 2026-09-23, from three measurement bugs in one function.*
+
+Adding funnel counts to `clinical-trials` meant writing tests for its fetch
+loop, and all three defects found were in the *reporting*, not the fetching:
+
+| Defect | What it looked like |
+|---|---|
+| Tally after the loop, skipped by two early `return`s | A cycle that died on page two logged nothing — identical to a cycle that never ran |
+| `total_yielded += 1` after `yield` | A generator abandoned at a yield reported one fewer than it had handed out |
+| `countTotal: "false"` | Nothing distinguished "787 matched" from "787 is where we stopped reading" |
+
+The fetching was correct throughout. Every one of these makes the service
+*look* fine while under-reporting, and the first two under-report exactly when
+something has gone wrong — the moment the number matters most.
+
+This is the same family as "a failed command produces zeros": a measurement
+path that fails quietly and produces a plausible number. The habit that catches
+it is to test the log line and the counter as deliberately as the behaviour,
+and in particular to ask what each one reports when the code around it does not
+complete. The second defect was found only because a test closed the generator
+early, which is not an obvious case to write until you decide the tally is a
+contract rather than a convenience.

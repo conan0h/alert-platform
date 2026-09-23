@@ -229,15 +229,19 @@ nothing. Pinned by `internal/engine/secretgate_test.go`.
 
 Stated because they are real, not because they are planned away.
 
-- **Two `fda-catalysts` feeds are dead.** `FiercePharma` and `EndpointsNews`
-  have returned 403 on every poll cycle since August. As of 2026-09-22 the
-  service accounts for fetch outcomes per source and names a source presumed
-  dead, so the condition is visible and quiet rather than invisible and loud;
-  whether these particular endpoints are gone or merely blocking the bot's
-  User-Agent is not yet established.
-- **`clinical-trials` streams 399 trials per cycle and alerts on none.** The
-  constant count suggests a page size rather than a result count. Not yet
-  investigated.
+- **One `fda-catalysts` feed is dead.** `FiercePharma` returns 403 on every
+  poll cycle and is reported presumed dead. `EndpointsNews`, which had failed
+  the same way since August, answers again: the host reported `14/15 sources
+  healthy` on 2026-09-23 with `FiercePharma` alone failing. The per-destination
+  User-Agent in `v0.3.0` is the only change that could account for it, which
+  makes the User-Agent the likely cause for that feed and leaves `FiercePharma`
+  a genuinely dead or IP-blocked endpoint.
+- **`clinical-trials` examines hundreds of trials per cycle and alerts on
+  none.** The count is not a page size: it read 399 on 2026-09-21 and 787 on
+  2026-09-23, tracking the real size of the two-day window across four pages.
+  So the gap is between candidate and signal, not in the fetch. The next
+  release carries per-cycle funnel counts that say which stage the candidates
+  stop at.
 - **The alert archive has no reader yet.** As of 2026-09-22 every alert is
   recorded to an append-only table in the service's state directory
   ([ADR 0005](docs/adr/0005-alert-archive.md)), which closes the gap that

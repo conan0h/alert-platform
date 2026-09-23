@@ -48,8 +48,31 @@ actually emit.
     previous deploy's failure is uninvestigated), which makes #20 urgent rather
     than tidy.
 
-26. **`fda-catalysts` has two dead sources.**
-    `(b)(c)(d) done 2026-09-22; (a) needs a deploy first`
+26. **`fda-catalysts` has one dead source, not two.**
+    `(a) RESOLVED 2026-09-23 from the host; (b)(c)(d) done 2026-09-22`
+    **Answered by the host, which is the only vantage point whose network
+    counts.** After the `v0.4.0` apply on 2026-09-23 the service reports:
+
+        source FiercePharma failed (1 consecutive): 403 Client Error: Forbidden
+          for url: https://www.fiercepharma.com/rss/xml
+        source health: 14/15 sources healthy; failing: FiercePharma (x1)
+
+    **14 of 15, with `FiercePharma` alone failing.** `EndpointsNews`, which had
+    403'd on every cycle since August, answers again. The per-destination
+    User-Agent in `v0.3.0` (slice (d)) is the only change that could account for
+    it, so the User-Agent hypothesis was right for that feed and wrong as a
+    general explanation — `FiercePharma` refuses a correct descriptive UA too,
+    and is either gone or blocking the host's IP. Nothing further is worth
+    spending on it; it is named, counted and quiet.
+    Note what settled this: not a better probe from the agent's sandbox, whose
+    egress proxy 403s both domains regardless of UA, but shipping the
+    accounting and reading it from the host. Recorded in learnings.
+    **Also confirmed here: the #43 summary fix works in production.** On
+    `v0.3.0` the source-health line printed every cycle with a climbing counter
+    (x1892, x1893, x1894 …). On `v0.4.0` it printed once at cycle 1 and stayed
+    silent through cycles 2–6. That is the first production evidence for the
+    fix, which is what the previous entry could not claim.
+
     Confirmed still live in observe run 21 (2026-09-22T07:34Z). Every poll cycle
     logs, at WARNING:
 
@@ -191,14 +214,18 @@ actually emit.
     someone needs to fix"). Slices: (a) thread it through `applyService`,
     (b) surface it in `history` and the console, (c) test both paths.
 
-29. **Release and first deploy through the pipeline.** `unblocked`
+29. **Release and first deploy through the pipeline.**
+    `DONE — four applies through the pipeline as of 2026-09-23`
     The fleet runs `v0.1.0`; specs pin `v0.1.2`; no tag contains ADR 0002's exit
     codes. `deploy.yml` has planned successfully (`4 to change, 0 unchanged`,
     plan `a7d096877d55`) and never applied. Sequence: clear #20, land #25, cut a
     release, roll the specs, then apply and verify.
 
 31. **This session cannot cut a release tag.**
-    `needs-conan — no open request; ask again when a release is due`
+    `needs-conan — v0.5.0 requested 2026-09-23, see the open Handoff issue`
+    `v0.4.0` is deployed on all four services as of 2026-09-23. The funnel
+    accounting for #35 is merged to `main` and needs `v0.5.0` before it can run
+    anywhere, which is the whole point of it.
     **Issue #41 is closed.** Conan cut `v0.3.0` (at `0f0541b`) and `v0.4.0` (at
     `4036ffa`) on 2026-09-22. Both are deployed or rolled: `v0.3.0` is live on
     `fda-catalysts` and verified over 329 cycles; `v0.4.0` is rolled into all
@@ -253,11 +280,11 @@ actually emit.
     Note the window is one hour, not one day — an earlier log entry wrongly
     expected it to slide far enough to show a 22:16 event the next morning.
 
-33. **Roll the remaining three services to a current tag.** `todo`
-    `clinical-trials`, `edgar-mna` and `fda-catalysts` run `v0.1.0`, now pinned
-    there deliberately (#24). They should move to a tag carrying the `alertlib`
-    counter and the dead-code removal, in a deploy where that is the only change
-    being made. Not urgent: nothing in `v0.2.0` fixes a fault in those three.
+33. **Roll the remaining three services to a current tag.**
+    `DONE 2026-09-23 — all four run v0.4.0`
+    `deploy.yml` run 8 applied plan `345baa3a5442`: four UPDATEs, standard tier
+    before critical, a health gate between each, `Applied 4 change(s)` in 303s.
+    The fleet is on one tag for the first time since August.
 
 
 ## P0 — Carried forward
@@ -312,22 +339,39 @@ actually emit.
     incident. Recover it before changing that file, or the fix will silently
     revert someone's patch.
 
-35. **`clinical-trials` streams exactly 399 trials every cycle and alerts on
-    none.** `todo — signal quality, priority 1`
-    Observed 2026-09-21 and again 2026-09-22 (observe runs 21 and 26), same
-    number both days:
+35. **`clinical-trials` examines hundreds of trials every cycle and alerts on
+    none.** `instrumented 2026-09-23; needs a release, then one `logs` read`
+    **The "exactly 399" framing was wrong, and the correction matters.** This
+    item was opened on the reading that a constant count looked like a page size
+    or a cap — a query stuck on its first page. On 2026-09-23, with `v0.4.0`
+    live, the same line reads:
 
-        Streamed 399 recently-updated trials from ClinicalTrials.gov
+        Streamed 787 recently-updated trials from ClinicalTrials.gov
 
-    A constant is the tell. 399 looks like a page size or a cap, not a count of
-    what actually changed — so the service may be re-examining the same first
-    page every cycle and never seeing the rest. And 399 candidates per cycle
-    yielding zero alerts over weeks is either a filter far tighter than intended
-    or one that cannot match. Either way the service is reporting healthy while
-    producing nothing, which is the same shape as #26.
-    Start by checking whether the query paginates and whether the 399 are the
-    same 399 each cycle — the alert archive from #35 makes the second answerable
-    without guessing.
+    787, twice in a row, five minutes apart. The count tracks the real size of
+    the two-day window and needs four pages of 200 to carry it, so the query
+    paginates and the 2000-candidate cap is not being hit. **The fetch is
+    working.** 399 was that day's window, not a constant of the system.
+    So the gap is between candidate and signal, and nothing recorded it: the
+    service logged what it streamed and what it sent, with nothing in between.
+    Three different faults produce identical output — a filter nothing can
+    match, an upstream query returning the same rows every cycle, and a
+    transition observed one cycle too late.
+    **Instrumented, not fixed.** `alertlib.CycleFunnel` (ADR 0006) counts the
+    stages and logs one line per cycle:
+    `streamed parsed known first_sight first_sight_completed changed signals
+    sent new_in_window`. Two counts test specific explanations. `new_in_window`
+    compares this cycle's id set against the previous cycle's, which is the
+    direct test of a stuck query — "new to our database" does not answer it.
+    `first_sight_completed` counts trials first seen already COMPLETED, which
+    `detect_signal` deliberately drops (signal 5 requires `prev_status not in
+    ("COMPLETED", None)`): the query selects on last-update date, so a trial
+    usually enters view *because* of the update we care about, and there is then
+    no earlier status to compare against. That reasoning is defensible and its
+    cost has never been measured.
+    **Next step: cut a release, deploy, then read one `logs` window.** The line
+    names which stage the candidates stop at, and the answer decides whether the
+    fix is a filter change or a decision about first-sight events.
 
 ## P1 — Close the documented gaps (strong design-review material)
 
