@@ -38,7 +38,7 @@ import requests
 # Configuration, credentials, state location, logging and delivery all come
 # from the platform (see services/alertlib). Nothing is read from a local
 # .env and no path is relative to the working directory.
-from alertlib import Alert, Service, get_logger
+from alertlib import Alert, CycleFunnel, Service, get_logger
 
 SVC: Service = None          # bound in main()
 log = get_logger("clinical-trials")
@@ -50,6 +50,11 @@ DB_PATH = "ct_seen.db"
 
 # ClinicalTrials.gov API v2
 CT_API_BASE = "https://clinicaltrials.gov/api/v2/studies"
+
+# 10 pages x pageSize 200 = 2000 candidates per cycle. Named so the funnel
+# line can say whether the cap was reached rather than leaving a truncated
+# window to look like a complete one.
+MAX_PAGES = 10
 
 # Only watch Phase 2, 3, and 4 — Phase 1 moves are rare and smaller
 PHASES_OF_INTEREST = {"PHASE2", "PHASE3", "PHASE4", "PHASE2_PHASE3"}
@@ -90,6 +95,30 @@ CT_FIELDS = [
 TICKER_RE = re.compile(
     r"\(\s*(?:NASDAQ|NYSE|NYSE\s*American|AMEX|OTCQB|OTCQX|OTC|Nasdaq)\s*:?\s*([A-Z]{1,5})\s*\)",
     re.IGNORECASE,
+)
+
+# The candidate pipeline, in order. Named here rather than inline so the
+# funnel line and the /metrics counters cannot drift apart, and so the shape
+# of the question backlog #35 asks is readable in one place:
+#
+#   streamed -> parsed -> (known | first_sight) -> changed -> signals -> sent
+#
+# `first_sight_completed` is not a stage; it is the count that tests the
+# leading explanation for zero alerts. A trial enters the two-day window
+# *because* it was just updated, so the update that flips it to COMPLETED is
+# usually the same update that first shows it to us — and `detect_signal`
+# suppresses COMPLETED when it has no previous status to compare against.
+# If that number is large every cycle, the filter is not too tight: the
+# transition is being observed one cycle too late to count as a transition.
+FUNNEL_STAGES = (
+    "streamed",
+    "parsed",
+    "known",
+    "first_sight",
+    "first_sight_completed",
+    "changed",
+    "signals",
+    "sent",
 )
 
 # Logging is configured by the platform (JSON to stdout -> journald).
@@ -180,48 +209,79 @@ def fetch_recent_changes(days_back: int = 2):
         "pageSize": 200,                     # was 1000 — smaller pages = lower peak memory
         "query.term": query_term,
         "sort": "LastUpdatePostDate:desc",
-        "countTotal": "false",
+        # The authoritative size of the match, which is the difference
+        # between "399 is everything there is" and "399 is where we stopped
+        # reading". Backlog #35 could not tell those apart from the old log
+        # line. The API computes it once per page and we only read it from
+        # the first, so the cost is one count per cycle.
+        "countTotal": "true",
     }
 
     next_page_token = None
     pages_fetched = 0
     total_yielded = 0
+    total_available = None
+    capped = False
 
-    while True:
-        if next_page_token:
-            params["pageToken"] = next_page_token
-        else:
-            params.pop("pageToken", None)
+    # The tally is reported in a `finally` because the two early returns below
+    # skip it otherwise: a cycle that failed on page two then logs nothing at
+    # all, which is indistinguishable from a cycle that never ran. Page count
+    # is reported for the same reason — whether this query paginates at all
+    # was an open question in backlog #35, and it is one line to answer.
+    try:
+        while True:
+            if next_page_token:
+                params["pageToken"] = next_page_token
+            else:
+                params.pop("pageToken", None)
 
-        try:
-            resp = requests.get(
-                CT_API_BASE,
-                params=params,
-                timeout=30,
-                headers={"User-Agent": "CatalystBot/1.0 (contact@example.com)"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except requests.HTTPError as e:
-            log.warning("ClinicalTrials API HTTP %s: %s", e.response.status_code, e.response.text[:300])
-            return
-        except Exception as e:
-            log.warning("ClinicalTrials API fetch failed: %s", e)
-            return
+            try:
+                resp = requests.get(
+                    CT_API_BASE,
+                    params=params,
+                    timeout=30,
+                    headers={"User-Agent": "CatalystBot/1.0 (contact@example.com)"},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            except requests.HTTPError as e:
+                log.warning("ClinicalTrials API HTTP %s: %s", e.response.status_code, e.response.text[:300])
+                return
+            except Exception as e:
+                log.warning("ClinicalTrials API fetch failed: %s", e)
+                return
 
-        studies = data.get("studies", [])
-        for s in studies:
-            yield s
-            total_yielded += 1
-        pages_fetched += 1
+            if total_available is None:
+                total_available = data.get("totalCount")
 
-        next_page_token = data.get("nextPageToken")
-        if not next_page_token or pages_fetched >= 10:   # 10 pages × 200 = 2000 cap
-            break
+            # Both counters advance at the moment their fact becomes true,
+            # not after the consumer comes back. A generator abandoned at a
+            # yield never resumes, so counting after `yield study` reported
+            # one fewer than it had handed out — a tally that under-reports
+            # exactly when a cycle went wrong is worse than no tally.
+            pages_fetched += 1
+            studies = data.get("studies", [])
+            for study in studies:
+                total_yielded += 1
+                yield study
 
-        time.sleep(0.15)
+            next_page_token = data.get("nextPageToken")
+            if not next_page_token:
+                break
+            if pages_fetched >= MAX_PAGES:
+                capped = True
+                break
 
-    log.info("Streamed %d recently-updated trials from ClinicalTrials.gov", total_yielded)
+            time.sleep(0.15)
+    finally:
+        log.info(
+            "Streamed %d of %s recently-updated trials from "
+            "ClinicalTrials.gov in %d page(s)%s",
+            total_yielded,
+            "unknown" if total_available is None else total_available,
+            pages_fetched,
+            " (page cap reached — the window is larger than we read)" if capped else "",
+        )
 
 
 def parse_trial(raw: dict) -> dict | None:
@@ -266,6 +326,32 @@ def parse_trial(raw: dict) -> dict | None:
 # ---------------------------------------------------------------------------
 # Signal detection
 # ---------------------------------------------------------------------------
+def observation_stages(prev: dict | None, curr: dict) -> tuple[str, ...]:
+    """Which funnel stages one observation of a trial falls into.
+
+    A separate function from `detect_signal` because it answers a different
+    question: not "is this tradeable" but "what did we just look at". Kept
+    out of the poll loop so the counts backlog #35 turns on can be tested
+    without running a cycle.
+
+    `first_sight_completed` is the one worth explaining. The query selects
+    trials whose last update landed in the past two days, so a trial usually
+    enters our view *because* of the update we care about — and when that
+    update is the flip to COMPLETED, we have no earlier status to compare it
+    against. `detect_signal` drops that case (signal 5 requires
+    `prev_status not in ("COMPLETED", None)`), on the reasoning that an
+    unobserved transition is not a transition. This counter measures what
+    that reasoning costs per cycle.
+    """
+    if prev is None:
+        if curr["status"] == "COMPLETED":
+            return ("first_sight", "first_sight_completed")
+        return ("first_sight",)
+    if prev["status"] != curr["status"]:
+        return ("known", "changed")
+    return ("known",)
+
+
 def detect_signal(prev: dict | None, curr: dict) -> tuple[str, str, str, str] | None:
     """
     Returns (signal_name, emoji, description, direction) if a tradeable
@@ -384,6 +470,8 @@ def main():
     DB_PATH = SVC.state_file("ct_seen.db")
     POLL_INTERVAL_SECONDS = SVC.cfg.poll_interval_sec
 
+    funnel = CycleFunnel(SVC.metrics, FUNNEL_STAGES, log=log)
+
     with SVC:
         conn = init_db()
 
@@ -417,16 +505,23 @@ def main():
             log.info("seeded state", extra={"trials": seeded})
 
         while SVC.running():
-            with SVC.poll_cycle():
+            with SVC.poll_cycle(), funnel.cycle():
                 alert_count = 0
+                cohort: list[str] = []
                 for raw in fetch_recent_changes(days_back=2):
+                    funnel.count("streamed")
                     trial = parse_trial(raw)
                     if not trial:
                         continue
+                    funnel.count("parsed")
                     SVC.metrics.inc("alert_items_seen_total")
 
                     nct_id = trial["nct_id"]
+                    cohort.append(nct_id)
                     prev = get_trial(conn, nct_id)
+                    for stage in observation_stages(prev, trial):
+                        funnel.count(stage)
+
                     signal_result = detect_signal(prev, trial)
 
                     # State is updated whether or not we alert.
@@ -436,6 +531,7 @@ def main():
 
                     if not signal_result:
                         continue
+                    funnel.count("signals")
 
                     signal, emoji, description, direction = signal_result
                     log.info("signal detected", extra={
@@ -446,12 +542,15 @@ def main():
                     body = format_alert(trial, signal, emoji, description, direction)
                     if SVC.send_alert(build_alert(trial, signal, description, direction, body)):
                         log_alert(conn, nct_id, signal)
+                        funnel.count("sent")
                         alert_count += 1
                     else:
                         # Delivery failed: roll back alerted_status so the
                         # next cycle retries instead of silently dropping it.
                         trial["alerted_status"] = prev["alerted_status"] if prev else None
                         upsert_trial(conn, trial)
+
+                funnel.observe_cohort(cohort)
 
                 if alert_count:
                     log.info("alerts fired", extra={"count": alert_count})

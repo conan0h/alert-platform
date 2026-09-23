@@ -28,6 +28,7 @@ Typical use:
 
 from .archive import Alert, AlertArchive
 from .config import ConfigError, ServiceConfig
+from .funnel import CycleFunnel
 from .health import HealthServer, Metrics
 from .log import configure_logging, get_logger
 from .service import Service
@@ -39,6 +40,7 @@ __all__ = [
     "Alert",
     "AlertArchive",
     "ConfigError",
+    "CycleFunnel",
     "HealthServer",
     "Metrics",
     "Service",
