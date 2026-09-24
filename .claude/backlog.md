@@ -238,6 +238,26 @@ actually emit.
     enrollment changes, completion-date moves) or to accept a feed that is quiet
     by design. That is a signal-quality judgment about what the channel is for.
 
+38. **Every cumulative counter is recorded where nothing can read it.**
+    `in-pr; needs v0.6.0 to reach the host`
+    Found by trying to do what the previous run said the next one should:
+    read `alert_funnel_changed_total` over a day. There is no way to. `/metrics`
+    binds to the host's loopback, the `health` verb discards the response body
+    and probes only `/healthz`, and a `metrics` read verb would be a wrapper
+    change (ADR 0004, #24). So four questions the counters were added to answer
+    are unanswerable from here:
+
+    - has any alert ever been delivered (`alert_alerts_sent_total`),
+    - is the archive filling (`alert_archive_records_total`, #27),
+    - how often does a trial status move (`alert_funnel_changed_total`, #35),
+    - has a send ever been refused (`alert_sends_refused_total`, #25).
+
+    Fix, in the shape that already worked for source health: ship the reader to
+    where the data is. The poll loop writes the whole registry to journald as
+    one line every 900s and once at shutdown, so `logs` answers all four. Not a
+    substitute for a scraper — two snapshots give a rate, not a history — but
+    the scraper does not exist and the counters do.
+
 37. **The startup Telegram message bypasses the archive.** `todo`
     Each service sends a "bot started" message through `send_telegram` directly
     rather than `Service.send_alert`, so it is neither recorded nor counted.

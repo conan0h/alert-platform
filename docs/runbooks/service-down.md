@@ -59,6 +59,14 @@ Check throughput before assuming a bug:
 
     curl -s localhost:<port>/metrics | grep -E 'items_seen|alerts_sent|delivery_failures'
 
+From off the host, where `/metrics` is unreachable, read the same counters from
+the journal instead — each service writes the whole registry every 15 minutes:
+
+    observe.yml  verb=logs  since=30 minutes ago      # then grep "metrics snapshot"
+
+Two snapshots from one service and the gap between their `alert_uptime_seconds`
+give a rate rather than a total, which is usually the number being asked for.
+
 - **`items_seen` climbing, `alerts_sent` flat** — the service is working and
   nothing met the alert criteria. Verify against the thresholds in the spec
   before touching anything. This is the most common false alarm.

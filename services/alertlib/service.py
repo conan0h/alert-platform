@@ -26,6 +26,23 @@ from .log import configure_logging
 from .state import state_path
 from .telegram import TelegramClient
 
+# How often the poll loop writes the metrics snapshot to the journal.
+#
+# Every counter the fleet keeps lives on `/metrics`, which is bound to the
+# host's loopback; the only read verb that returns host output is `logs`. So
+# four open questions — has any alert ever been sent, is the archive filling,
+# how often does a trial status actually change, has a send ever been refused
+# — are recorded on the host and unreadable off it. Emitting the snapshot to
+# journald puts them on the one path out.
+#
+# 900 seconds trades the two constraints against each other. `logs` returns
+# roughly the first 24 KB of its window, so a snapshot has to be frequent
+# enough that a short window contains one per service, and rare enough that it
+# does not become the thing filling that 24 KB: at a quarter hour it is about
+# 96 lines a day per service, against the ~1,900 that the source-health
+# escalation schedule exists to avoid.
+METRICS_SNAPSHOT_INTERVAL_SEC = 900
+
 
 class Service:
     def __init__(self, cfg: ServiceConfig) -> None:
@@ -44,6 +61,9 @@ class Service:
         self._archive: AlertArchive | None = None
         self._stopping = False
         self._cycle = 0
+        # Zero rather than now, so the first cycle always emits a snapshot and
+        # a restarted service is legible without waiting a quarter hour.
+        self._last_snapshot_at = 0.0
 
     @classmethod
     def from_env(cls) -> Service:
@@ -111,6 +131,32 @@ class Service:
         self.archive.record_delivery(row_id, delivered)
         return delivered
 
+    # -- measurement ------------------------------------------------------
+    def log_metrics_snapshot(self) -> None:
+        """Write every counter and gauge to the journal as one line.
+
+        Nested under a single `metrics` key rather than flattened into the
+        record: a metric named like a `logging.LogRecord` attribute would be
+        dropped by the formatter's reserved-key filter, silently, and a
+        measurement that can disappear on a rename is not a measurement.
+        """
+        # Stamped before the write, not after: a snapshot that fails should
+        # wait out the interval like a successful one, rather than retry — and
+        # warn — on every cycle.
+        self._last_snapshot_at = time.time()
+        self.log.info("metrics snapshot", extra={"metrics": self.metrics.snapshot()})
+
+    def _snapshot_if_due(self) -> None:
+        if time.time() - self._last_snapshot_at < METRICS_SNAPSHOT_INTERVAL_SEC:
+            return
+        try:
+            self.log_metrics_snapshot()
+        except Exception as exc:
+            # This runs from `poll_cycle`'s finally, where a raise escapes the
+            # context manager and ends the caller's loop. Bookkeeping must not
+            # be able to stop the service it is measuring.
+            self.log.warning("metrics snapshot failed", extra={"error": str(exc)})
+
     # -- state ------------------------------------------------------------
     def state_file(self, filename: str) -> str:
         return state_path(self.cfg.state_dir, filename)
@@ -135,6 +181,11 @@ class Service:
 
     def __exit__(self, *exc) -> bool:
         self.log.info("service stopping", extra={"cycles": self._cycle})
+        # A deploy replaces the process, and its totals are not carried over.
+        # Recording them here is the only way the journal keeps what the
+        # outgoing process counted.
+        self._last_snapshot_at = 0.0
+        self._snapshot_if_due()
         self.health.stop()
         if self._archive is not None:
             self._archive.close()
@@ -184,6 +235,7 @@ class Service:
             self.metrics.set("alert_heartbeat_timestamp_seconds", self.heartbeat.last)
             self.log.info("poll cycle complete",
                           extra={"cycle": self._cycle, "duration_sec": round(duration, 2)})
+            self._snapshot_if_due()
 
     def sleep_until_next_poll(self, interval_sec: int | None = None) -> None:
         """Sleep the remainder of the interval, in short slices.

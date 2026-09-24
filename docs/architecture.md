@@ -213,6 +213,43 @@ alert rules from those specs, and CI fails if the generated config has drifted
 from them. Swapping Prometheus for another scraper means changing the
 generator, not the services.
 
+### The metrics snapshot
+
+Nothing scrapes this fleet yet, and `/metrics` binds to the host's loopback.
+The only read verb that returns host output is `logs`, so until a scraper
+exists every cumulative counter is recorded where nobody outside the host can
+read it — which is the opposite of the reason they were added. Four questions
+sat unanswered on that: whether any alert has ever been delivered, whether the
+archive is filling, how often a trial's status actually changes, and whether a
+send has ever been refused.
+
+So the poll loop writes the whole registry to the journal as one line, every
+`METRICS_SNAPSHOT_INTERVAL_SEC` (900) and once more when the process stops:
+
+    {"msg": "metrics snapshot", "metrics": {"alert_polls_total": 1890, ...}}
+
+Three decisions in that, each with a reason a reviewer will ask for.
+
+`alert_uptime_seconds` travels with it, because a counter without the window it
+accumulated over is a number rather than a rate.
+
+The values are nested under one key rather than flattened into the record. The
+JSON formatter drops record attributes that collide with `logging.LogRecord`'s
+own — a metric named `name` or `msg` would vanish silently, and a measurement
+that disappears on a rename is not a measurement.
+
+The cadence is a compromise between the same two constraints that shaped the
+source-health schedule. A snapshot has to be frequent enough that a short
+`logs` window contains one per service, and rare enough that it is not the
+thing filling the 24 KB that window returns: a quarter hour is about 96 lines
+a day per service. The shutdown snapshot exists because a deploy replaces the
+process and its totals are not carried forward, so without it the outgoing
+process's counts are simply lost.
+
+The snapshot duplicates `/metrics` deliberately — the same numbers on a second
+path — so a test asserts the two expose the same set of names. A counter that
+reaches one and not the other would be a counter nobody can currently read.
+
 ### Source health is its own signal
 
 A poll cycle can complete successfully while one of the sources it polls is

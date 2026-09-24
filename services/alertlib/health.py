@@ -97,6 +97,26 @@ class Metrics:
                 return self._counters[name]
             return self._gauges.get(name, 0.0)
 
+    def snapshot(self) -> dict[str, float]:
+        """Every counter and gauge as one mapping, in name order.
+
+        The same numbers `render` exposes, in the shape a JSON log line
+        wants. This exists because `/metrics` is bound to the host's
+        loopback and no read verb returns its body (backlog #27c), so a
+        cumulative counter has no way off the host except the journal —
+        which is where the questions the counters were built to answer
+        are actually asked.
+
+        `alert_uptime_seconds` rides along because a counter without the
+        window it accumulated over is not a rate.
+        """
+        with self._lock:
+            # Counters last, matching `get`: if a name were ever declared as
+            # both, the two accessors must not disagree about which it is.
+            values: dict[str, float] = {**self._gauges, **self._counters}
+        values["alert_uptime_seconds"] = round(time.time() - self.started_at)
+        return {name: _plain(values[name]) for name in sorted(values)}
+
     def render(self) -> str:
         labels = f'{{service="{self.service}",ref="{self.ref}"}}'
         lines: list[str] = []
@@ -110,6 +130,11 @@ class Metrics:
         lines.append("# TYPE alert_uptime_seconds gauge")
         lines.append(f"alert_uptime_seconds{labels} {time.time() - self.started_at:.0f}")
         return "\n".join(lines) + "\n"
+
+
+def _plain(value: float) -> float | int:
+    """Whole numbers as ints, so a counter reads `1890` and not `1890.0`."""
+    return int(value) if float(value).is_integer() else round(float(value), 3)
 
 
 class Heartbeat:
