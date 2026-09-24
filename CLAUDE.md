@@ -362,16 +362,19 @@ Verify and update this section as you learn.
 **Repository.** `main` is green. Tags `v0.1.0`–`v0.5.0`, all of them released
 by Conan on request. `clinical-trials` runs `v0.5.0`; the other three run
 `v0.4.0`, deliberately — `v0.5.0` changes only `clinical_trials/main.py` plus a
-new `alertlib` module nothing else imports. No merged change is missing from a
-tag. The `go.mod` module path is
+new `alertlib` module nothing else imports. **One merged change is ahead of every
+tag:** the metrics snapshot (`19ae3e2`, PR #55), which `v0.6.0` is requested for
+in issue #56. It touches `alertlib` code every service runs, so when the tag
+exists all four services roll. The `go.mod` module path is
 `github.com/conan0h/alert-platform`; tags up to `v0.1.2` predate the rename and
 carry `conanohara`, so `go install …@latest` needs a newer tag.
 
-**Production, verified 2026-09-23.** All four services are `active`, `enabled`
-and answer `/healthz`. `drift` reports no drift, exit 0.
+**Production, verified 2026-09-24.** All four services are `active`, `enabled`
+and answer `/healthz`. `drift` reports no drift, exit 0. `history` matches the
+log: seven successful applies, no rollback since August.
 
     SERVICE          REF      STATE   DEPLOYED               BY
-    clinical-trials  v0.5.0   active  2026-09-23T08:54Z      gha:35839768109
+    clinical-trials  v0.5.0   active  2026-09-23T08:55:35Z   gha:35839768109
     edgar-mna        v0.4.0   active  2026-09-23T08:21:12Z   gha:35836370892
     fda-catalysts    v0.4.0   active  2026-09-23T08:22:26Z   gha:35836370892
     form4-insider    v0.4.0   active  2026-09-23T08:23:39Z   gha:35836370892
@@ -404,16 +407,25 @@ changed=0 signals=0 sent=0`, after `Streamed 787 of 787 … in 4 page(s)`. The
 fetch reads the whole match, every trial is already known, and none has a status
 different from the stored one. Backlog #35's original "stuck on page one" theory
 and ADR 0006's "the transition arrives before we do" hypothesis are both
-disproved. **The rate is not yet established** — one cycle after a restart
-cannot give it. Read `alert_funnel_changed_total` over a day before concluding
-anything about how often a status really moves.
+disproved. A third reading on 2026-09-24, cycles 280–281, returned `686 of 686`
+with the same `changed=0` and `new_in_window=0`: the window's membership does roll
+with the date (399 → 787 → 686), which is the last thing the stuck-query theory
+rested on.
 
-**Not yet observed:** whether the duplicate-alert loop actually stopped. Roughly
-267 cycles since the deploy show no `database is locked`, no repeated send and
-no `sends_refused` — consistent with the fix and not proof of it, because no
-alert has fired in any observed window, so the record-then-send path has never
-run under contention. Do not upgrade this to "confirmed" without a window
-containing an actual send.
+**The rate is not yet established**, and until `v0.6.0` it cannot be read at all
+— `alert_funnel_changed_total` lives on `/metrics`, which nothing off the host can
+reach. The metrics snapshot (below) is the instrument; the reading is the first
+`logs` window after the `v0.6.0` apply.
+
+**Not yet observed:** whether the duplicate-alert loop actually stopped.
+`form4-insider` reached cycle 719 by 2026-09-24 with no `database is locked`, no
+repeated send and no `sends_refused` in any window read — consistent with the fix
+and not proof of it, because no alert has fired in any observed window, so the
+record-then-send path has never run under contention. Do not upgrade this to
+"confirmed" without a window containing an actual send. `alert_sends_refused_total`
+in the metrics snapshot is the cheap version of that check once `v0.6.0` lands:
+it covers every cycle since process start rather than the window you happened to
+read.
 
 Note the `logs` window **defaults to one hour**, not one day, and it returns the
 *oldest* part of it: on 2026-09-22 at 08:03 a one-hour request returned 07:03:14
@@ -436,6 +448,17 @@ truncation itself is still unfixed (backlog #32).
    **A secret-resolution failure mutates nothing on either pass**, so attempting
    an apply costs a no-op and two accurate `failed` entries.
 
+**Nothing scrapes `/metrics`, so the counters travel by journal** (merged
+2026-09-24, on the host once `v0.6.0` lands). `/metrics` binds to loopback, the
+`health` verb curls `/healthz` and discards the body, and a `metrics` read verb
+is a wrapper change behind ADR 0004 — so every cumulative counter was recorded
+where nothing off the host could read it, and four open questions turned out to
+share that one cause. Each service now writes its whole registry to journald as
+one line every 900s and once at shutdown: grep `metrics snapshot` in a `logs`
+window, and difference two of them against `alert_uptime_seconds` for a rate.
+A workaround for the missing scraper, not a replacement — two lines give a rate,
+a dashboard would give a history.
+
 **Known gaps.** Content drift: in-place edits inside a release directory are
 invisible to `drift`. `dedup.keys` is declared but not consumed. `state.backup`
 is declared with no job behind it. `observe` does not report which `alertctl`
@@ -445,10 +468,11 @@ services against the specs in the host's own checkout, not against `origin/main`
 which only a `plan` syncs — so a merged release that has not been applied shows no
 drift and exit 0. `drift` is not a backstop against forgetting to deploy.
 Alert output has been recorded on the host since the `v0.4.0` apply on
-2026-09-23, the first time any alert has been persisted anywhere. There is still no read path off the host: that needs
-the `alerts` verb, which needs a wrapper change (backlog #27c). So the rows
-accumulate where only the host can see them, and the first run able to read them
-should check that the table is actually filling.
+2026-09-23, the first time any alert has been persisted anywhere. There is still
+no read path for the rows themselves: that needs the `alerts` verb, which needs a
+wrapper change (backlog #27c). `alert_archive_records_total` in the metrics
+snapshot answers whether the table is filling, which is the question that was
+blocking, but not what is in it.
 
 **Also unfixed.** Root account access keys are in use. A host-side edit to
 `services/form4_insider/main.py` (`alerted_this_filing`) is not in git.

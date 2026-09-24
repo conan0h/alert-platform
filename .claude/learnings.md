@@ -651,3 +651,31 @@ Both errors pointed the same way — toward believing something was wrong with
 production when the only thing wrong was my measurement of it. That is the
 expensive direction: it invites a second apply, a rollback, or an incident
 write-up for a deploy that had already succeeded.
+
+## A metric is not a measurement until something can read it
+*Learned 2026-09-24, finding that four open questions were one missing read path.*
+
+Four items in the backlog were each waiting on a number: whether an alert had
+ever been delivered, whether the archive was filling (#27), how often a trial's
+status moves (#35), whether a send had ever been refused (#25). All four
+counters existed and had existed for days. None was readable: `/metrics` binds
+to the host's loopback, the `health` verb discards the response body, a
+`metrics` read verb is a wrapper change, and nothing scrapes the fleet.
+
+The counters were added at the same time as the code they count, which felt
+like the careful thing to do. What was never checked was the other end — who
+reads this, by what route, and does that route exist today. Three separate
+sessions, mine included, wrote "the next step is to read
+`alert_funnel_changed_total`" without anyone testing that sentence.
+
+The habit: when adding a metric, write down the command that will read it, and
+run that command. If the answer is "once Prometheus exists" or "once the verb
+lands", the metric is a note to a future operator, not an instrument, and the
+open question it was supposed to close stays open — while looking closed,
+because there is a counter with its name on it.
+
+This is the read-path twin of *Ship the measurement to where the network is*
+above. That entry is about a question on a network you cannot reach; this one is
+about data that reached the right machine and then had no way off it. Same
+resolution both times: make the system that can see the answer report it as part
+of its normal output.
