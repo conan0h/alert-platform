@@ -237,11 +237,13 @@ Stated because they are real, not because they are planned away.
   makes the User-Agent the likely cause for that feed and leaves `FiercePharma`
   a genuinely dead or IP-blocked endpoint.
 - **`clinical-trials` examines hundreds of trials per cycle and alerts on
-  none.** The count is not a page size: it read 399 on 2026-09-21 and 787 on
-  2026-09-23, tracking the real size of the two-day window across four pages.
-  So the gap is between candidate and signal, not in the fetch. The next
-  release carries per-cycle funnel counts that say which stage the candidates
-  stop at.
+  none.** Measured rather than inferred, since `v0.5.0` shipped the funnel: the
+  fetch reads its whole match (`787 of 787 ... in 4 page(s)` on 2026-09-23,
+  `686 of 686` on 2026-09-24, tracking the two-day window), every trial is
+  already known, and `changed=0` — none of them has a status different from the
+  stored one. `detect_signal` fires only on a status transition, so there is
+  nothing to fire on. Whether to widen what counts as an event is a
+  signal-quality decision, not a bug ([ADR 0006](docs/adr/0006-candidate-funnel.md)).
 - **The alert archive has no reader yet.** Since the `v0.4.0` deploy on
   2026-09-23 every alert is recorded to an append-only table in the service's
   state directory ([ADR 0005](docs/adr/0005-alert-archive.md)), which closes the
@@ -254,7 +256,12 @@ Stated because they are real, not because they are planned away.
   whose loss would be irreversible rather than merely inconvenient.
 - **`logs` returns the oldest part of its window.** The read verb captures
   roughly the first 24 KB of a one-hour journal, so a busy hour is truncated
-  from the wrong end.
+  from the wrong end. Asking for a shorter window is the way around it.
+- **Nothing scrapes `/metrics`.** The endpoint binds to the host's loopback and
+  no Prometheus exists yet, so the counters are read from the journal instead:
+  each service writes its whole registry there every 15 minutes and once at
+  shutdown. That is a workaround for the missing scraper, not a replacement for
+  one — two snapshots give a rate, a dashboard would give a history.
 - **`observe` does not report which `alertctl` produced its answer.** Read
   verbs never rebuild the binary, so a stale control plane reads as current.
   This has misled two verifications.
