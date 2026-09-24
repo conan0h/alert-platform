@@ -68,9 +68,13 @@ actually emit.
     rather than raised (a missing archive row is lost measurement; a missing
     dedup row is duplicate alerts that reach a human).
 
-    **Nothing is being recorded in production yet.** This runs on the host, so
-    it needs a release and a deploy, and no session can cut a tag (#31). Until
-    then the table exists only in `main`.
+    **Whether the table is filling is answered by #38's snapshot**
+    (`alert_archive_records_total`) from `v0.6.0` on. What is *in* the rows still
+    needs (c) or (d).
+
+    **Recording has been live since the `v0.4.0` apply on 2026-09-23**, the first
+    time any alert has been persisted anywhere. No row has been read yet, from
+    here or anywhere else.
 
     **(c) the `alerts` read verb — blocked on the wrapper, not on infra.** The
     SSM document half is ours now that #28 is done. But `READONLY_VERBS` in
@@ -95,7 +99,7 @@ actually emit.
     (b) surface it in `history` and the console, (c) test both paths.
 
 31. **This session cannot cut a release tag.**
-    `needs-conan — no open request; ask again when a release is due`
+    `needs-conan — issue #56 open, asking for v0.6.0 at 19ae3e2`
     Issue #50 is closed: Conan cut `v0.5.0` at `837b327`, verified by ancestry,
     rolled in #53 and applied. Four tags have now been cut this way.
     `v0.4.0` is deployed on all four services as of 2026-09-23. The funnel
@@ -225,6 +229,13 @@ actually emit.
     300-second interval the service re-examines the same 787 rows about 288
     times a day against a set that refreshes once.
 
+    **The read this needs was impossible until #38.** `alert_funnel_changed_total`
+    lives on `/metrics`, which nothing off the host can reach; the metrics
+    snapshot puts it in the journal from `v0.6.0` on. A third reading on
+    2026-09-24 (cycles 280–281) returned `686 of 686`, `changed=0`,
+    `new_in_window=0` — and 399 → 787 → 686 across three days ends any remaining
+    doubt that the window's membership rolls.
+
     **Not yet established: the rate.** Two cycles five minutes apart cannot
     give it, and the mechanism argues alerts should eventually fire — a trial
     whose previous update fell outside the two-day window leaves our view, so on
@@ -239,7 +250,7 @@ actually emit.
     by design. That is a signal-quality judgment about what the channel is for.
 
 38. **Every cumulative counter is recorded where nothing can read it.**
-    `in-pr; needs v0.6.0 to reach the host`
+    `merged 19ae3e2 (#55); needs v0.6.0 to reach the host — handoff #56`
     Found by trying to do what the previous run said the next one should:
     read `alert_funnel_changed_total` over a day. There is no way to. `/metrics`
     binds to the host's loopback, the `health` verb discards the response body
