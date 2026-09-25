@@ -403,6 +403,22 @@ open: it is one of the four feeds emitting nothing, and this is a reason.
   remains unproven under contention.
 - Merged `d11b09b` (PR #58), six CI jobs green. Branch reset onto `main` after.
 
+### The correction reached the host in the same run
+`deploy.yml` run 12 planned `107653b16bea` again — the same id, because a plan
+id fingerprints the change set and the change set is still empty: `No changes.
+4 service(s) match desired state.` It rebuilt the binary from `fb753ba`, and
+observe run 68 read `drift` back:
+
+    control plane: alertctl fb753ba9b8db (committed 2026-09-25T08:42:31Z)
+    No drift: the target matches desired state.
+
+    Control plane: alertctl fb753ba9b8db — the commit this run was dispatched from.
+
+So the host is not left printing a label the merged docs call wrong, and the
+`drift` half of the change is verified in production as well as the `status`
+half. Two plans this run, no apply — §2 caps applies, and a plan that finds
+nothing to change is how a control-plane change ships.
+
 - Catch-up: production is healthy and unchanged, and every read of it now names
   the commit that answered — the gap that had misled two verifications is
   closed and proved on the host. The one new finding is `form4-insider`: its
