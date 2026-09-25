@@ -106,6 +106,13 @@ runs:
         echo "-----------------------"
         echo "status: $status (host exit ${code:-unknown})"
 
+        # Which alertctl answered, and whether it is this commit. Before the
+        # verdict, because a stale control plane changes how the output above
+        # should be read, and a failed run needs that context most.
+        echo "$invocation" \
+          | python3 -c 'import json,sys; print(json.load(sys.stdin).get("StandardOutputContent",""))' \
+          | "$GITHUB_ACTION_PATH/stamp.sh" "${{ github.sha }}"
+
         "$GITHUB_ACTION_PATH/verdict.sh" \
           "$status" "$code" "${{ inputs.finding-exit-codes }}" \
           '${{ inputs.document }}' '${{ inputs.instance-id }}'

@@ -122,7 +122,7 @@ instead of executing it.
 | `alertctl validate` | schema + fleet invariants |
 | `alertctl plan` | diff desired against observed, fingerprinted |
 | `alertctl apply` | reconcile, with gates, audit, and auto-rollback |
-| `alertctl status` | what is deployed, and is it running |
+| `alertctl status` | what is deployed, is it running, and which `alertctl` is answering |
 | `alertctl drift` | exit 3 if the host no longer matches the specs ([exit codes](docs/adr/0002-exit-codes.md)) |
 | `alertctl rollback` | rewrite a spec to its last successful ref |
 | `alertctl render` | print the unit and env a service would get |
@@ -190,19 +190,23 @@ Built and under test — all of it verifiable from this repository:
       the write path made its first deploy the same day. See
       [ADR 0001](docs/adr/0001-oidc-ssm-over-ssh-keys.md).
 
-### Production, as observed on 2026-09-22
+### Production, as observed on 2026-09-25
 
 Everything below came from `observe.yml` runs against the live host. The run
 logs are the record; no number here is estimated.
 
 | Service | Deployed ref | Unit | Health | Deployed | By |
 |---|---|---|---|---|---|
-| `clinical-trials` | `v0.1.0` | active | `ok` | 2026-08-20 | `ubuntu` |
-| `edgar-mna` | `v0.1.0` | active | `ok` | 2026-08-20 | `ubuntu` |
-| `fda-catalysts` | `v0.1.0` | active | `ok` | 2026-08-20 | `ubuntu` |
-| `form4-insider` | `v0.2.0` | active | `ok` | 2026-09-21 | `gha:35661685161` |
+| `clinical-trials` | `v0.5.0` | active | `ok` | 2026-09-23 | `gha:35839768109` |
+| `edgar-mna` | `v0.4.0` | active | `ok` | 2026-09-23 | `gha:35836370892` |
+| `fda-catalysts` | `v0.4.0` | active | `ok` | 2026-09-23 | `gha:35836370892` |
+| `form4-insider` | `v0.4.0` | active | `ok` | 2026-09-23 | `gha:35836370892` |
 
-`drift` reports no drift: every service is at the ref its spec pins.
+`drift` reports no drift: every service is at the ref its spec pins. Seven
+applies have gone through the pipeline and none has needed a rollback. Every
+deploy since 2026-09-21 is attributed to a workflow run rather than to a person
+on a login shell; the August entries the audit log still carries as `ubuntu`
+predate the pipeline.
 
 **`form4-insider` is the first service this pipeline ever deployed.** On
 2026-09-21 at 22:16 UTC, `deploy.yml` applied plan `54993f27b007` — one service,
@@ -262,12 +266,14 @@ Stated because they are real, not because they are planned away.
   each service writes its whole registry there every 15 minutes and once at
   shutdown. That is a workaround for the missing scraper, not a replacement for
   one — two snapshots give a rate, a dashboard would give a history.
-- **`observe` does not report which `alertctl` produced its answer.** Read
-  verbs never rebuild the binary, so a stale control plane reads as current.
-  This has misled two verifications.
+- **`drift` is not a backstop against forgetting to deploy.** It compares refs
+  and unit hashes only, so an in-place edit inside a release directory is
+  invisible to it; and it compares against the specs in the host's *own*
+  checkout, which only a `plan` syncs, so a merged release that has not been
+  applied shows no drift. `status` and `drift` now name the commit they
+  answered from, and `observe.yml` says when that is not the commit the run
+  was dispatched from, which is what makes the second case readable.
 - **`dedup.keys`** is declared in the spec but not consumed by the services.
-- **`drift` compares refs and unit hashes only**, so an in-place edit inside a
-  release directory is invisible to it.
 - **Root account access keys are still in use.**
 - **A host-side edit to `services/form4_insider/main.py` is not in git.** A
   traceback from the 2026-09-21 incident places a function four lines from where
