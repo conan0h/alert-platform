@@ -40,9 +40,9 @@ func TestStatusJSONCarriesTheControlPlane(t *testing.T) {
 
 	var got struct {
 		ControlPlane struct {
-			Revision string `json:"revision"`
-			BuiltAt  string `json:"built_at"`
-			Modified bool   `json:"modified"`
+			Revision    string `json:"revision"`
+			CommittedAt string `json:"committed_at"`
+			Modified    bool   `json:"modified"`
 		} `json:"control_plane"`
 		Services []struct {
 			Service string `json:"service"`

@@ -934,3 +934,38 @@ claims in the docs, so it is kept rather than pruned.
   ~1.4s. Noted, not investigated, and not a fault on its own.
 - Run closed here. Everything merged, deployed and verified; the only outstanding
   item is the `v0.4.0` tag, which is issue #41 and needs the owner.
+
+## 2026-09-22 (eighth) — v0.4.0 tagged and rolled; the apply is next run's
+- **Conan cut `v0.4.0` at `4036ffa`**, and `v0.3.0` at `0f0541b` earlier. Issue #41
+  closed with the evidence. Backlog #31 has no open request for the first time.
+- **Rolled all four services to `v0.4.0`** (#46, merged `c2962f4`). A genuine
+  four-service roll, checked against the tag by diff rather than assumed:
+
+        alertlib/archive.py      | 243 +    (new)
+        alertlib/service.py      |  36 +    (send_alert records before sending)
+        alertlib/sources.py      |  37 +-
+        clinical_trials/main.py  |  37 +-
+        edgar_mna/main.py        |  33 +-
+        fda_catalysts/main.py    |  29 +-
+        form4_insider/main.py    |  35 +-
+
+  Every service's own `main.py` changed and the shared `alertlib` change reaches
+  all four. The same §6 criteria gave a one-service roll for `v0.3.0`; the answer
+  differs because the diff does, not because the rule was applied loosely.
+- **Not deployed, deliberately.** §2 allows one production apply per run and this
+  run's went to the `v0.3.0` roll. So the spec reads `v0.4.0` while the host runs
+  `v0.3.0`, and **`drift` will report exit 3 until the next run applies it.** That
+  is a merged release waiting for its apply, not unmanaged change. Recorded here so
+  the next reader does not mistake it for a fault.
+- **Next run's first task:** `deploy.yml step=plan`, read it, then apply. Expect
+  `4 to change, 0 unchanged`, standard tier (`clinical-trials`, `edgar-mna`,
+  `fda-catalysts`) before critical (`form4-insider`), one at a time with a health
+  gate between each. A plan proposing to *create* services is the exit-255
+  signature and stops the run.
+- **Coordination failure worth not repeating.** Two concurrent sessions asked for
+  `v0.3.0` at different commits. The tag landed on one, so the other session's
+  handoff issue described a four-service roll that was wrong for the tag that
+  existed — the archive was not in it. Verify what a tag contains by ancestry
+  (`git merge-base --is-ancestor <sha> <tag>^{commit}`) before rolling to it.
+- The container restarted mid-run; nothing was lost, since the only background task
+  was a watcher for a PR that had already merged.

@@ -16,41 +16,6 @@ Older entries are in [`log-archive.md`](log-archive.md). Move entries there
 once this file runs well past the last handful, so the file stays the length it
 is read at.
 
-## 2026-09-22 (eighth) — v0.4.0 tagged and rolled; the apply is next run's
-- **Conan cut `v0.4.0` at `4036ffa`**, and `v0.3.0` at `0f0541b` earlier. Issue #41
-  closed with the evidence. Backlog #31 has no open request for the first time.
-- **Rolled all four services to `v0.4.0`** (#46, merged `c2962f4`). A genuine
-  four-service roll, checked against the tag by diff rather than assumed:
-
-        alertlib/archive.py      | 243 +    (new)
-        alertlib/service.py      |  36 +    (send_alert records before sending)
-        alertlib/sources.py      |  37 +-
-        clinical_trials/main.py  |  37 +-
-        edgar_mna/main.py        |  33 +-
-        fda_catalysts/main.py    |  29 +-
-        form4_insider/main.py    |  35 +-
-
-  Every service's own `main.py` changed and the shared `alertlib` change reaches
-  all four. The same §6 criteria gave a one-service roll for `v0.3.0`; the answer
-  differs because the diff does, not because the rule was applied loosely.
-- **Not deployed, deliberately.** §2 allows one production apply per run and this
-  run's went to the `v0.3.0` roll. So the spec reads `v0.4.0` while the host runs
-  `v0.3.0`, and **`drift` will report exit 3 until the next run applies it.** That
-  is a merged release waiting for its apply, not unmanaged change. Recorded here so
-  the next reader does not mistake it for a fault.
-- **Next run's first task:** `deploy.yml step=plan`, read it, then apply. Expect
-  `4 to change, 0 unchanged`, standard tier (`clinical-trials`, `edgar-mna`,
-  `fda-catalysts`) before critical (`form4-insider`), one at a time with a health
-  gate between each. A plan proposing to *create* services is the exit-255
-  signature and stops the run.
-- **Coordination failure worth not repeating.** Two concurrent sessions asked for
-  `v0.3.0` at different commits. The tag landed on one, so the other session's
-  handoff issue described a four-service roll that was wrong for the tag that
-  existed — the archive was not in it. Verify what a tag contains by ancestry
-  (`git merge-base --is-ancestor <sha> <tag>^{commit}`) before rolling to it.
-- The container restarted mid-run; nothing was lost, since the only background task
-  was a watcher for a PR that had already merged.
-
 ## 2026-09-22 (ninth) — correction: drift reports exit 0, not 3
 - **I was wrong in the previous entry, and in #46, #47, issue #41 and a phone
   notification.** All said `drift` would report exit 3 after the `v0.4.0` roll
@@ -355,3 +320,91 @@ give a rate rather than a total — which is what #35 actually needs.
   an alert in any window I have read. The counters that would say whether it
   ever has were written where nothing could read them — fixed and merged, and
   it needs one tap from you on issue #56 to reach the host.
+
+## 2026-09-25 — the host now says which alertctl answered (#23)
+Backlog #23 had sat at P0 for several runs described as "a build-time commit
+stamp", which reads as `-ldflags -X` on a build command that lives in the
+wrapper and is therefore not mine. It was already in the binary: Go records
+`vcs.revision`, `vcs.time` and `vcs.modified` in anything built inside a
+readable git checkout, and the host builds as root in a root-owned checkout.
+Checked before writing any code, against the exact command the wrapper runs:
+
+    go version -m bin/alertctl | grep vcs   ->  vcs.revision=6c6674e38ec8…
+
+### Production report
+Observe runs 62–66 on `6c6674e`, before the change. All four services `active`,
+`enabled`, `/healthz` ok; `drift` exit 0, no drift; `history` matches this log —
+seven successful service applies across four pipeline runs, no rollback since
+August.
+
+    SERVICE          REF      STATE   DEPLOYED               BY
+    clinical-trials  v0.5.0   active  2026-09-23T08:55:35Z   gha:35839768109
+    edgar-mna        v0.4.0   active  2026-09-23T08:21:12Z   gha:35836370892
+    fda-catalysts    v0.4.0   active  2026-09-23T08:22:26Z   gha:35836370892
+    form4-insider    v0.4.0   active  2026-09-23T08:23:39Z   gha:35836370892
+
+**No apply, and nothing to apply.** The milestone is control plane, which
+reaches the host through a `plan` rather than a tag. `deploy.yml` run 11 planned
+`107653b16bea`: `No changes. 4 service(s) match desired state.` That is the
+expected plan for a control-plane change and the confirmation that it moved no
+service. `v0.6.0` is still uncut, so the metrics snapshot is still not on the
+host and issue #56 is still open.
+
+**Verified after the plan**, observe run 67, which is the whole point of the
+change:
+
+    control plane: alertctl d11b09b07288 (committed 2026-09-25T08:35:54Z)
+    SERVICE          REF        STATE      ENABLED    DEPLOYED               BY
+    clinical-trials  v0.5.0     active     enabled    2026-09-23T08:55:35Z   gha:35839768109
+    …
+
+and from `ssm-run`, in the job summary:
+
+    Control plane: alertctl d11b09b07288 — the commit this run was dispatched from.
+
+### A correction the first host reading produced
+The line first said `built 2026-09-25T08:35:54Z`. The binary was built at
+08:36:3x, during the plan; 08:35:54Z is when the merge commit was made.
+`vcs.time` is the time associated with `vcs.revision`, not the build. Relabelled
+to `(committed …)` in the follow-up, with the JSON field renamed to match.
+A wrong label on an operator-facing timestamp is the kind of thing that gets
+believed for months, and it took production output to see it — the local test
+fixtures all said "built" too, because I wrote them from the same assumption.
+
+### Reading the alerts
+A clean ten-minute window, 08:14–08:23Z, all four services, nothing truncated.
+Cycle counters: `edgar-mna` 3801, `fda-catalysts` 3843, `form4-insider` 1441,
+`clinical-trials` 570. No alert, no error, no warning — the fourth consecutive
+run with that reading.
+
+`clinical-trials`, cycles 569 and 570: `Streamed 602 of 602 … in 4 page(s)`,
+`changed=0 signals=0 sent=0 new_in_window=0`. The window is 399 → 787 → 686 →
+602 across four days, so membership keeps rolling and the change rate keeps
+reading zero.
+
+**One line I had read past three times**, INFO, hourly, from `form4-insider`:
+
+    "msg": "alpha cutoff refreshed", "cutoff": null
+
+`get_alpha_cutoff` returns `None` when no insider has five or more scored
+trades, and `should_alert` then refuses everything under $1M with `no
+leaderboard cutoff available`. So the "top 25% of scored insiders" filter the
+service is built around cannot fire at all: the live filter is "any trade over
+$1M", and the $100k floor plus the alpha comparison are unreachable. The
+leaderboard is populated by `form4_scorer.py` after `form4_backfill.py`, neither
+of which is in the fleet spec — they are manual scripts with no timer. Backlog
+#39, and it is a better candidate for the next milestone than anything else
+open: it is one of the four feeds emitting nothing, and this is a reason.
+
+### What this run did not settle
+- **`v0.6.0` is still uncut**, so the metrics snapshot is still unreadable on
+  the host and the four questions it answers stay open. Issue #56, unchanged.
+- **Still no alert in any observed window** — four runs. The duplicate-send fix
+  remains unproven under contention.
+- Merged `d11b09b` (PR #58), six CI jobs green. Branch reset onto `main` after.
+
+- Catch-up: production is healthy and unchanged, and every read of it now names
+  the commit that answered — the gap that had misled two verifications is
+  closed and proved on the host. The one new finding is `form4-insider`: its
+  insider-quality filter has never been able to fire, because the leaderboard
+  it depends on is empty. Still waiting on you for the `v0.6.0` tag (issue #56).

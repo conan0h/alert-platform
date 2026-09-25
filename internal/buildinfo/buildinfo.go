@@ -30,8 +30,12 @@ const shortLen = 12
 // readable git checkout.
 type Stamp struct {
 	Revision string `json:"revision,omitempty"`
-	BuiltAt  string `json:"built_at,omitempty"`
-	Modified bool   `json:"modified,omitempty"`
+	// CommittedAt is when the revision was committed, not when the binary was
+	// built: the toolchain records `vcs.time`, which is the commit's own
+	// timestamp. Observed on 2026-09-25, when a host binary built at 08:36:3x
+	// reported 08:35:54Z, the merge commit's time.
+	CommittedAt string `json:"committed_at,omitempty"`
+	Modified    bool   `json:"modified,omitempty"`
 }
 
 // Read returns the stamp the toolchain wrote into this binary.
@@ -49,12 +53,12 @@ func stampFrom(info *debug.BuildInfo, ok bool) Stamp {
 		case "vcs.revision":
 			s.Revision = setting.Value
 		case "vcs.time":
-			s.BuiltAt = setting.Value
+			s.CommittedAt = setting.Value
 		case "vcs.modified":
 			s.Modified = setting.Value == "true"
 		}
 	}
-	// A dirty flag with no revision describes nothing, and a build time with
+	// A dirty flag with no revision describes nothing, and a commit time with
 	// no revision cannot be compared against anything. Either way there is no
 	// commit to report, so report none rather than half of one.
 	if s.Revision == "" {
@@ -100,14 +104,17 @@ func (s Stamp) describe() string {
 	if !s.Known() {
 		return "(unstamped build — no revision recorded; built outside a readable git checkout)"
 	}
-	out := s.Short()
-	if s.BuiltAt != "" {
-		out += fmt.Sprintf(" built %s", s.BuiltAt)
+	var parts []string
+	if s.CommittedAt != "" {
+		parts = append(parts, "committed "+s.CommittedAt)
 	}
 	if s.Modified {
 		// Uncommitted changes mean the revision names a commit the binary is
 		// not, which is worse than no revision at all if it goes unsaid.
-		out += " (modified working tree)"
+		parts = append(parts, "modified working tree")
 	}
-	return out
+	if len(parts) == 0 {
+		return s.Short()
+	}
+	return fmt.Sprintf("%s (%s)", s.Short(), strings.Join(parts, ", "))
 }
