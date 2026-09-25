@@ -679,3 +679,27 @@ above. That entry is about a question on a network you cannot reach; this one is
 about data that reached the right machine and then had no way off it. Same
 resolution both times: make the system that can see the answer report it as part
 of its normal output.
+
+## Look for the capability you already have before designing one you must ask for
+*Learned 2026-09-25, closing backlog #23.*
+
+Backlog #23 wanted the host to say which `alertctl` answered, and described the
+fix as "a build-time commit stamp". Taken literally that means `-ldflags -X` on
+the build command — which lives in `deploy/ops/alert-deploy`, the wrapper, which
+§2 puts out of reach and which does not reach the host without Conan re-running
+`bootstrap-host.sh`. The item had sat at P0 across several runs with that shape.
+
+The toolchain had already been recording it. Go writes `vcs.revision`,
+`vcs.time` and `vcs.modified` into any binary built inside a readable git
+checkout, and the host's build — root, root-owned checkout — qualifies. The work
+was a `debug.ReadBuildInfo()` call and a line of output. Nothing needed to be
+granted, because the data was already on the host in the running binary.
+
+The check is cheap and I nearly skipped it: before accepting that a change needs
+someone else's permission, spend one command finding out whether the thing is
+already there. Here it was `go version -m ./bin/alertctl | grep vcs`, run before
+any code was written, against the exact command the host uses.
+
+The general shape: a constraint on *how* you may change a system is not a
+constraint on what the system already does. An item framed as "needs X" is
+worth re-reading as "needs the effect of X", which is sometimes free.

@@ -9,8 +9,8 @@
 # checkout, so a read verb can answer from a binary several commits old. The
 # answer looks identical either way: on 2026-09-22 a `drift` exit 0 was read
 # as "production matches main" when it meant "production matches the specs the
-# host last synced". alertctl now prints its own build revision as the first
-# line of every read verb; this turns that line into a comparison against the
+# host last synced". `status` and `drift` now print the binary's own revision
+# as their first line; this turns that line into a comparison against the
 # commit the workflow ran from, which is the part a reader cannot do from
 # memory.
 #
@@ -60,12 +60,12 @@ say() {
 }
 
 if [[ -z $rev ]]; then
-  say "Control plane: alertctl reported no build revision."
-  note "The host's alertctl carries no build revision, so nothing can say which commit answered. It was built outside a readable git checkout; a 'deploy.yml step=plan' rebuilds it from the host's checkout."
+  say "Control plane: alertctl reported no revision."
+  note "The host's alertctl carries no revision, so nothing can say which commit answered. It was built outside a readable git checkout; a 'deploy.yml step=plan' rebuilds it from the host's checkout."
   exit 0
 fi
 
-if [[ $line == *"(modified working tree)"* ]]; then
+if [[ $line == *"modified working tree"* ]]; then
   note "The host's alertctl was built from a modified working tree at $rev, so the host is running control-plane code that no commit contains."
 fi
 

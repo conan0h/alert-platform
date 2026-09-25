@@ -48,7 +48,7 @@ status_output() {
 # -- the current case: report it, annotate nothing --------------------------
 
 check "${REV:0:12}" '::notice' "a matching revision is reported without a notice" \
-  "$REV" "$(status_output "${REV:0:12} built 2026-09-24T08:35:23Z")"
+  "$REV" "$(status_output "${REV:0:12} (committed 2026-09-24T08:35:23Z)")"
 
 # The host prints twelve characters and the workflow holds forty, so the
 # comparison has to be on the shorter of the two or every run looks stale.
@@ -58,7 +58,7 @@ check 'dispatched from' - "the printed abbreviation matches the full sha" \
 # -- the case this exists for ----------------------------------------------
 
 check '::notice' - "a stale control plane is annotated" \
-  "$OTHER" "$(status_output "${REV:0:12} built 2026-09-24T08:35:23Z")"
+  "$OTHER" "$(status_output "${REV:0:12} (committed 2026-09-24T08:35:23Z)")"
 check "$OTHER" - "the annotation names the commit the run expected" \
   "$OTHER" "$(status_output "${REV:0:12}")"
 
@@ -71,14 +71,14 @@ check '-' '::notice' "health output produces no notice" \
 
 # -- a build that cannot be compared ---------------------------------------
 
-check 'no build revision' - "an unstamped binary is reported as unstamped" \
+check 'no revision' - "an unstamped binary is reported as unstamped" \
   "$REV" "$(status_output '(unstamped build — no revision recorded; built outside a readable git checkout)')"
 check '::notice' - "an unstamped binary is annotated, since nothing can be compared" \
   "$REV" "$(status_output '(unstamped build)')"
 
 # A revision with uncommitted changes names a commit the binary is not.
 check 'modified working tree' - "a dirty build is called out" \
-  "$REV" "$(status_output "${REV:0:12} built 2026-09-24T08:35:23Z (modified working tree)")"
+  "$REV" "$(status_output "${REV:0:12} (committed 2026-09-24T08:35:23Z, modified working tree)")"
 
 # -- the host's output is data, never code ---------------------------------
 

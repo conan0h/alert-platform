@@ -147,7 +147,7 @@ meant "production matches the specs the host last synced".
 
 So `status` and `drift` print, before their answer:
 
-    control plane: alertctl 6c6674e38ec8 built 2026-09-24T08:35:23Z
+    control plane: alertctl d11b09b07288 (committed 2026-09-25T08:35:54Z)
 
 The revision is not passed in at build time. The Go toolchain records
 `vcs.revision`, `vcs.time` and `vcs.modified` in any binary built inside a
@@ -156,6 +156,12 @@ running binary — so this needs no change to how the host builds, which matters
 because that build command lives in the wrapper. A build with no stamp says so
 rather than printing nothing; a build from a modified tree says that too,
 because a revision alone would then name a commit the binary is not.
+
+The timestamp is the *commit's*, not the build's: `vcs.time` is the time
+associated with `vcs.revision`. The two are close in practice — the host
+rebuilds within a minute of a plan — but they are not the same claim, and the
+first host reading showed the difference (binary built at 08:36:3x, stamp
+reading 08:35:54Z).
 
 `ssm-run` compares the revision against the commit the workflow was dispatched
 from and annotates the run when they differ. It annotates rather than fails:

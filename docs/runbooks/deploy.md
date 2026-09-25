@@ -91,7 +91,7 @@ run log prints `status: Failed (host exit 3)` and is the accurate view.
 workflow puts a line in the job summary saying whether that is the commit the
 run was dispatched from:
 
-    Control plane: alertctl 6c6674e38ec8 — the commit this run was dispatched from.
+    Control plane: alertctl d11b09b07288 — the commit this run was dispatched from.
 
 When it is not, the run carries a `::notice` instead. That is not a fault: only
 `deploy.yml step=plan` moves the host's checkout and rebuilds the binary, so

@@ -26,14 +26,14 @@ func TestStampFrom(t *testing.T) {
 			in: info(set("vcs", "git"), set("vcs.revision", rev),
 				set("vcs.time", "2026-09-24T08:35:23Z"), set("vcs.modified", "false")),
 			ok:   true,
-			want: Stamp{Revision: rev, BuiltAt: "2026-09-24T08:35:23Z"},
+			want: Stamp{Revision: rev, CommittedAt: "2026-09-24T08:35:23Z"},
 		},
 		{
 			name: "a dirty tree is carried through",
 			in: info(set("vcs.revision", rev), set("vcs.time", "2026-09-24T08:35:23Z"),
 				set("vcs.modified", "true")),
 			ok:   true,
-			want: Stamp{Revision: rev, BuiltAt: "2026-09-24T08:35:23Z", Modified: true},
+			want: Stamp{Revision: rev, CommittedAt: "2026-09-24T08:35:23Z", Modified: true},
 		},
 		{
 			name: "no VCS settings at all is the unstamped build",
@@ -44,7 +44,7 @@ func TestStampFrom(t *testing.T) {
 		{
 			// Whatever settings survive, without a revision there is nothing
 			// to compare a host's answer against, so the stamp is empty.
-			name: "a time without a revision reports nothing",
+			name: "a commit time without a revision reports nothing",
 			in:   info(set("vcs.time", "2026-09-24T08:35:23Z"), set("vcs.modified", "true")),
 			ok:   true,
 			want: Stamp{},
@@ -75,16 +75,16 @@ func TestLine(t *testing.T) {
 	}{
 		{
 			name:  "clean build",
-			stamp: Stamp{Revision: rev, BuiltAt: "2026-09-24T08:35:23Z"},
-			want:  "control plane: alertctl 6c6674e38ec8 built 2026-09-24T08:35:23Z",
+			stamp: Stamp{Revision: rev, CommittedAt: "2026-09-24T08:35:23Z"},
+			want:  "control plane: alertctl 6c6674e38ec8 (committed 2026-09-24T08:35:23Z)",
 		},
 		{
 			name:  "dirty build says so, because the revision is then a lie by itself",
-			stamp: Stamp{Revision: rev, BuiltAt: "2026-09-24T08:35:23Z", Modified: true},
-			want:  "control plane: alertctl 6c6674e38ec8 built 2026-09-24T08:35:23Z (modified working tree)",
+			stamp: Stamp{Revision: rev, CommittedAt: "2026-09-24T08:35:23Z", Modified: true},
+			want:  "control plane: alertctl 6c6674e38ec8 (committed 2026-09-24T08:35:23Z, modified working tree)",
 		},
 		{
-			name:  "revision with no time",
+			name:  "revision with no commit time",
 			stamp: Stamp{Revision: rev},
 			want:  "control plane: alertctl 6c6674e38ec8",
 		},
@@ -162,7 +162,7 @@ func TestReadIsSelfConsistent(t *testing.T) {
 	if s.Known() != (s.Revision != "") {
 		t.Fatalf("Known() disagrees with Revision: %+v", s)
 	}
-	if !s.Known() && (s.BuiltAt != "" || s.Modified) {
+	if !s.Known() && (s.CommittedAt != "" || s.Modified) {
 		t.Fatalf("an unknown stamp must be empty: %+v", s)
 	}
 }
