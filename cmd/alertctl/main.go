@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/conan0h/alert-platform/internal/audit"
+	"github.com/conan0h/alert-platform/internal/buildinfo"
 	"github.com/conan0h/alert-platform/internal/engine"
 	pexec "github.com/conan0h/alert-platform/internal/exec"
 	"github.com/conan0h/alert-platform/internal/fleet"
@@ -336,6 +337,7 @@ func cmdStatus(args []string) error {
 		By      string `json:"deployed_by"`
 	}
 	var rows []row
+	stamp := buildinfo.Read()
 
 	for _, svc := range repo.Services {
 		if c.service != "" && svc.Metadata.Name != c.service {
@@ -357,11 +359,21 @@ func cmdStatus(args []string) error {
 	}
 
 	if *asJSON {
-		raw, _ := json.MarshalIndent(rows, "", "  ")
+		// An object rather than the bare array this used to emit: the answer
+		// now has two parts, and which binary produced it belongs beside the
+		// rows rather than in a second call nobody makes.
+		raw, _ := json.MarshalIndent(struct {
+			ControlPlane buildinfo.Stamp `json:"control_plane"`
+			Services     []row           `json:"services"`
+		}{stamp, rows}, "", "  ")
 		fmt.Println(string(raw))
 		return nil
 	}
 
+	// Which binary answered, before the answer. A read verb never rebuilds
+	// alertctl, so this can name a commit older than the one the reader is
+	// looking at — which is the whole point of printing it.
+	fmt.Println(stamp.Line())
 	fmt.Printf("%-16s %-10s %-10s %-10s %-22s %s\n",
 		"SERVICE", "REF", "STATE", "ENABLED", "DEPLOYED", "BY")
 	for _, r := range rows {
@@ -385,6 +397,12 @@ func cmdDrift(args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// drift compares the host against the specs in the host's own checkout,
+	// which only `plan` moves. "No drift" therefore means "no drift from the
+	// commit named here", and saying which commit is the difference between
+	// that answer and the one it was mistaken for on 2026-09-22.
+	fmt.Println(buildinfo.Read().Line())
 
 	pending := plan.Pending()
 	if len(pending) == 0 {

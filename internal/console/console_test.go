@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/conan0h/alert-platform/internal/audit"
+	"github.com/conan0h/alert-platform/internal/buildinfo"
 	pexec "github.com/conan0h/alert-platform/internal/exec"
 )
 
@@ -161,5 +162,22 @@ func TestIndexServesTheEmbeddedConsole(t *testing.T) {
 	n, _ := res.Body.Read(buf)
 	if !strings.Contains(string(buf[:n]), "alert-platform console") {
 		t.Error("embedded index.html did not serve")
+	}
+}
+
+// The console reads the same specs the CLI does, from whatever binary is
+// serving it — and a console served from a stale binary looks exactly like
+// one served from a current binary unless it says which it is.
+func TestOverviewNamesTheControlPlaneThatServedIt(t *testing.T) {
+	_, ts := testServer(t)
+
+	var out struct {
+		ControlPlane buildinfo.Stamp `json:"control_plane"`
+	}
+	if res := get(t, ts.URL+"/api/overview", &out); res.StatusCode != 200 {
+		t.Fatalf("overview: %d", res.StatusCode)
+	}
+	if out.ControlPlane != buildinfo.Read() {
+		t.Errorf("control_plane = %+v, want this binary's own stamp %+v", out.ControlPlane, buildinfo.Read())
 	}
 }

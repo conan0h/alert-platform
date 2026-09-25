@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/conan0h/alert-platform/internal/audit"
+	"github.com/conan0h/alert-platform/internal/buildinfo"
 	"github.com/conan0h/alert-platform/internal/engine"
 	pexec "github.com/conan0h/alert-platform/internal/exec"
 	"github.com/conan0h/alert-platform/internal/fleet"
@@ -131,6 +132,7 @@ type serviceView struct {
 
 type overview struct {
 	Fleet        fleet.FleetMetadata `json:"fleet"`
+	ControlPlane buildinfo.Stamp     `json:"control_plane"`
 	Target       fleet.Target        `json:"target"`
 	TargetMode   string              `json:"target_mode"`
 	ChangePolicy fleet.ChangePolicy  `json:"change_policy"`
@@ -152,6 +154,7 @@ func (s *Server) apiOverview(w http.ResponseWriter, _ *http.Request) {
 
 	out := overview{
 		Fleet:        repo.Fleet.Metadata,
+		ControlPlane: buildinfo.Read(),
 		Target:       target,
 		TargetMode:   s.Runner.Describe(),
 		ChangePolicy: repo.Fleet.ChangePolicy,

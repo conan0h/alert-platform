@@ -128,12 +128,45 @@ roll forward again — reintroducing the outage.
 | Service crash loop | post-deploy gate (`is-active`) | auto-rollback |
 | Process up, loop wedged | post-deploy gate (`/healthz` 503) | auto-rollback |
 | Manual edit on the host | `alertctl drift` | exit 3, alert |
+| Stale control plane on the host | build stamp in `status` / `drift` | notice on the run; `plan` rebuilds |
 | Upstream 502 in steady state | `alert_poll_errors_total` | dashboard, no page |
 | Telegram rejecting sends | `AlertDeliveryFailing` rule | page |
 
 The distinction in the last two rows is the one worth keeping: a polling
 service that sees an upstream error is doing its job; a service that cannot
 deliver is silently useless, which is worse than being obviously down.
+
+## Which control plane answered
+
+`alertctl` is built on the host from the host's own checkout, and only a
+`plan` moves that checkout (§6). Every other verb runs whatever binary the
+last `plan` produced, so a read can answer from a commit older than the one
+the reader is looking at — and the answer looks the same either way. On
+2026-09-22 a `drift` exit 0 was read as "production matches `main`" when it
+meant "production matches the specs the host last synced".
+
+So `status` and `drift` print, before their answer:
+
+    control plane: alertctl 6c6674e38ec8 built 2026-09-24T08:35:23Z
+
+The revision is not passed in at build time. The Go toolchain records
+`vcs.revision`, `vcs.time` and `vcs.modified` in any binary built inside a
+readable git checkout, and `internal/buildinfo` reads them back out of the
+running binary — so this needs no change to how the host builds, which matters
+because that build command lives in the wrapper. A build with no stamp says so
+rather than printing nothing; a build from a modified tree says that too,
+because a revision alone would then name a commit the binary is not.
+
+`ssm-run` compares the revision against the commit the workflow was dispatched
+from and annotates the run when they differ. It annotates rather than fails:
+between a merge and the next `plan`, a host one commit behind is the normal
+state, and a red X for a normal state is a red X nobody reads
+([ADR 0002](adr/0002-exit-codes.md)).
+
+This does not make `drift` a backstop against forgetting to deploy — `drift`
+still compares against the host's checkout, not against `origin/main`. It
+makes the gap visible, which is what turns an unnoticed stale answer into a
+line in the run.
 
 ## The operator console
 

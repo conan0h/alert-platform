@@ -169,12 +169,6 @@ actually emit.
     by hitting them in production. #6, #7 and #13 would each have been caught
     by a target that actually ran the scripts.
 
-23. **`observe` cannot tell you which `alertctl` the host is running.** `todo`
-    Read verbs never rebuild the binary, so a control-plane change is invisible
-    until a `plan`. Nothing says so, and a stale answer reads as current; this
-    already misled one verification. Fix is a build-time commit stamp surfaced
-    in `status` and the workflow summary, not a rebuild on read.
-
 24. **Wrapper adoption: decided, not built.**
     `granted 2026-09-22; blocked on a sandbox permission and on issue #27`
     The owner granted it: the agent owns the wrapper's verb set. Design and the
@@ -268,6 +262,26 @@ actually emit.
     one line every 900s and once at shutdown, so `logs` answers all four. Not a
     substitute for a scraper — two snapshots give a rate, not a history — but
     the scraper does not exist and the counters do.
+
+39. **`form4-insider`'s leaderboard is empty, so three of its four filter
+    branches are dead.** `todo — found 2026-09-25 in the journal`
+    The host logs `alpha cutoff refreshed {"cutoff": null}` hourly.
+    `get_alpha_cutoff` returns `None` when no insider has five or more scored
+    trades, and `should_alert` then refuses everything below
+    `LARGE_TRADE_USD` ($1M) with `no leaderboard cutoff available`. So the
+    service is not running the filter it was designed around — "top 25% of
+    scored insiders" — it is running "any trade over $1M", and the $100k floor
+    plus the alpha comparison are unreachable code on the host today.
+    `insiders.alpha_90` is populated by `form4_scorer.py` after
+    `form4_backfill.py`, neither of which is in the fleet spec: they are manual
+    scripts with no timer behind them. Slices: (a) confirm from the host
+    whether the table is empty or merely unscored — `alert_...` counters cannot
+    say, so this needs the row count; (b) decide whether the scorer becomes a
+    managed unit (like #8's backup timer) or the filter is rewritten not to
+    depend on it; (c) until then, say in the docs that the live filter is the
+    $1M branch, because "top-tier insider" describes code that cannot run.
+    Note how this surfaced: the line is INFO, once an hour, in a service that
+    logs nothing else — three runs read this window and did not look at it.
 
 37. **The startup Telegram message bypasses the archive.** `todo`
     Each service sends a "bot started" message through `send_telegram` directly
@@ -393,6 +407,13 @@ actually emit.
   CI. That is how backlog #1 stayed half-hidden.
 
 ## Done
+
+- **#23 — `observe` could not tell you which `alertctl` answered.** `status`
+  and `drift` print the revision the Go toolchain stamped into the binary
+  (`internal/buildinfo`), and `ssm-run` compares it against the commit the
+  workflow ran from, annotating when they differ. No change to how the host
+  builds, so no wrapper change: the stamp was already in the binary and
+  nothing read it. Verified in production on 2026-09-25 — see the run log.
 
 - **#21 — `observe.yml` could not tell a finding from a failure.** Four named
   exit codes, `drift`'s finding is 3, `ssm-run` takes `finding-exit-codes`.

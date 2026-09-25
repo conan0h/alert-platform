@@ -169,6 +169,8 @@
   <span class="crumb">fleet <b id="fleet-name">…</b></span>
   <span class="sep">▸</span>
   <span class="crumb">target <b id="target-name">…</b></span>
+  <span class="sep">▸</span>
+  <span class="crumb" id="build-crumb" title="The commit this alertctl was built from. Only a plan rebuilds it, so it can be older than main.">built <b id="build-rev">…</b></span>
   <span class="lamp dark" id="lamp"><span class="dot">●</span><span id="lamp-text">connecting</span></span>
   <button class="refresh" id="refresh" type="button">refresh</button>
 </header>
@@ -324,6 +326,12 @@ async function load() {
     overview = await getJSON("/api/overview");
     $("fleet-name").textContent = overview.fleet?.name || "?";
     $("target-name").textContent = overview.target_mode || overview.target?.address || "?";
+    // Which alertctl is answering. A console served from a stale binary looks
+    // exactly like one served from a current binary, so it says which.
+    const cp = overview.control_plane || {};
+    $("build-rev").textContent = cp.revision
+      ? cp.revision.slice(0, 12) + (cp.modified ? "+dirty" : "")
+      : "unstamped";
   } catch (err) {
     $("banner").classList.add("show");
     $("banner-why").textContent = "specs failed to load: " + err.message;

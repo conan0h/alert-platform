@@ -85,6 +85,32 @@ One wrinkle: SSM has only "succeeded" and "failed", so a finding invocation is
 recorded as `Failed` in the AWS console even though the workflow passed. The
 run log prints `status: Failed (host exit 3)` and is the accurate view.
 
+### Which `alertctl` answered
+
+`status` and `drift` print the commit their binary was built from, and the
+workflow puts a line in the job summary saying whether that is the commit the
+run was dispatched from:
+
+    Control plane: alertctl 6c6674e38ec8 — the commit this run was dispatched from.
+
+When it is not, the run carries a `::notice` instead. That is not a fault: only
+`deploy.yml step=plan` moves the host's checkout and rebuilds the binary, so
+everything merged since the last plan is expected to be missing. It matters
+when you are verifying a control-plane change, because until a `plan` runs, a
+read verb answers from the old code and says nothing about the new.
+
+To make it current, run `deploy.yml` with `step=plan`. It syncs the checkout to
+`origin/main`, rebuilds, and produces a plan; reading the plan and not applying
+it is a legitimate way to end there.
+
+Two rarer lines from the same place:
+
+- **`reported no build revision`** — the binary was built where git could not
+  be read, so nothing can say which commit it is. A `plan` rebuilds it.
+- **`modified working tree`** — the host is running control-plane code that no
+  commit contains. Treat it as drift in the control plane itself: find out what
+  was edited before the next apply.
+
 Confirm an alert actually arrives in the Telegram channel. Every service
 sends a startup message; if it does not appear, delivery is broken even
 though the gate passed — the gate proves the loop runs, not that Telegram

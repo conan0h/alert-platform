@@ -369,9 +369,10 @@ exists all four services roll. The `go.mod` module path is
 `github.com/conan0h/alert-platform`; tags up to `v0.1.2` predate the rename and
 carry `conanohara`, so `go install …@latest` needs a newer tag.
 
-**Production, verified 2026-09-24.** All four services are `active`, `enabled`
+**Production, verified 2026-09-25.** All four services are `active`, `enabled`
 and answer `/healthz`. `drift` reports no drift, exit 0. `history` matches the
-log: seven successful applies, no rollback since August.
+log: seven successful service applies across four pipeline runs, no rollback
+since August.
 
     SERVICE          REF      STATE   DEPLOYED               BY
     clinical-trials  v0.5.0   active  2026-09-23T08:55:35Z   gha:35839768109
@@ -381,8 +382,8 @@ log: seven successful applies, no rollback since August.
 
 `deploy.yml` run 8 applied plan `345baa3a5442` — four UPDATEs, `Applied 4
 change(s)` in 303s. Run 10 applied `d237e2d4a7cf` — `1 to change, 3 unchanged`,
-`✓ clinical-trials healthy at v0.5.0`, 88s. Five applies have now gone through
-the pipeline and none has needed a rollback.
+`✓ clinical-trials healthy at v0.5.0`, 88s. Seven service applies have now gone
+through the pipeline and none has needed a rollback.
 
 **`infra.yml` is proven, 2026-09-22.** Run 6 on `f5ac4f5` assumed the infra role
 via OIDC, read remote state, and reported `No changes. Your infrastructure
@@ -461,18 +462,27 @@ a dashboard would give a history.
 
 **Known gaps.** Content drift: in-place edits inside a release directory are
 invisible to `drift`. `dedup.keys` is declared but not consumed. `state.backup`
-is declared with no job behind it. `observe` does not report which `alertctl`
-produced its answer, so a stale control plane reads as current (backlog #23; this
-has now misled two verifications). Relatedly, **`drift` compares the host's
-services against the specs in the host's own checkout, not against `origin/main`**,
-which only a `plan` syncs — so a merged release that has not been applied shows no
-drift and exit 0. `drift` is not a backstop against forgetting to deploy.
+is declared with no job behind it. **`drift` compares the host's services against
+the specs in the host's own checkout, not against `origin/main`**, which only a
+`plan` syncs — so a merged release that has not been applied shows no drift and
+exit 0. `drift` is not a backstop against forgetting to deploy. What a read verb
+*does* now say is which commit it answered from: `status` and `drift` print the
+revision stamped into the binary and `ssm-run` annotates the run when it is not
+the commit the workflow was dispatched from (backlog #23, closed 2026-09-25).
 Alert output has been recorded on the host since the `v0.4.0` apply on
 2026-09-23, the first time any alert has been persisted anywhere. There is still
 no read path for the rows themselves: that needs the `alerts` verb, which needs a
 wrapper change (backlog #27c). `alert_archive_records_total` in the metrics
 snapshot answers whether the table is filling, which is the question that was
 blocking, but not what is in it.
+
+**`form4-insider` is running one filter branch, not four.** The host logs
+`alpha cutoff refreshed {"cutoff": null}` every hour: no insider has five or
+more scored trades, so `should_alert` refuses everything under $1M with `no
+leaderboard cutoff available`. The "top 25% of scored insiders" filter the
+service is built around cannot fire until `form4_scorer.py` has run, and that
+script is not in the fleet spec. Backlog #39; found 2026-09-25, in a line three
+earlier runs read past.
 
 **Also unfixed.** Root account access keys are in use. A host-side edit to
 `services/form4_insider/main.py` (`alerted_this_filing`) is not in git.

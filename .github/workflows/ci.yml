@@ -88,6 +88,7 @@ jobs:
           shellcheck deploy/ops/alert-deploy deploy/ops/alert-deploy_test.sh deploy/ops/bootstrap-host.sh
           shellcheck deploy/ops/ssm_scripts_test.sh
           shellcheck .github/actions/ssm-run/verdict.sh .github/actions/ssm-run/verdict_test.sh
+          shellcheck .github/actions/ssm-run/stamp.sh .github/actions/ssm-run/stamp_test.sh
       - name: The wrapper refuses what it should refuse
         run: ./deploy/ops/alert-deploy_test.sh
       # The SSM documents' shell lives inside yamlencode, so `terraform
@@ -102,6 +103,9 @@ jobs:
       # the only place the difference is decided.
       - name: A finding is not a failure
         run: ./.github/actions/ssm-run/verdict_test.sh
+
+      - name: A stale control plane is reported, not hidden
+        run: ./.github/actions/ssm-run/stamp_test.sh
 
   infra:
     name: terraform
