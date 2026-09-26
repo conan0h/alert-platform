@@ -703,3 +703,44 @@ any code was written, against the exact command the host uses.
 The general shape: a constraint on *how* you may change a system is not a
 constraint on what the system already does. An item framed as "needs X" is
 worth re-reading as "needs the effect of X", which is sometimes free.
+
+## A scheduled reader sees one hour of the day, and that hour is not a sample
+*Learned 2026-09-26, reading `form4-insider` for the fifth run running.*
+
+Five consecutive run logs record "no alert in any observed window" for the
+fleet, and the phrase had started to do work it could not support: the
+2026-09-21 duplicate-send fix stayed "unproven under contention" on the grounds
+that no send had been seen.
+
+Every one of those windows is roughly 08:15 UTC, because that is when the
+schedule fires. 08:15 UTC is 04:15 ET. Form 4s are filed after the US close,
+EDGAR's current-filings feed is static overnight, and FDA and ClinicalTrials
+publish on business hours too. The quietest hour of the day was being read as
+though it were a random one.
+
+Nothing was wrong with the readings. The inference was: five observations of
+the same hour are one observation, and "we have never seen an alert" is a claim
+about the sampling, not about the fleet.
+
+Two habits follow. Say *when* a window was read, not just how long it was; a
+log entry that records `08:14–08:23Z` lets the next reader notice what one that
+records "a clean ten-minute window" cannot. And prefer a cumulative counter to
+a window whenever the question is "has this ever happened" — a counter has been
+running since process start and does not care what time you read it. That is
+the second argument for the metrics snapshot, and it is stronger than the first.
+
+## A duration field is evidence, and it is the cheapest kind
+*Learned 2026-09-26, the same reading.*
+
+`form4-insider`'s cycles complete in 0.21, 0.20 and 0.21 seconds. That single
+number rules out most of what the service is supposed to do: fetching a filing's
+primary XML from EDGAR and parsing it costs hundreds of milliseconds each, so a
+cycle that processed even one filing could not finish that fast. The whole
+budget is the feed fetch. So every accession the feed returned was already in
+`alerted`, and the filter — the thing three runs had been reasoning about —
+never ran at all.
+
+`poll cycle complete` carries `duration_sec` on every service and every cycle.
+It had been in every log window read for weeks, next to the cycle counter that
+was being read. Scanning the messages and skipping the numbers beside them is
+how a fact that expensive stays invisible.

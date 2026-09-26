@@ -16,31 +16,6 @@ Older entries are in [`log-archive.md`](log-archive.md). Move entries there
 once this file runs well past the last handful, so the file stays the length it
 is read at.
 
-## 2026-09-22 (ninth) — correction: drift reports exit 0, not 3
-- **I was wrong in the previous entry, and in #46, #47, issue #41 and a phone
-  notification.** All said `drift` would report exit 3 after the `v0.4.0` roll
-  merged without an apply. Verified by running it:
-
-        No drift: the target matches desired state.
-        status: Success (host exit 0)
-
-- **Why.** `drift` compares the host's running services against the specs in the
-  **host's own checkout**, not against `origin/main`. Only `deploy.yml step=plan`
-  syncs that checkout (§6), and no plan has run since #46 merged. So the host still
-  holds the pre-`v0.4.0` specs, its four services match them, and exit 0 is the
-  correct answer to the question `drift` actually asks.
-- **Consequence worth carrying forward: a merged-but-unapplied release is invisible
-  to `drift`.** It is not a backstop against forgetting to deploy. The log and
-  backlog are the only record that `v0.4.0` is waiting, which raises the cost of not
-  recording it.
-- **This is backlog #23's second incident.** A stale host control plane has now
-  misled two verifications — the earlier one noted in §11, and this one. The gap is
-  worth more than its current priority suggests.
-- Production unchanged and healthy: host runs `fda-catalysts` `v0.3.0`,
-  `form4-insider` `v0.2.0`, the other two `v0.1.0`; `drift` exit 0 against the host's
-  own specs. Spec in `main` reads `v0.4.0` for all four, awaiting the next run's
-  apply.
-
 ## 2026-09-23 — v0.4.0 applied to the whole fleet; 399 was never a constant
 - **The fleet runs one tag for the first time since August.** `deploy.yml` run 7
   planned, run 8 applied plan `345baa3a5442`.
@@ -424,3 +399,105 @@ nothing to change is how a control-plane change ships.
   closed and proved on the host. The one new finding is `form4-insider`: its
   insider-quality filter has never been able to fire, because the leaderboard
   it depends on is empty. Still waiting on you for the `v0.6.0` tag (issue #56).
+
+## 2026-09-26 — form4-insider is not filtering; it is not fetching
+Backlog #39 said the leaderboard was empty and three of four filter branches
+were dead. That is true and it is not the whole picture: the service is not
+reaching the filter at all.
+
+### Production report
+All four services `active`, `enabled`, `/healthz` ok. `drift` exit 0, no drift.
+`history` matches this log — seven successful service applies across four
+pipeline runs, no rollback since August. Observe runs 74–78, all answered by
+`alertctl fb753ba9b8db` (the run was dispatched from `46ffe5f`; read verbs never
+rebuild, and the workflow said so).
+
+    SERVICE          REF      STATE   ENABLED  DEPLOYED               BY
+    clinical-trials  v0.5.0   active  enabled  2026-09-23T08:55:35Z   gha:35839768109
+    edgar-mna        v0.4.0   active  enabled  2026-09-23T08:21:12Z   gha:35836370892
+    fda-catalysts    v0.4.0   active  enabled  2026-09-23T08:22:26Z   gha:35836370892
+    form4-insider    v0.4.0   active  enabled  2026-09-23T08:23:39Z   gha:35836370892
+
+No apply. `v0.6.0` is still uncut (issue #56, unchanged since my comment on the
+25th), so there is nothing to roll, and this run's merge is a service change
+that needs a tag of its own.
+
+### Reading the alerts — 08:13–08:22Z, ten minutes, nothing truncated
+**`form4-insider`'s cycles take 0.21s.** Cycles 2155, 2156 and 2158 at 0.21,
+0.20 and 0.21 seconds. Fetching one filing's primary XML from EDGAR and parsing
+it costs more than that on its own, so no filing was fetched in any of them: the
+whole budget is the feed fetch, and every accession the feed returned was
+already in `alerted`. Three runs have now reasoned about which filter branch is
+refusing. None of them runs. `duration_sec` has been in every window read for
+weeks, beside the cycle counter that was being read — learnings entry.
+
+**Cycle 2157 died on a 30-second read timeout to `www.sec.gov`**, caught by
+`poll_cycle`, service unaffected. `edgar-mna` timed out on the same host at
+08:21:46. Transient SEC slowness, not ours; noting it because the next unhandled
+EDGAR failure should be read against this rather than as new.
+
+**`edgar-mna`'s `PRNewswire-AllNews` 404s**, twice in the window, on
+`https://www.prnewswire.com/rss/news-releases-list.rss/` — a trailing slash
+before the query string. `fda-catalysts` hits the same host and mostly succeeds,
+recovering from two 404/503 blips in the same ten minutes, so this reads as
+PRNewswire being inconsistent rather than as a URL bug of ours. Two samples is
+not a finding; backlog note, not a fix.
+
+**`fda-catalysts`: 14/15 healthy, `FiercePharma (x5739, presumed dead)`.**
+Unchanged and correctly reported.
+
+**`clinical-trials`: `Streamed 843 of 843 … in 5 page(s)`**, `changed=0
+signals=0 sent=0 new_in_window=0`. The window is 399 → 787 → 686 → 602 → 843
+across five days: membership rolls, the change rate still reads zero.
+
+### The correction that matters more than any of the above
+**All five "no alert in any observed window" readings are the same hour.** The
+schedule fires at ~08:15 UTC, which is 04:15 ET. Form 4s are filed after the US
+close and EDGAR's current feed is static overnight, so the quietest hour of the
+day has been read five times and treated as five observations. The readings were
+right; the inference from them was not. In particular, "the duplicate-send fix
+is unproven under contention" is a statement about the sampling. Learnings entry,
+and the second reason cumulative counters beat windows.
+
+### Milestone: the form4 funnel (#39 a and c)
+PR #61, merged. `form4-insider` adopts `alertlib.CycleFunnel`, and
+`should_alert` returns the *name* of the branch it took rather than a bare
+boolean, so the last nine stages of the funnel line are a histogram of the
+filter itself and the decision cannot drift from its measurement. The six stages
+before them separate the five silences that produce identical output today: an
+empty feed, a feed of filings already handled (the live case, per the 0.21s
+cycles), a failed fetch, unparseable XML, and a dedup write that refuses the
+send.
+
+The leaderboard half answers #39(a): `insiders`, `eligible`, `scored` and
+`transactions` row counts, hourly and as gauges, because `cutoff: null` cannot
+say whether the backfill has never run or only the scorer has. The hourly line
+is renamed `alpha cutoff refreshed` → `leaderboard state`; anything grepping for
+the old string needs updating.
+
+Two honesty fixes fell out of writing it: the startup Telegram message
+advertised "insider must be top 25% by 90d alpha" while that branch was
+unreachable, and reported insiders who clear the five-trade bar as "scored"
+when none of them is scored. Both now say what is true.
+
+25 new tests, 140 total, all six CI jobs green on `004bb65`; merged as
+`82d7380`. Second-adopter
+section appended to ADR 0006 rather than a new ADR: the decision to instrument a
+silent service was made there, and this applies it.
+
+### What this run did not settle
+- **`v0.6.0` is still uncut.** Two merged service changes now wait on it: the
+  metrics snapshot (#55, `19ae3e2`) and this funnel (#61, `82d7380`). Issue #56
+  retargeted to `82d7380`, which contains both — tagging the earlier commit
+  would need a second tag immediately.
+- **#39(b) is untouched, deliberately.** Whether `form4_scorer.py` becomes a
+  managed unit or the filter stops depending on it is a signal-quality decision
+  and should be made against the row counts, which need the tag.
+- **No apply**, so nothing new is verified in production this run.
+
+- Catch-up: production is healthy and unchanged. Two corrections worth your
+  time: `form4-insider` is not reaching its filter at all — its cycles finish in
+  a fifth of a second, which is the feed fetch and nothing else — and every
+  "we've never seen an alert" reading I have recorded is from 04:15 New York
+  time, when nothing is filed. Both are now instrumented rather than guessed at,
+  and both need the `v0.6.0` tag (issue #56) to reach the host.
