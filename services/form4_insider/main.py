@@ -16,6 +16,9 @@ count, so you can see at a glance whether this is a known performer or a
 rookie swinging big.
 
 Run after form4_backfill.py + form4_scorer.py have populated the leaderboard.
+On the live host neither has ever run, so the leaderboard is empty and the
+second branch cannot fire: everything under $1M is refused. See backlog #39,
+and the `funnel` line this module emits, which says so every cycle.
 """
 
 from __future__ import annotations
@@ -31,7 +34,7 @@ import form4_common
 # ---------------------------------------------------------------------------
 # Platform runtime
 # ---------------------------------------------------------------------------
-from alertlib import Alert, Service, get_logger
+from alertlib import Alert, CycleFunnel, Service, get_logger
 from form4_backfill import _ACCESSION_RE, fetch_primary_xml, parse_form4_xml
 from form4_common import edgar_get, init_db
 
@@ -48,6 +51,50 @@ ALPHA_PERCENTILE_CUTOFF = 0.75        # top 25% of scored insiders
 CURRENT_FORM4_URL = (
     "https://www.sec.gov/cgi-bin/browse-edgar"
     "?action=getcurrent&type=4&company=&dateb=&owner=include&count=100&output=atom"
+)
+
+
+# Every outcome `should_alert` can reach, named rather than described. The
+# funnel counts these, so the per-cycle line is a histogram of the filter
+# itself and a silent feed says which branch silenced it. Returning a name
+# alongside the prose reason keeps the two from drifting: a new branch that
+# forgets its name fails the funnel's undeclared-stage check immediately.
+DECISIONS = (
+    "code_not_actionable",
+    "planned_sale",
+    "below_floor",
+    "large_trade",
+    "no_insider_history",
+    "thin_history",
+    "no_leaderboard",
+    "below_cutoff",
+    "top_tier",
+)
+
+# The two that alert. Everything else is a refusal with a reason.
+ALERTING_DECISIONS = frozenset({"large_trade", "top_tier"})
+
+# The candidate pipeline, in order:
+#
+#   entries -> new -> fetched -> parsed -> claimed -> transactions
+#           -> <one of DECISIONS> -> sent
+#
+# Named here so the funnel line and the /metrics counters cannot drift apart.
+# Each stage before the decisions is a different reason for silence with a
+# different fix: an empty feed, a feed of filings already handled, a fetch
+# that fails, XML that will not parse, and a dedup write that refuses the
+# send (the 2026-09-21 incident's safe failure). Without them, all five
+# produce the same output — a cycle that sends nothing in a fifth of a
+# second, which is what the host has logged for weeks.
+FUNNEL_STAGES = (
+    "entries",
+    "new",
+    "fetched",
+    "parsed",
+    "claimed",
+    "transactions",
+    *DECISIONS,
+    "sent",
 )
 
 
@@ -72,6 +119,49 @@ def get_alpha_cutoff(conn: sqlite3.Connection, min_n_trades: int = 5) -> float |
     return values[idx]
 
 
+# The gauges below carry these counts off the host in the metrics snapshot,
+# so the question can be answered without catching the hourly log line.
+LEADERBOARD_GAUGES = {
+    "insiders": ("alert_leaderboard_insiders",
+                 "Rows in the insiders table."),
+    "eligible": ("alert_leaderboard_eligible",
+                 "Insiders with at least 5 scored trades, the leaderboard's entry bar."),
+    "scored": ("alert_leaderboard_scored",
+               "Insiders with a computed alpha_90."),
+    "transactions": ("alert_leaderboard_transactions",
+                     "Rows in the transactions table, which the scorer reads."),
+}
+
+
+def leaderboard_state(conn: sqlite3.Connection) -> dict[str, int]:
+    """Row counts that distinguish an empty leaderboard from an unscored one.
+
+    `get_alpha_cutoff` returns None for both, and they need different fixes:
+    no rows in `insiders` means `form4_backfill.py` has never run, while rows
+    without `alpha_90` means `form4_scorer.py` has not. Neither script is in
+    the fleet spec, so neither runs on a schedule (backlog #39), and until one
+    of them does the cutoff stays None and every trade under $1M is refused.
+    """
+    def count(sql: str) -> int:
+        return conn.execute(sql).fetchone()[0]
+
+    return {
+        "insiders": count("SELECT COUNT(*) FROM insiders"),
+        "eligible": count("SELECT COUNT(*) FROM insiders WHERE n_trades >= 5"),
+        "scored": count("SELECT COUNT(*) FROM insiders WHERE alpha_90 IS NOT NULL"),
+        "transactions": count("SELECT COUNT(*) FROM transactions"),
+    }
+
+
+def publish_leaderboard_state(conn: sqlite3.Connection, cutoff: float | None) -> dict[str, int]:
+    """Read the counts, set the gauges, log the line. Returns the counts."""
+    state = leaderboard_state(conn)
+    for key, (metric, _help) in LEADERBOARD_GAUGES.items():
+        SVC.metrics.set(metric, state[key])
+    log.info("leaderboard state", extra={**state, "alpha_cutoff": cutoff})
+    return state
+
+
 def get_insider_stats(conn: sqlite3.Connection, insider_cik: str) -> dict | None:
     row = conn.execute(
         """SELECT name, n_trades, alpha_30, alpha_90, alpha_180, total_buy_usd, total_sell_usd
@@ -94,9 +184,12 @@ def get_insider_stats(conn: sqlite3.Connection, insider_cik: str) -> dict | None
 # ---------------------------------------------------------------------------
 # Decision logic
 # ---------------------------------------------------------------------------
-def should_alert(tx: dict, insider_stats: dict | None, alpha_cutoff: float | None) -> tuple[bool, str]:
+def should_alert(
+    tx: dict, insider_stats: dict | None, alpha_cutoff: float | None
+) -> tuple[str, str]:
     """
-    Returns (should_alert, reason).
+    Returns (decision, reason), where decision is one of `DECISIONS` and the
+    trade is alerted iff it is in `ALERTING_DECISIONS`.
 
     Filter rules:
       1. Code must be P, or S with is_10b5_1=0.
@@ -106,25 +199,26 @@ def should_alert(tx: dict, insider_stats: dict | None, alpha_cutoff: float | Non
     """
     code = tx["tx_code"]
     if code not in ("P", "S"):
-        return False, f"code {code} not actionable"
+        return "code_not_actionable", f"code {code} not actionable"
     if code == "S" and tx["is_10b5_1"] == 1:
-        return False, "10b5-1 planned sale"
+        return "planned_sale", "10b5-1 planned sale"
     if tx["usd_value"] < MIN_USD_ALERT:
-        return False, f"size ${tx['usd_value']:,.0f} below threshold"
+        return "below_floor", f"size ${tx['usd_value']:,.0f} below threshold"
 
     if tx["usd_value"] >= LARGE_TRADE_USD:
-        return True, f"large trade ${tx['usd_value']:,.0f}"
+        return "large_trade", f"large trade ${tx['usd_value']:,.0f}"
 
     if insider_stats is None or insider_stats.get("alpha_90") is None:
-        return False, "no insider history & below large-trade threshold"
+        return "no_insider_history", "no insider history & below large-trade threshold"
     if insider_stats["n_trades"] < 5:
-        return False, f"insufficient history ({insider_stats['n_trades']} trades)"
+        return "thin_history", f"insufficient history ({insider_stats['n_trades']} trades)"
     if alpha_cutoff is None:
-        return False, "no leaderboard cutoff available"
+        return "no_leaderboard", "no leaderboard cutoff available"
     if insider_stats["alpha_90"] < alpha_cutoff:
-        return False, f"alpha_90 {insider_stats['alpha_90']:.2%} below cutoff {alpha_cutoff:.2%}"
+        return ("below_cutoff",
+                f"alpha_90 {insider_stats['alpha_90']:.2%} below cutoff {alpha_cutoff:.2%}")
 
-    return True, f"top-tier insider (alpha_90 {insider_stats['alpha_90']:.2%})"
+    return "top_tier", f"top-tier insider (alpha_90 {insider_stats['alpha_90']:.2%})"
 
 
 # ---------------------------------------------------------------------------
@@ -270,10 +364,17 @@ def mark_alerted(conn: sqlite3.Connection, accession: str) -> bool:
         return False
 
 
-def process_filing(conn: sqlite3.Connection, accession: str, cik: str, alpha_cutoff: float | None) -> int:
+def process_filing(
+    conn: sqlite3.Connection,
+    accession: str,
+    cik: str,
+    alpha_cutoff: float | None,
+    funnel: CycleFunnel,
+) -> int:
     """Fetch the XML, parse transactions, alert on any that qualify. Returns number of alerts sent."""
     if is_already_alerted(conn, accession):
         return 0
+    funnel.count("new")
 
     result = fetch_primary_xml(cik, accession)
     if result is None:
@@ -282,11 +383,13 @@ def process_filing(conn: sqlite3.Connection, accession: str, cik: str, alpha_cut
         mark_alerted(conn, accession)
         return 0
     _, xml_bytes = result
+    funnel.count("fetched")
 
     parsed = parse_form4_xml(xml_bytes)
     if parsed is None:
         mark_alerted(conn, accession)
         return 0
+    funnel.count("parsed")
 
     insider_stats = get_insider_stats(conn, parsed["insider_cik"])
 
@@ -303,17 +406,21 @@ def process_filing(conn: sqlite3.Connection, accession: str, cik: str, alpha_cut
         )
         SVC.metrics.inc("alert_sends_refused_total")
         return 0
+    funnel.count("claimed")
 
     sent = 0
     for tx in parsed["transactions"]:
-        ok, reason = should_alert(tx, insider_stats, alpha_cutoff)
-        if not ok:
+        funnel.count("transactions")
+        decision, reason = should_alert(tx, insider_stats, alpha_cutoff)
+        funnel.count(decision)
+        if decision not in ALERTING_DECISIONS:
             log.debug("Skip %s tx %s: %s", accession, tx["tx_code"], reason)
             continue
 
         msg = format_alert(parsed, tx, accession, insider_stats, reason)
         if SVC.send_alert(build_alert(parsed, tx, accession, reason, msg)):
             sent += 1
+            funnel.count("sent")
             log.info("Alert sent: %s %s [%s] %s $%.0f",
                      parsed.get("ticker"), tx["tx_code"],
                      parsed["insider_name"][:30], reason, tx["usd_value"])
@@ -340,51 +447,66 @@ def main():
     # entrypoints to the same platform-owned path.
     form4_common.configure(SVC.cfg.state_dir, SVC.cfg.secret("edgar_user_agent"))
 
+    for metric, help_text in LEADERBOARD_GAUGES.values():
+        SVC.metrics.declare_gauge(metric, help_text)
+
     with SVC:
         conn = init_db()
+        funnel = CycleFunnel(SVC.metrics, FUNNEL_STAGES, log=log)
 
         alpha_cutoff = get_alpha_cutoff(conn)
-        scored_n = conn.execute(
-            "SELECT COUNT(*) FROM insiders WHERE n_trades >= 5"
-        ).fetchone()[0]
-        log.info("leaderboard loaded", extra={
-            "scored_insiders": scored_n,
-            "alpha_cutoff": alpha_cutoff,
-        })
+        state = publish_leaderboard_state(conn, alpha_cutoff)
 
+        # The last bullet is conditional because without a cutoff it describes
+        # a branch that cannot be reached: everything under LARGE_TRADE_USD is
+        # refused, and saying otherwise misrepresents the feed to its reader.
+        leaderboard_rule = (
+            "• Otherwise: insider must be top 25% by 90d alpha"
+            if alpha_cutoff is not None
+            else f"• No leaderboard yet, so nothing under ${LARGE_TRADE_USD:,} can alert"
+        )
         send_telegram(
             "✅ <b>Form 4 Insider Bot started</b>\n\n"
-            f"Leaderboard: {scored_n:,} scored insiders\n"
+            f"Leaderboard: {state['scored']:,} scored of {state['insiders']:,} insiders\n"
             f"Cutoff (top 25%% by 90d alpha): "
             f"{f'{alpha_cutoff:+.1%}' if alpha_cutoff else '<i>not yet scored</i>'}\n\n"
             "Filters:\n"
             "• Open-market buys (P) or discretionary sells (non-10b5-1 S)\n"
             f"• Minimum size: ${MIN_USD_ALERT:,}\n"
             f"• Auto-alert if size ≥ ${LARGE_TRADE_USD:,} (bypass leaderboard)\n"
-            f"• Otherwise: insider must be top 25% by 90d alpha"
+            + leaderboard_rule
         )
 
         last_cutoff_refresh = time.time()
 
         while SVC.running():
-            with SVC.poll_cycle():
+            with SVC.poll_cycle(), funnel.cycle():
                 # Refresh the cutoff hourly — the nightly scorer may have run.
                 if time.time() - last_cutoff_refresh >= 3600:
                     alpha_cutoff = get_alpha_cutoff(conn)
                     last_cutoff_refresh = time.time()
-                    log.info("alpha cutoff refreshed", extra={"cutoff": alpha_cutoff})
+                    publish_leaderboard_state(conn, alpha_cutoff)
 
                 entries = fetch_current_form4_entries()
                 SVC.metrics.inc("alert_items_seen_total", len(entries))
+                funnel.count("entries", len(entries))
 
                 sent_this_cycle = 0
                 for accession, cik in entries:
                     try:
-                        sent_this_cycle += process_filing(conn, accession, cik, alpha_cutoff)
+                        sent_this_cycle += process_filing(
+                            conn, accession, cik, alpha_cutoff, funnel
+                        )
                     except Exception:
                         # One malformed filing must not cost us the whole cycle;
                         # EDGAR's current feed rolls over fast.
                         log.exception("filing failed", extra={"accession": accession})
+
+                # After the loop: the cohort is what the feed returned, and
+                # `new_in_window` answers whether the feed is moving at all.
+                # Overnight it does not — Form 4s are filed after the close —
+                # and every run so far has read the same pre-market hour.
+                funnel.observe_cohort(accession for accession, _cik in entries)
 
                 if sent_this_cycle:
                     log.info("alerts fired", extra={"count": sent_this_cycle})

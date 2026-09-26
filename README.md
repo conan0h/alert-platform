@@ -248,6 +248,16 @@ Stated because they are real, not because they are planned away.
   stored one. `detect_signal` fires only on a status transition, so there is
   nothing to fire on. Whether to widen what counts as an event is a
   signal-quality decision, not a bug ([ADR 0006](docs/adr/0006-candidate-funnel.md)).
+- **`form4-insider` runs one of its four filter branches.** The service is
+  built around "alert when a top-quartile insider trades", and that branch has
+  never been able to fire: the leaderboard it reads is populated by
+  `form4_scorer.py` after `form4_backfill.py`, neither of which is in the fleet
+  spec, so neither runs on a schedule. `get_alpha_cutoff` returns `None`, the
+  host logs `alpha cutoff refreshed {"cutoff": null}` every hour, and every
+  trade under $1M is refused. **The live filter is "any open-market trade over
+  $1M"**; the $100k floor and the alpha comparison are unreachable. Whether the
+  scorer becomes a managed unit or the filter stops depending on it is a
+  signal-quality decision, not a bug.
 - **The alert archive has no reader yet.** Since the `v0.4.0` deploy on
   2026-09-23 every alert is recorded to an append-only table in the service's
   state directory ([ADR 0005](docs/adr/0005-alert-archive.md)), which closes the

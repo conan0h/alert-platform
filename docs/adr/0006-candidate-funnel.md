@@ -113,3 +113,39 @@ previous update fell outside the two-day window leaves our view, so on re-entry
 its stored status is weeks old and a flip reads as a change. Read
 `alert_funnel_changed_total` over a day before concluding how often a status
 really moves.
+
+## Second adopter, 2026-09-26
+
+`form4-insider` adopts the funnel. The decision above anticipated this ("the
+other three services can adopt it by declaring their own stages") and gave the
+test for when: adopt where a service is silent and the reason is not readable.
+That describes `form4-insider` and not the other two.
+
+Its stages differ from the trials funnel in one way worth recording, because it
+is the pattern a third adopter should copy. The trials funnel narrows a stream
+of candidates, and each stage is a narrower set than the one before. This one
+has to distinguish five different silences, four of which happen before any
+filter runs: an empty feed, a feed of filings already handled, a failed fetch,
+and a dedup write that refuses the send (the 2026-09-21 incident's safe
+failure). The fifth — the filter — is not one count but nine, because "the
+filter said no" is only useful when it says which branch.
+
+So `should_alert` returns the name of the branch it took rather than a bare
+boolean, and the funnel counts that name. The alternative was a second function
+mapping a transaction to a stage, as `observation_stages` does for trials. It
+was rejected here: the trials version answers a genuinely different question
+from `detect_signal` ("what did we just look at", not "is this tradeable"),
+while a form4 version would have to re-implement the same nine branches in the
+same order, and the two would drift on the first change. Returning the name
+makes divergence impossible, and the funnel's undeclared-stage check turns a
+forgotten name into an immediate failure rather than a missing bar.
+
+The cost is log volume: the rendered line is 228 characters and the service
+polls every 120 seconds, so it adds roughly 7 KB per hour to a journal the
+`logs` verb truncates at about 24 KB (backlog #32). Accepted, because
+`observe.yml` can ask for a ten-minute window — five lines, about 1 KB — and
+because the counters accumulate regardless of when the window is read. That
+second point matters more than it sounds: every scheduled run has read the same
+pre-market hour, when no Form 4 is filed, so the per-cycle line alone would
+describe the quietest hour of the day. The cumulative counters in the metrics
+snapshot do not.

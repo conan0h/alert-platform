@@ -333,8 +333,24 @@ a real answer a later cycle can give.
 
 `clinical-trials` is the first adopter, with `first_sight_completed` as a stage
 chosen to test one specific explanation — see
-[ADR 0006](adr/0006-candidate-funnel.md). The other three services can adopt it
-by declaring their own stages; nothing in the class is specific to trials.
+[ADR 0006](adr/0006-candidate-funnel.md).
+
+`form4-insider` is the second, and its stages are shaped differently. Where
+the trials funnel narrows a stream of candidates, this one has to say which of
+five silences it is in: an empty feed, a feed of filings already handled, a
+fetch that fails, a dedup write that refuses the send, or a filter that says
+no. The last of those is a histogram rather than a single count —
+`should_alert` returns the *name* of the branch it took, one of
+`main.DECISIONS`, and the funnel counts that name. The decision and its
+measurement are then the same value, so a new branch cannot be added without a
+stage for it: counting against an undeclared stage raises. The distinction
+that matters today is `no_leaderboard`, which says the alpha filter refused
+because there is no leaderboard to compare against rather than because the
+insider fell short.
+
+`edgar-mna` and `fda-catalysts` have not adopted it. Both alert, so the
+question it answers is not open for them, and adopting it everywhere to be
+uniform would be breadth for its own sake.
 
 ### The alert archive
 
