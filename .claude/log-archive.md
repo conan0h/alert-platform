@@ -969,3 +969,28 @@ claims in the docs, so it is kept rather than pruned.
   (`git merge-base --is-ancestor <sha> <tag>^{commit}`) before rolling to it.
 - The container restarted mid-run; nothing was lost, since the only background task
   was a watcher for a PR that had already merged.
+
+## 2026-09-22 (ninth) — correction: drift reports exit 0, not 3
+- **I was wrong in the previous entry, and in #46, #47, issue #41 and a phone
+  notification.** All said `drift` would report exit 3 after the `v0.4.0` roll
+  merged without an apply. Verified by running it:
+
+        No drift: the target matches desired state.
+        status: Success (host exit 0)
+
+- **Why.** `drift` compares the host's running services against the specs in the
+  **host's own checkout**, not against `origin/main`. Only `deploy.yml step=plan`
+  syncs that checkout (§6), and no plan has run since #46 merged. So the host still
+  holds the pre-`v0.4.0` specs, its four services match them, and exit 0 is the
+  correct answer to the question `drift` actually asks.
+- **Consequence worth carrying forward: a merged-but-unapplied release is invisible
+  to `drift`.** It is not a backstop against forgetting to deploy. The log and
+  backlog are the only record that `v0.4.0` is waiting, which raises the cost of not
+  recording it.
+- **This is backlog #23's second incident.** A stale host control plane has now
+  misled two verifications — the earlier one noted in §11, and this one. The gap is
+  worth more than its current priority suggests.
+- Production unchanged and healthy: host runs `fda-catalysts` `v0.3.0`,
+  `form4-insider` `v0.2.0`, the other two `v0.1.0`; `drift` exit 0 against the host's
+  own specs. Spec in `main` reads `v0.4.0` for all four, awaiting the next run's
+  apply.

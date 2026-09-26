@@ -369,7 +369,7 @@ exists all four services roll. The `go.mod` module path is
 `github.com/conan0h/alert-platform`; tags up to `v0.1.2` predate the rename and
 carry `conanohara`, so `go install …@latest` needs a newer tag.
 
-**Production, verified 2026-09-25.** All four services are `active`, `enabled`
+**Production, verified 2026-09-26.** All four services are `active`, `enabled`
 and answer `/healthz`. `drift` reports no drift, exit 0. `history` matches the
 log: seven successful service applies across four pipeline runs, no rollback
 since August.
@@ -482,7 +482,24 @@ more scored trades, so `should_alert` refuses everything under $1M with `no
 leaderboard cutoff available`. The "top 25% of scored insiders" filter the
 service is built around cannot fire until `form4_scorer.py` has run, and that
 script is not in the fleet spec. Backlog #39; found 2026-09-25, in a line three
-earlier runs read past.
+earlier runs read past. **The instrument for it is merged** (PR #61): a funnel
+line per cycle whose last stages are the filter's own decision, plus leaderboard
+row counts that say whether `insiders` is empty or merely unscored. It needs a
+tag to reach the host, and note the hourly line is renamed there — grep
+`leaderboard state`, not `alpha cutoff refreshed`.
+
+**The cycles are 0.2 seconds long, which is the shape of the same problem.**
+Read 2026-09-26: `form4-insider` cycles 2155, 2156 and 2158 took 0.21s, 0.20s
+and 0.21s. That is the feed fetch alone — no filing was fetched or parsed, so
+every accession in the feed was already in `alerted`. Which of five silences
+that is, the funnel above will say.
+
+**Every scheduled run has read the same pre-market hour.** All five "no alert in
+any observed window" readings are from roughly 08:15 UTC, which is 04:15 ET:
+Form 4s are filed after the US close, so that window is the quietest of the day
+by construction. The reading is real and the inference from it was weaker than
+it looked. Cumulative counters do not have this problem, which is the other
+reason the metrics snapshot and the funnel counters matter.
 
 **Also unfixed.** Root account access keys are in use. A host-side edit to
 `services/form4_insider/main.py` (`alerted_this_filing`) is not in git.

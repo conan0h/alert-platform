@@ -264,7 +264,7 @@ actually emit.
     the scraper does not exist and the counters do.
 
 39. **`form4-insider`'s leaderboard is empty, so three of its four filter
-    branches are dead.** `todo — found 2026-09-25 in the journal`
+    branches are dead.** `(a)(c) in-pr #61; (b) is a decision for Conan`
     The host logs `alpha cutoff refreshed {"cutoff": null}` hourly.
     `get_alpha_cutoff` returns `None` when no insider has five or more scored
     trades, and `should_alert` then refuses everything below
@@ -282,6 +282,35 @@ actually emit.
     $1M branch, because "top-tier insider" describes code that cannot run.
     Note how this surfaced: the line is INFO, once an hour, in a service that
     logs nothing else — three runs read this window and did not look at it.
+
+    **(a) and (c) are in PR #61.** The service adopts `alertlib.CycleFunnel`
+    with the filter's own decision as its last stages, so the journal says
+    which of five silences a cycle is in rather than only that it sent
+    nothing; and the hourly line now carries `insiders`, `eligible`, `scored`
+    and `transactions` row counts, with a gauge each, which is the read (a)
+    asked for. The line is renamed `alpha cutoff refreshed` -> `leaderboard
+    state`. Needs a tag to reach the host.
+    **(b) is the open part, and it is a decision rather than a fix:** either
+    `form4_scorer.py` becomes a managed unit with a timer (like #8's backup
+    job) or the filter stops depending on a leaderboard nothing fills. Make it
+    against the row counts from (a), not before them.
+    Sharpened 2026-09-26 by a second reading: the service's cycles take 0.21s,
+    which is the feed fetch alone, so no filing is being fetched or parsed at
+    all — the filter is not even the stage that is refusing. The funnel says
+    which one is.
+
+40. **`edgar-mna`'s `PRNewswire-AllNews` may be 404ing on a trailing slash.**
+    `todo — two samples, not yet a finding`
+    Seen twice in the 2026-09-26 window, ten minutes apart:
+    `Failed to fetch PRNewswire-AllNews: 404 ... news-releases-list.rss/` —
+    note the slash before the query string. `fda-catalysts` reaches the same
+    host and mostly succeeds, and its own PRNewswire feed 404'd once in the
+    same window with the same slash and then recovered, so this reads as
+    PRNewswire redirecting inconsistently rather than as a URL we got wrong.
+    Worth one more window before touching the URL. Cheap either way:
+    `edgar-mna` has no per-source health accounting, so unlike `fda-catalysts`
+    it cannot say whether this source has been dead for weeks — adopting
+    `alertlib.SourceHealth` there would answer it and is the more useful fix.
 
 37. **The startup Telegram message bypasses the archive.** `todo`
     Each service sends a "bot started" message through `send_telegram` directly
