@@ -105,6 +105,10 @@ actually emit.
     `v0.4.0` is deployed on all four services as of 2026-09-23. The funnel
     accounting for #35 is merged to `main` and needs `v0.5.0` before it can run
     anywhere, which is the whole point of it.
+    **Three merged service changes now wait on `v0.6.0`:** the metrics snapshot
+    (#55), the form4 funnel (#61) and `edgar-mna` source health (#63). Issue #56
+    is retargeted to `d0b33cf`, which contains all three, and all four services
+    roll when it exists.
     **Issue #41 is closed.** Conan cut `v0.3.0` (at `0f0541b`) and `v0.4.0` (at
     `4036ffa`) on 2026-09-22. Both are deployed or rolled: `v0.3.0` is live on
     `fda-catalysts` and verified over 329 cycles; `v0.4.0` is rolled into all
@@ -158,6 +162,13 @@ actually emit.
     `allowedValues` excludes it; fixing the wrapper's validator needs ADR 0004.
     Note the window is one hour, not one day — an earlier log entry wrongly
     expected it to slide far enough to show a 22:16 event the next morning.
+    **The truncation is also a sampling lever, and should stay one after the
+    fix.** Because a long window returns its beginning, `since=6 hours ago` at
+    08:22 returns 02:21 onward — the post-close hour, which five scheduled runs
+    at ~08:15 UTC had never seen. That is how 2026-09-27 got a reading from
+    22:21 ET. Bounding output with `journalctl -n` would make the tail survive
+    and take this away, so the fix wants an explicit way to ask for the head of
+    a window as well: `--since` plus a direction, not `--since` alone.
 
 ## P0 — Carried forward
 
@@ -298,19 +309,11 @@ actually emit.
     which is the feed fetch alone, so no filing is being fetched or parsed at
     all — the filter is not even the stage that is refusing. The funnel says
     which one is.
-
-40. **`edgar-mna`'s `PRNewswire-AllNews` may be 404ing on a trailing slash.**
-    `todo — two samples, not yet a finding`
-    Seen twice in the 2026-09-26 window, ten minutes apart:
-    `Failed to fetch PRNewswire-AllNews: 404 ... news-releases-list.rss/` —
-    note the slash before the query string. `fda-catalysts` reaches the same
-    host and mostly succeeds, and its own PRNewswire feed 404'd once in the
-    same window with the same slash and then recovered, so this reads as
-    PRNewswire redirecting inconsistently rather than as a URL we got wrong.
-    Worth one more window before touching the URL. Cheap either way:
-    `edgar-mna` has no per-source health accounting, so unlike `fda-catalysts`
-    it cannot say whether this source has been dead for weeks — adopting
-    `alertlib.SourceHealth` there would answer it and is the more useful fix.
+    Narrowed again 2026-09-27, from the post-close hour (02:21–02:42Z = 22:21
+    ET) rather than pre-market: cycles 2698–2708 ran 0.13–0.42s **except cycle
+    2702 at 2.32s**, about the cost of one filing's XML. So it is not "never
+    fetches" — it fetches perhaps once an hour and refuses what it finds. The
+    filter does run. Which branch refuses is still the funnel's answer.
 
 37. **The startup Telegram message bypasses the archive.** `todo`
     Each service sends a "bot started" message through `send_telegram` directly
@@ -436,6 +439,18 @@ actually emit.
   CI. That is how backlog #1 stayed half-hidden.
 
 ## Done
+
+- **#40 — `edgar-mna` could not say which of its sixteen feeds work.** It now
+  reports through `alertlib.SourceHealth` like the other three services
+  (`d0b33cf`, PR #63). The trailing-slash theory the item was opened on is
+  answered and it was not ours: a third window showed 404s naming the slashed
+  URL and 502/503s naming the unslashed one, which is `requests` reporting the
+  post-redirect URL — PRNewswire redirects and then 404s inconsistently, at
+  roughly one cycle in five. The same PR made the shared escalation schedule
+  start at the second consecutive failure, because a flapping source cost four
+  log lines per blip and was out-logging a dead one. Needs the tag to reach the
+  host; reading `source health:` and `alert_source_fetch_failures_total` after
+  the apply is what closes it in production.
 
 - **#23 — `observe` could not tell you which `alertctl` answered.** `status`
   and `drift` print the revision the Go toolchain stamped into the binary

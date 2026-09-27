@@ -729,6 +729,19 @@ a window whenever the question is "has this ever happened" — a counter has bee
 running since process start and does not care what time you read it. That is
 the second argument for the metrics snapshot, and it is stronger than the first.
 
+*Extended 2026-09-27: there is a way out, and it is a bug.* `logs` returns the
+**oldest** part of its window (backlog #32), so the window length is also a
+time-of-day dial: `since=6 hours ago` dispatched at 08:22 returned 02:21
+onward, which is 22:21 ET — after the close, when Form 4s are actually filed.
+One dropdown, no code, and it produced the reading that corrected two runs'
+conclusions about `form4-insider`. Note what this means for fixing #32: adding
+`journalctl -n` so the tail survives would remove the only way to reach an
+earlier hour, so the fix needs a direction as well as a `--since`.
+
+The general form is worth keeping. A limitation that has been written up as a
+defect may already be the only lever you have for something else; before
+removing it, ask what it is currently being used for.
+
 ## A duration field is evidence, and it is the cheapest kind
 *Learned 2026-09-26, the same reading.*
 
@@ -744,3 +757,41 @@ never ran at all.
 It had been in every log window read for weeks, next to the cycle counter that
 was being read. Scanning the messages and skipping the numbers beside them is
 how a fact that expensive stays invisible.
+
+## A proven module can be wrong for the failure mode it was not built for
+*Learned 2026-09-27, adopting `alertlib.SourceHealth` in a third service.*
+
+`SourceHealth` was built for a dead feed: `fda-catalysts` ran a month with two
+sources returning 403 on every cycle, logging about 1,900 lines a day each. Its
+escalation schedule — speak at the 1st, 10th, 100th and 1000th consecutive
+failure, once at presumed-dead, once on recovery — solves that exactly, and had
+been correct in production for five days. Adopting it in `edgar-mna` looked
+like wiring, not design.
+
+It would have made that service's journal worse. `edgar-mna`'s PRNewswire feed
+does not die, it flaps: 404, 502, 503 and read timeouts roughly one cycle in
+five, recovering immediately each time. Every one of those is a *first*
+consecutive failure, so every one gets a warning; every recovery gets an info
+line; and the summary shape moves twice. Four lines per blip, against three
+lines an hour for a source that is genuinely dead. A feed that is 80% fine
+out-logs one that is 0% fine.
+
+It was not hypothetical and it was not new: the same window showed
+`fda-catalysts` producing the full failed → summary → recovered → summary
+sequence twice for PRNewswire-Biotech, in a service whose log volume that
+module exists to control. Nobody had read it as a defect because each line is
+individually correct.
+
+Two things generalise. **A threshold tuned for a monotone failure is usually
+wrong for an intermittent one** — "first occurrence is worth a line" holds only
+when occurrences are rare, and the escalation schedule that protects you from a
+stuck condition does nothing about a flapping one. And **before reusing a
+module in a new place, ask which of its failure modes the new place actually
+has**, rather than which one it was written for. The reading that answers that
+question is usually one you already have.
+
+The fix names the division of labour it depends on: the journal reports
+conditions, the counters report rates. Suppressing the line for an isolated
+failure is only acceptable because `alert_source_fetch_failures_total` still
+counts it, and "is this feed flaky or dying" is a rate question that a log line
+was always the wrong instrument for.
