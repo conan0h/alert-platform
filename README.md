@@ -240,6 +240,13 @@ Stated because they are real, not because they are planned away.
   User-Agent in `v0.3.0` is the only change that could account for it, which
   makes the User-Agent the likely cause for that feed and leaves `FiercePharma`
   a genuinely dead or IP-blocked endpoint.
+- **`edgar-mna`'s sixteen feeds are unmeasured in production.** Source-health
+  accounting is merged but reaches the host only with the next tag, so today
+  the service can report that a feed 404'd and cannot report that it has been
+  404ing for a week. One feed is known to be unreliable from reading the
+  journal directly: PRNewswire answered with 404, 502, 503 and read timeouts
+  roughly one cycle in five on 2026-09-27. What share of the other fifteen
+  work is not yet knowable.
 - **`clinical-trials` examines hundreds of trials per cycle and alerts on
   none.** Measured rather than inferred, since `v0.5.0` shipped the funnel: the
   fetch reads its whole match (`787 of 787 ... in 4 page(s)` on 2026-09-23,

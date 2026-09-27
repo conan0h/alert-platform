@@ -298,15 +298,31 @@ way from August to 2026-09-22 with two feeds returning 403 every cycle.
 
 `alertlib.SourceHealth` keeps per-source outcome counts and the length of the
 current failing run, and decides when a repeated failure is worth a log line:
-the first, then at widening intervals, then once when the source is presumed
-dead, then once on recovery. It exposes `alert_source_fetches_total`,
-`alert_source_fetch_failures_total`, `alert_sources_failing` and
-`alert_sources_presumed_dead`.
+the second consecutive one, then at widening intervals, then once when the
+source is presumed dead, then once on recovery. It exposes
+`alert_source_fetches_total`, `alert_source_fetch_failures_total`,
+`alert_sources_failing` and `alert_sources_presumed_dead`. All four services
+report through it.
 
 The logging schedule is not cosmetic. An unconditional warning per failed fetch
 costs about 1,900 lines per source per day at a 45-second cadence, and the
 `logs` read verb captures roughly the first 24 KB of its window — so source
 spam displaces the alert output an operator opened the log to read.
+
+**A blip is not an outage, and the two need different instruments.** The
+schedule starts at the second consecutive failure rather than the first, and a
+failing run that never reached it recovers without a line. This is what a
+source that flaps costs otherwise: measured on 2026-09-27, PRNewswire answered
+`edgar-mna` with 404, 502, 503 and read timeouts roughly one cycle in five and
+recovered immediately each time, while `fda-catalysts` produced the full
+failed → summary → recovered → summary sequence twice for PRNewswire-Biotech
+inside twenty-one minutes. Announced per event, a source that is 80% fine
+out-logs one that is dead.
+
+Nothing about the failure is lost, because the log was the wrong place to read
+a rate from: `alert_source_fetch_failures_total` counts every attempt that
+failed, blip or not, and reaches an operator through the metrics snapshot. The
+journal reports conditions; the counters report rates.
 
 ### The candidate funnel
 
