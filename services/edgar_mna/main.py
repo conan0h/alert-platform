@@ -53,7 +53,7 @@ import requests
 # Configuration, credentials, state location, logging and delivery all come
 # from the platform (see services/alertlib). Nothing is read from a local
 # .env and no path is relative to the working directory.
-from alertlib import Alert, Service, get_logger
+from alertlib import Alert, Service, SourceHealth, get_logger
 
 SVC: Service = None          # bound in main()
 log = get_logger("edgar-mna")
@@ -639,6 +639,32 @@ def enrich_hit(hit: Hit) -> None:
 # Fetchers
 # ---------------------------------------------------------------------------
 
+# Fetch outcomes per source. This service polls sixteen feeds across three
+# tiers and, until now, said nothing about which of them work: a failure
+# logged one line and a dead feed logged that line forever, so "PRNewswire
+# has 404'd twice" and "PRNewswire has 404'd for three weeks" produced the
+# same output. `fda-catalysts` ran with two permanently-403 feeds for a month
+# on exactly that blindness (backlog #26).
+SOURCES = SourceHealth()
+
+
+def _report_fetch(name: str, error: BaseException | None = None) -> None:
+    """Record one fetch outcome and log only when the tracker says to."""
+    SVC.metrics.inc("alert_source_fetches_total")
+    if error is None:
+        decision = SOURCES.record_success(name)
+    else:
+        SVC.metrics.inc("alert_source_fetch_failures_total")
+        decision = SOURCES.record_failure(name, str(error))
+
+    failing = SOURCES.failing()
+    SVC.metrics.set("alert_sources_failing", len(failing))
+    SVC.metrics.set("alert_sources_presumed_dead",
+                    sum(1 for s in failing if s.presumed_dead))
+
+    if decision:
+        getattr(log, decision.level)(decision.message)
+
 
 def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50) -> list[Hit]:
     hits: list[Hit] = []
@@ -647,8 +673,9 @@ def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50
         resp.raise_for_status()
         feed = feedparser.parse(resp.content)
     except Exception as e:
-        log.warning("Failed to fetch %s: %s", name, e)
+        _report_fetch(name, error=e)
         return []
+    _report_fetch(name)
 
     for entry in getattr(feed, "entries", [])[:limit]:
         title = clean_text(getattr(entry, "title", "") or "", max_len=300)
@@ -687,8 +714,9 @@ def fetch_edgar(name: str, url: str, form_type: str) -> list[Hit]:
         resp.raise_for_status()
         feed = feedparser.parse(resp.content)
     except Exception as e:
-        log.warning("EDGAR fetch failed (%s): %s", name, e)
+        _report_fetch(name, error=e)
         return []
+    _report_fetch(name)
 
     TYPE_TO_CATEGORY = {
         "SC 13D": ("EDGAR_SC13D", "SC 13D"),
@@ -911,6 +939,13 @@ def main():
                     if press_sent:
                         log.info("Press alerts sent: %d", press_sent)
                     last_press_poll = now
+
+                # Only changes are logged: the per-source escalation in
+                # `record_failure` is the "still broken" heartbeat, so a
+                # steady state stays silent however long it lasts.
+                moved = SOURCES.summary_if_changed()
+                if moved:
+                    log.info("source health: %s", moved)
 
             SVC.sleep_until_next_poll(WIRE_POLL_INTERVAL_SECONDS)
 

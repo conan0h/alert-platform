@@ -13,6 +13,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from alertlib.sources import (  # noqa: E402
+    FIRST_REPORTED_FAILURE,
     LOG_AT_FAILURES,
     PRESUMED_DEAD_AFTER,
     SourceHealth,
@@ -24,11 +25,36 @@ def health():
     return SourceHealth()
 
 
-def test_first_failure_is_logged_at_warning(health):
+def test_an_isolated_failure_says_nothing(health):
+    """One bad fetch is not a condition, so it produces no line anywhere.
+
+    Measured on 2026-09-27: PRNewswire failed roughly one `edgar-mna` cycle
+    in five and recovered immediately each time. Announcing each one cost
+    four lines per blip, so a flapping source out-logged a dead one.
+    """
+    assert not health.record_failure("PRNewswire-AllNews", "404 Client Error")
+    assert not health.record_success("PRNewswire-AllNews")
+    assert health.summary_if_changed() == "all 1 sources healthy"  # first picture only
+
+
+def test_the_second_consecutive_failure_is_logged_at_warning(health):
+    health.record_failure("FiercePharma", "403 Client Error")
     d = health.record_failure("FiercePharma", "403 Client Error")
     assert d.level == "warning"
     assert "FiercePharma" in d.message
     assert "403 Client Error" in d.message
+
+
+def test_a_blip_is_counted_even_though_it_is_not_logged(health):
+    """The failure is still visible as a rate, which is where it belongs."""
+    for _ in range(50):
+        health.record_failure("PRNewswire-AllNews", "503")
+        health.record_success("PRNewswire-AllNews")
+
+    st = health.sources["PRNewswire-AllNews"]
+    assert st.failures == 50
+    assert st.successes == 50
+    assert st.healthy and not st.reportable
 
 
 def test_success_is_silent(health):
@@ -148,7 +174,11 @@ def test_summary_if_changed_speaks_only_on_change(health):
     health.record_success("a")
     assert health.summary_if_changed() == ""
 
-    # Something moved.
+    # One failure is a blip, not a change in the picture.
+    health.record_failure("a", "403")
+    assert health.summary_if_changed() == ""
+
+    # A second consecutive failure makes it reportable, and that is a change.
     health.record_failure("a", "403")
     changed = health.summary_if_changed()
     assert "failing: a" in changed
@@ -179,20 +209,22 @@ def test_summary_is_silent_while_a_source_stays_broken(health):
     health.record_success("ok-source")
     assert health.summary_if_changed()          # first picture is news
 
-    health.record_failure("FiercePharma", "403")
+    for _ in range(FIRST_REPORTED_FAILURE):
+        health.record_failure("FiercePharma", "403")
     assert "FiercePharma" in health.summary_if_changed()
 
     # More failures of the same source, staying below the presumed-dead
     # threshold: the count climbs, the shape does not, so nothing is printed.
     # (Crossing into presumed-dead *is* a change, and has its own test.)
     spoke = []
-    for _ in range(PRESUMED_DEAD_AFTER - 5):
+    for _ in range(PRESUMED_DEAD_AFTER - 5 - FIRST_REPORTED_FAILURE):
         health.record_failure("FiercePharma", "403")
         spoke.append(health.summary_if_changed())
     assert [x for x in spoke if x] == [], spoke
 
     # A *second* source failing is a change in the set, so it speaks again.
-    health.record_failure("EndpointsNews", "403")
+    for _ in range(FIRST_REPORTED_FAILURE):
+        health.record_failure("EndpointsNews", "403")
     line = health.summary_if_changed()
     assert "EndpointsNews" in line and "FiercePharma" in line
 
@@ -211,8 +243,21 @@ def test_summary_speaks_when_a_source_becomes_presumed_dead(health):
     assert "presumed dead" in crossed
 
 
-def test_summary_speaks_on_recovery(health):
-    health.record_failure("x", "boom")
-    health.summary_if_changed()
+def test_summary_speaks_on_recovery_from_a_reported_outage(health):
+    for _ in range(FIRST_REPORTED_FAILURE):
+        health.record_failure("x", "boom")
+    assert "failing: x" in health.summary_if_changed()
+
     health.record_success("x")
     assert health.summary_if_changed() == "all 1 sources healthy"
+
+
+def test_recovery_from_an_unreported_blip_is_silent(health):
+    """No all-clear for an alarm nobody raised."""
+    health.record_success("x")
+    health.summary_if_changed()                 # first picture
+
+    health.record_failure("x", "boom")
+    assert health.summary_if_changed() == ""
+    assert not health.record_success("x")
+    assert health.summary_if_changed() == ""

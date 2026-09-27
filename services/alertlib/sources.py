@@ -30,10 +30,28 @@ import time
 from dataclasses import dataclass, field
 
 # Consecutive failures at which a still-failing source is logged again.
-# Widening on purpose: the first failure may be transient and is worth a
-# line, the tenth is a pattern, and past that the useful signal is "still
-# broken" at a rate that does not bury anything else.
-LOG_AT_FAILURES = (1, 10, 100, 1000)
+# Widening on purpose: two in a row is the first thing worth a line, the
+# tenth is a pattern, and past that the useful signal is "still broken" at a
+# rate that does not bury anything else.
+#
+# It starts at two rather than one because an isolated failure is not a
+# condition, and reporting it as one is expensive. Measured on 2026-09-27:
+# PRNewswire answered `edgar-mna` with a mix of 404, 502, 503 and read
+# timeouts, roughly one cycle in five, recovering immediately each time. At
+# one line per failure plus one per recovery plus a summary either side, one
+# blip cost four lines — and `fda-catalysts` produced exactly that sequence
+# for PRNewswire-Biotech twice in the same twenty-one minutes. A source that
+# flaps would have out-logged a source that is dead.
+#
+# What is lost is the log line for a single transient failure. What is not
+# lost is the failure itself: `alert_source_fetch_failures_total` counts
+# every one. The journal reports conditions; the counters report rates.
+LOG_AT_FAILURES = (2, 10, 100, 1000)
+
+# The failure count at which a source is first spoken about at all. Below it
+# a source is failing but not yet reportable, which is the distinction that
+# keeps a blip out of the log and out of the summary line.
+FIRST_REPORTED_FAILURE = LOG_AT_FAILURES[0]
 
 # Consecutive failures after which a source is reported as presumed dead,
 # once, at error level. At a 45s cadence 20 failures is about 15 minutes —
@@ -57,6 +75,16 @@ class SourceState:
     @property
     def healthy(self) -> bool:
         return self.consecutive_failures == 0
+
+    @property
+    def reportable(self) -> bool:
+        """Has this source failed enough in a row to be worth naming?
+
+        Distinct from `healthy`, which stays literal: one failed fetch does
+        make a source unhealthy, and the gauges say so. It is only the
+        *talking* — the log line and the summary — that waits for a second.
+        """
+        return self.consecutive_failures >= FIRST_REPORTED_FAILURE
 
 
 @dataclass
@@ -99,7 +127,10 @@ class SourceHealth:
             st.last_error = ""
             st.last_success_at = time.time()
             st.presumed_dead = False
-            if was_failing:
+            # An all-clear for an alarm nobody raised is pure noise, so a
+            # run that never reached FIRST_REPORTED_FAILURE recovers in
+            # silence.
+            if was_failing >= FIRST_REPORTED_FAILURE:
                 return _Decision(
                     "info",
                     f"source {name} recovered after {was_failing} consecutive failures",
@@ -169,7 +200,7 @@ class SourceHealth:
         """
         return "|".join(
             f"{s.name}:{'dead' if s.presumed_dead else 'failing'}"
-            for s in self.failing()
+            for s in self.failing() if s.reportable
         )
 
     def summary_if_changed(self) -> str:
