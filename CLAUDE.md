@@ -362,10 +362,12 @@ Verify and update this section as you learn.
 **Repository.** `main` is green. Tags `v0.1.0`–`v0.5.0`, all of them released
 by Conan on request. `clinical-trials` runs `v0.5.0`; the other three run
 `v0.4.0`, deliberately — `v0.5.0` changes only `clinical_trials/main.py` plus a
-new `alertlib` module nothing else imports. **One merged change is ahead of every
-tag:** the metrics snapshot (`19ae3e2`, PR #55), which `v0.6.0` is requested for
-in issue #56. It touches `alertlib` code every service runs, so when the tag
-exists all four services roll. The `go.mod` module path is
+new `alertlib` module nothing else imports. **Three merged changes are ahead of
+every tag:** the metrics snapshot (`19ae3e2`, #55), the form4 funnel
+(`82d7380`, #61) and `edgar-mna`'s source health (`d0b33cf`, #63). Issue #56
+asks for `v0.6.0` at `d0b33cf`, which contains all three. Two of them touch
+`alertlib` code every service runs, so when the tag exists all four services
+roll. The `go.mod` module path is
 `github.com/conan0h/alert-platform`; tags up to `v0.1.2` predate the rename and
 carry `conanohara`, so `go install …@latest` needs a newer tag.
 
@@ -494,12 +496,44 @@ and 0.21s. That is the feed fetch alone — no filing was fetched or parsed, so
 every accession in the feed was already in `alerted`. Which of five silences
 that is, the funnel above will say.
 
-**Every scheduled run has read the same pre-market hour.** All five "no alert in
-any observed window" readings are from roughly 08:15 UTC, which is 04:15 ET:
-Form 4s are filed after the US close, so that window is the quietest of the day
-by construction. The reading is real and the inference from it was weaker than
-it looked. Cumulative counters do not have this problem, which is the other
-reason the metrics snapshot and the funnel counters matter.
+**It holds in the busy hour too, but not absolutely.** Read 2026-09-27 at
+02:21–02:42Z, which is 22:21 ET — after the US close, when Form 4s are actually
+filed. Cycles 2698–2708 ran 0.13s to 0.42s, with one exception:
+**cycle 2702 took 2.32s**, about the cost of fetching and parsing one filing's
+XML. So the service does reach its filter occasionally, and refused whatever it
+found. That is the first evidence of the filter running at all, and it narrows
+the 2026-09-26 framing: not "never fetches", but "fetches perhaps once an
+hour". The funnel will say which branch refused it.
+
+**Every scheduled run had read the same pre-market hour, and there is a way
+out of it.** The first five "no alert in any observed window" readings are all
+from roughly 08:15 UTC, which is 04:15 ET: Form 4s are filed after the US
+close, so that window is the quietest of the day by construction. The readings
+were real and the inference from them was weaker than it looked.
+
+The fix costs nothing and uses a bug: `logs` returns the *oldest* part of its
+window (#32), so `since=6 hours ago` at 08:22 returns 02:21 onward — 22:21 ET,
+the post-close hour. That is how 2026-09-27 got its reading. **Ask for a long
+window when you want a different hour and a short one when you want a whole
+hour.** Cumulative counters remain the better answer, which is the other reason
+the metrics snapshot matters.
+
+**`edgar-mna`'s sixteen feeds are unmeasured in production until the tag.**
+Source health is merged (`d0b33cf`, #63) but the host runs `v0.4.0`. What is
+known from reading the journal directly on 2026-09-27: PRNewswire-AllNews
+failed roughly one cycle in five over twenty-one minutes — a read timeout, a
+502, a 503 and three 404s. The 404s name the URL with a trailing slash we do
+not configure and the 502/503s name it without, which is `requests` reporting
+the post-redirect URL: PRNewswire redirects and then 404s inconsistently. So
+the URL is not ours to fix, the failure rate is the thing to measure, and
+whether the other fifteen feeds work is still unknown.
+
+The same PR changed shared behaviour: **a source is now spoken about from its
+second consecutive failure, not its first**, and an unreported failing run
+recovers silently. A flapping source was costing four log lines per blip —
+`fda-catalysts` produced that sequence twice for PRNewswire-Biotech in the same
+window — so a feed that is 80% fine out-logged one that is dead. The failures
+are still counted in `alert_source_fetch_failures_total`.
 
 **Also unfixed.** Root account access keys are in use. A host-side edit to
 `services/form4_insider/main.py` (`alerted_this_filing`) is not in git.

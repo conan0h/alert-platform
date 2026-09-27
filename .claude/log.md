@@ -16,109 +16,6 @@ Older entries are in [`log-archive.md`](log-archive.md). Move entries there
 once this file runs well past the last handful, so the file stays the length it
 is read at.
 
-## 2026-09-23 — v0.4.0 applied to the whole fleet; 399 was never a constant
-- **The fleet runs one tag for the first time since August.** `deploy.yml` run 7
-  planned, run 8 applied plan `345baa3a5442`.
-
-### Production report
-`status` before the apply (observe run 37): four services `active`, `enabled`,
-`clinical-trials` and `edgar-mna` on `v0.1.0`, `fda-catalysts` `v0.3.0`,
-`form4-insider` `v0.2.0`.
-
-**Plan `345baa3a5442`** — four UPDATEs, no creates, no removes:
-
-    ~ clinical-trials  v0.1.0 -> v0.4.0
-    ~ edgar-mna        v0.1.0 -> v0.4.0
-    ~ fda-catalysts    v0.3.0 -> v0.4.0
-    ~ form4-insider    v0.2.0 -> v0.4.0
-    4 to change, 0 unchanged.
-
-Every service also showed an `environment` hash change, which the roll did not
-obviously explain. Checked before applying rather than assumed: `RenderEnv`
-includes `ALERT_DEPLOYED_REF` (`internal/engine/unit.go:145`), so the env hash
-necessarily moves with the ref. Nothing in the plan was unaccounted for.
-
-**Apply** — `Applied 4 change(s)`, 303s, host exit 0. Standard tier
-(`clinical-trials`, `edgar-mna`, `fda-catalysts`) before critical
-(`form4-insider`), one at a time, each `✓ healthy at v0.4.0` through its own
-health gate. Audit actor `gha:35836370892`. `drift` afterwards: exit 0.
-
-Restarts confirmed in journald, each service's next line carrying
-`"ref": "v0.4.0"`: clinical-trials 08:18:59, edgar-mna 08:20:12, fda-catalysts
-08:21:26, form4-insider 08:22:39. `status` afterwards (observe run 40), which is
-the manifest rather than the restart and so lands about a minute later, once the
-health gate has passed:
-
-    SERVICE          REF      STATE   ENABLED  DEPLOYED               BY
-    clinical-trials  v0.4.0   active  enabled  2026-09-23T08:19:59Z   gha:35836370892
-    edgar-mna        v0.4.0   active  enabled  2026-09-23T08:21:12Z   gha:35836370892
-    fda-catalysts    v0.4.0   active  enabled  2026-09-23T08:22:26Z   gha:35836370892
-    form4-insider    v0.4.0   active  enabled  2026-09-23T08:23:39Z   gha:35836370892
-
-### Reading the alerts — three findings, none of them expected
-**1. `clinical-trials` does not stream a constant, and #35's premise was wrong.**
-The line now reads `Streamed 787 recently-updated trials`, twice, five minutes
-apart. 399 was that day's two-day window, not a page size and not a cap: 787
-needs four pages of 200 and the cap is 2000. The fetch works. The gap is between
-candidate and signal, which is a different investigation from the one the
-backlog described, and the reason this run's milestone is instrumentation rather
-than a filter change.
-
-**2. `fda-catalysts` has one dead source, not two.** From the host:
-`source health: 14/15 sources healthy; failing: FiercePharma (x1)`.
-`EndpointsNews` answers again. The per-destination User-Agent in `v0.3.0` is the
-only change that could account for it. So #26(a) is resolved without a
-speculative patch and without a probe from this sandbox, which cannot reach
-either domain — the accounting was shipped to the host and the host answered.
-
-**3. The #43 source-health fix is confirmed in production.** On `v0.3.0` the
-summary printed every cycle with a climbing counter (x1892, x1893, x1894 …); on
-`v0.4.0` it printed once at cycle 1 and stayed silent through cycles 2–6. The
-previous entry could only say the fix looked right.
-
-### Milestone: the candidate funnel (#35)
-`alertlib.CycleFunnel` — declared stages, per-cycle counts, one log line per
-cycle, an `alert_funnel_<stage>_total` counter each. `clinical-trials` is the
-first adopter. ADR 0006 argues the three choices a reviewer will ask about.
-Two counters were chosen to test named explanations rather than to be thorough:
-`new_in_window` compares consecutive cycles' id sets (the direct test of a stuck
-query, which "new to our database" does not answer), and
-`first_sight_completed` measures what `detect_signal`'s "an unobserved
-transition is not a transition" rule costs per cycle.
-
-Three measurement defects fell out, each found by writing the test first:
-- the fetch tally sat after the loop, so both early returns skipped it — a cycle
-  that died on page two logged nothing, identical to a cycle that never ran;
-- `total_yielded` incremented after `yield`, so an abandoned generator
-  under-reported by one;
-- `countTotal` was `"false"`, so nothing distinguished "787 is everything that
-  matched" from "787 is where we stopped reading". The line now reads
-  `Streamed N of M ... in P page(s)` and says so when the cap truncates.
-
-104 pytest tests (13 new), Go suite green, `validate` and
-`gen_observability --check` clean. The funnel suite runs 20 cycles rather than
-one, because the 2026-09-22 source-health defect was a per-iteration bug that
-twelve single-iteration tests could not see.
-
-### What is not done
-- **This needs `v0.5.0` to run anywhere**, and no session can cut a tag (#31).
-  Handoff issue opened.
-- **No second apply.** §2 allows one per run and it went to `v0.4.0`.
-- **Still not observed: whether the duplicate-alert loop stopped.** No alert
-  fired in any window read this run, so the record-then-send path has still
-  never run under contention. Unchanged from the previous entry, deliberately
-  not upgraded.
-- **Merged as `837b327`** (PR #49), CI run 114 green on its head — all six jobs,
-  `golangci-lint` included. Branch reset onto `main` afterwards per §4.
-- **Handoff issue #50** asks for `v0.5.0` at `837b327`. Next run: verify the tag
-  by ancestry, roll `clinical-trials` alone (the funnel lives in shared
-  `alertlib` but only that service calls it, so restarting the other three buys
-  no behaviour change), plan, apply, then read one `logs` window for the funnel
-  line — which is the answer to #35.
-- Noted again, since it cost time twice this run: the **check-runs endpoint and a
-  run's top-level status are both stale** here. `actions_list` on the run's jobs,
-  and a job's archived log going from 404 to available, are the reliable signals.
-
 ## 2026-09-23 (second) — v0.5.0 deployed; the funnel answered #35
 Conan cut `v0.5.0` from issue #50, so the funnel reached the host and the
 question it was built for is answered.
@@ -501,3 +398,92 @@ silent service was made there, and this applies it.
   "we've never seen an alert" reading I have recorded is from 04:15 New York
   time, when nothing is filed. Both are now instrumented rather than guessed at,
   and both need the `v0.6.0` tag (issue #56) to reach the host.
+
+## 2026-09-27 — a different hour of the day, and what it showed
+The previous entry's correction was that every reading came from 04:15 ET. This
+run acted on it before choosing a milestone, and the milestone came out of what
+the new hour showed.
+
+### Production report
+All four services `active`, `enabled`, `healthz=ok`. `drift` exit 0, no drift.
+`history` matches this log — seven successful service applies across four
+pipeline runs, no rollback since August. Observe runs 85–89, all answered by
+`alertctl fb753ba9b8db` (dispatched from `e3be39f`; read verbs never rebuild,
+and the workflow said so).
+
+    SERVICE          REF      STATE   ENABLED  DEPLOYED               BY
+    clinical-trials  v0.5.0   active  enabled  2026-09-23T08:55:35Z   gha:35839768109
+    edgar-mna        v0.4.0   active  enabled  2026-09-23T08:21:12Z   gha:35836370892
+    fda-catalysts    v0.4.0   active  enabled  2026-09-23T08:22:26Z   gha:35836370892
+    form4-insider    v0.4.0   active  enabled  2026-09-23T08:23:39Z   gha:35836370892
+
+No apply. `v0.6.0` is still uncut, so there is nothing to roll.
+
+### Reading the alerts — 02:21–02:42Z, which is 22:21 ET
+**The truncation bug is a sampling lever.** `logs` returns the *oldest* part of
+its window (#32), so `since=6 hours ago` at 08:22 returns 02:21 onward. Five
+runs had read 04:15 ET because that is when the schedule fires; one input
+change reads the post-close hour instead, at no cost. Worth keeping when #32 is
+fixed — the fix should let a caller ask for the head of a window deliberately
+rather than removing the only way to get it.
+
+**`form4-insider` does reach its filter, about once an hour.** Cycles 2698–2708
+ran 0.13–0.42s — the feed fetch alone — **except cycle 2702 at 2.32s**, about
+the cost of fetching and parsing one filing's XML. It found something, and sent
+nothing. That narrows the previous entry's "no filing is being fetched at all":
+true of most cycles, not of all of them, and the filter is running after all.
+Which branch refuses is still the funnel's answer, and the funnel still needs a
+tag.
+
+**`clinical-trials`: `530 of 530 ... in 3 page(s)`**, `changed=0 signals=0
+sent=0 new_in_window=0`. Six days: 399 → 787 → 686 → 602 → 843 → 530. The
+window rolls; the change rate still reads zero, now at a different hour.
+
+**`edgar-mna`'s PRNewswire-AllNews failed four times in twenty-one minutes** —
+a read timeout, a 502, a 503 and three 404s. The trailing-slash theory from
+#40 is answered and it is not ours: the 404s name the slashed URL and the
+502/503s name the unslashed one, which is `requests` reporting the URL *after*
+redirects. PRNewswire redirects and then 404s inconsistently.
+
+### Milestone: source health for edgar-mna, and a rule for flapping (#40)
+PR #63, merged as `d0b33cf`. Two halves, one window's evidence.
+
+**`edgar-mna` reports per-source health**, so its sixteen feeds — eleven wires
+and five SEC — are accounted for like the other three services. The gap it
+closes is not the PRNewswire failure, which was already visible; it is that
+nothing could say whether a feed had failed twice or had been dead for three
+weeks, and nothing ever stated the whole picture. Fifteen of the sixteen could
+have been dead and the journal would have looked normal.
+
+**A blip is now distinguished from an outage.** Adopting the tracker unchanged
+would have made this service's journal *worse*: at one warning per failure plus
+one per recovery plus a summary either side, one blip costs four lines, and
+PRNewswire blips roughly one cycle in five. That is not hypothetical —
+`fda-catalysts` produced the full four-line sequence twice for
+PRNewswire-Biotech inside the same twenty-one minutes. So `LOG_AT_FAILURES`
+starts at 2, a run that was never announced recovers silently, and the summary
+shape ignores a source that is not yet reportable. A source that is 80% fine
+had been out-logging one that is dead.
+
+The counters keep every failure, which is the point: the journal reports
+conditions, the counters report rates. Deciding whether PRNewswire is flaky or
+dying needs `alert_source_fetch_failures_total` over a day, not more log lines.
+
+150 pytest (10 new), all six CI jobs green on `473c001`. The four rewritten
+tests in `test_source_health.py` were verified to fail on the old constant by
+reverting it (4 failed, 14 passed). Branch reset onto `main` after the merge.
+
+### What this run did not settle
+- **`v0.6.0` is still uncut.** Three merged service changes now wait on it —
+  #55, #61 and #63. Issue #56 retargeted to `d0b33cf`, which contains all three.
+  Two of them are in `alertlib`, so all four services roll.
+- **No apply**, so nothing new is verified in production this run.
+- **Whether `edgar-mna`'s other fifteen feeds work is still unknown.** The
+  instrument for it is merged; the reading is the first `logs` window after the
+  tag.
+
+- Catch-up: production is healthy and unchanged. Reading a different hour of
+  the day cost one dropdown and was worth it — `form4-insider` does reach its
+  filter about once an hour and refuses what it finds, which is not what the
+  last two runs concluded. Three service changes are now finished and waiting
+  on one tap from you: issue #56.
