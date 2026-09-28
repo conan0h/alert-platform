@@ -173,143 +173,49 @@ others) and `ruff`; both run in CI alongside a `gofmt` check.
 
 ## Status
 
-Built and under test — all of it verifiable from this repository:
+Built, and running the fleet:
 
-- [x] Phase 1 — declarative fleet spec + validation
-- [x] Phase 1.5 — migrate services onto the platform runtime ([`docs/migration.md`](docs/migration.md))
-- [x] Phase 2 — plan/apply deploy workflow with audit log (Go CLI)
-- [x] Phase 3 — pre/post-deploy validation gates
-- [x] Phase 4 — versioned rollback tooling
-- [x] Phase 5 — Prometheus metrics + Grafana dashboards
-- [x] Phase 6 — runbooks, drift detection, architecture docs
-- [x] Phase 7 — read-only operator console
-- [x] Phase 8 — gated deploy pipeline: GitHub OIDC → IAM → SSM, so a deploy
-      runs from `main` with no stored credentials anywhere and every apply
-      lands in the audit log against the workflow run that caused it. Live
-      since 2026-09-21, and both halves have now run against the real host —
-      the write path made its first deploy the same day. See
-      [ADR 0001](docs/adr/0001-oidc-ssm-over-ssh-keys.md).
+- [x] Declarative fleet spec with schema validation
+- [x] `plan` → `apply` with pre- and post-deploy health gates and an audit log
+- [x] Automatic rollback to the previous tag
+- [x] Drift detection, runbooks, architecture docs
+- [x] Prometheus metrics, with generated alert rules and dashboards (no
+      Prometheus runs yet; see Known gaps)
+- [x] Read-only operator console
+- [x] Gated deploy pipeline: GitHub OIDC → IAM → SSM, no stored credentials;
+      every apply is attributed to the workflow run that caused it
+      ([ADR 0001](docs/adr/0001-oidc-ssm-over-ssh-keys.md))
 
-### Production, as observed on 2026-09-25
+### Production
 
-Everything below came from `observe.yml` runs against the live host. The run
-logs are the record; no number here is estimated.
+From `observe.yml` against the live host, 2026-09-28:
 
-| Service | Deployed ref | Unit | Health | Deployed | By |
-|---|---|---|---|---|---|
-| `clinical-trials` | `v0.5.0` | active | `ok` | 2026-09-23 | `gha:35839768109` |
-| `edgar-mna` | `v0.4.0` | active | `ok` | 2026-09-23 | `gha:35836370892` |
-| `fda-catalysts` | `v0.4.0` | active | `ok` | 2026-09-23 | `gha:35836370892` |
-| `form4-insider` | `v0.4.0` | active | `ok` | 2026-09-23 | `gha:35836370892` |
+| Service | Ref | Unit | Health |
+|---|---|---|---|
+| `clinical-trials` | `v0.6.0` | active | `ok` |
+| `edgar-mna` | `v0.6.0` | active | `ok` |
+| `fda-catalysts` | `v0.6.0` | active | `ok` |
+| `form4-insider` | `v0.6.0` | active | `ok` |
 
-`drift` reports no drift: every service is at the ref its spec pins. Seven
-applies have gone through the pipeline and none has needed a rollback. Every
-deploy since 2026-09-21 is attributed to a workflow run rather than to a person
-on a login shell; the August entries the audit log still carries as `ubuntu`
-predate the pipeline.
-
-**`form4-insider` is the first service this pipeline ever deployed.** On
-2026-09-21 at 22:16 UTC, `deploy.yml` applied plan `54993f27b007` — one service,
-health gate passed, 88 seconds, nothing rolled back. The audit actor is
-`gha:35661685161`, the workflow run id, which is what the whole OIDC chain
-exists to produce: a change to production attributable to a commit and a run
-rather than to a person on a login shell. Every `by: ubuntu` above is a change
-made by hand in August, before the pipeline existed.
-
-That deploy carried a fix for a duplicate-alert bug: `form4-insider` sent its
-Telegram messages before recording the dedup row, so a locked SQLite database
-meant the same filings were re-sent every cycle. It now records first and
-refuses to send if the record will not persist
-([incident](docs/incidents/2026-09-21-form4-duplicate-alerts.md)).
-
-Two earlier questions are closed. Secret resolution works — the apply passed
-the gate the August attempt failed on, so the instance role was the fix. And
-the August rollbacks logged `failed` were accurate rather than buggy:
-`applyService` resolves secrets before its first mutating step, and the
-rollback path calls the same function, so both passes returned having changed
-nothing. Pinned by `internal/engine/secretgate_test.go`.
+`drift` reports none. No deploy through the pipeline has needed a rollback.
 
 ### Known gaps
 
-Stated because they are real, not because they are planned away.
-
-- **One `fda-catalysts` feed is dead.** `FiercePharma` returns 403 on every
-  poll cycle and is reported presumed dead. `EndpointsNews`, which had failed
-  the same way since August, answers again: the host reported `14/15 sources
-  healthy` on 2026-09-23 with `FiercePharma` alone failing. The per-destination
-  User-Agent in `v0.3.0` is the only change that could account for it, which
-  makes the User-Agent the likely cause for that feed and leaves `FiercePharma`
-  a genuinely dead or IP-blocked endpoint.
-- **`edgar-mna`'s sixteen feeds fail about 0.5% of the time.** Measured on
-  2026-09-28, the first cumulative reading: 182 fetches, 1 failure, no source
-  failing or presumed dead. A twenty-one-minute window on 2026-09-27 had put
-  PRNewswire at roughly one cycle in five, which the longer run shows was a bad
-  sample. PRNewswire does redirect and then 404 inconsistently, and that is not
-  ours to fix; the rate is what matters and it is now visible.
-- **`clinical-trials` examines hundreds of trials per cycle and alerts on
-  none.** Measured rather than inferred, since `v0.5.0` shipped the funnel: the
-  fetch reads its whole match (`787 of 787 ... in 4 page(s)` on 2026-09-23,
-  `686 of 686` on 2026-09-24, tracking the two-day window), every trial is
-  already known, and `changed=0` — none of them has a status different from the
-  stored one. `detect_signal` fires only on a status transition, so there is
-  nothing to fire on. Whether to widen what counts as an event is a
-  signal-quality decision, not a bug ([ADR 0006](docs/adr/0006-candidate-funnel.md)).
-  One reading looks alarming and is not: on a Monday before the US business day
-  the two-day window holds only a weekend, so the service correctly reports
-  `Streamed 0 of 0`. It also means the window ages Friday's updates out over the
-  weekend, which is an argument for widening it.
-- **`form4-insider` reaches none of its four filter branches.** Measured on
-  2026-09-28, the first funnel window on the host: the SEC feed returns 100
-  filings a cycle and **not one is new** — every accession has already been
-  processed, so nothing is fetched, nothing is parsed, and no filter branch runs.
-  That is expected in a pre-market window rather than broken, because the table
-  it deduplicates against is written on every path a filing takes, including
-  failed fetches and refusals. The reading that means something is the post-close
-  hour, when Form 4s are actually filed.
-  Its leaderboard turns out to be **full and unscored**, not empty: 13,782
-  insiders and 32,592 transactions, of which 0 are scored, because
-  `form4_backfill.py` has run and `form4_scorer.py` never has. So **the live
-  filter is "any open-market trade over $1M"** and the $100k floor and alpha
-  comparison are unreachable — but scoring the leaderboard would change nothing
-  while no candidate reaches the branch that reads it. Whether the scorer becomes
-  a managed unit is a signal-quality decision, and it is downstream of the
-  dedup reading, not ahead of it.
-- **The alert archive has no reader yet.** Since the `v0.4.0` deploy on
-  2026-09-23 every alert is recorded to an append-only table in the service's
-  state directory ([ADR 0005](docs/adr/0005-alert-archive.md)), which closes the
-  gap that blocked measuring signal quality. Getting those rows *out* — an
-  `alerts` read verb and a console panel — needs the wrapper to accept a new
-  read verb ([ADR 0004](docs/adr/0004-wrapper-adoption.md)). Until then the rows
-  accumulate on the host and can only be read there — and **not even their count
-  is visible**: `alert_archive_records_total` is absent from the metrics snapshot
-  rather than zero, because the archive is constructed lazily and a service that
-  has archived nothing never declares the counter.
-- **Nothing backs the archive up.** `state.backup` is declared in the spec
-  with no job behind it, and there is now data under `/var/lib/alert-platform/`
-  whose loss would be irreversible rather than merely inconvenient.
-- **`logs` returns the oldest part of its window.** The read verb captures
-  roughly the first 24 KB of a one-hour journal, so a busy hour is truncated
-  from the wrong end. Asking for a shorter window is the way around it.
-- **Nothing scrapes `/metrics`.** The endpoint binds to the host's loopback and
-  no Prometheus exists yet, so the counters are read from the journal instead:
-  each service writes its whole registry there every 15 minutes and once at
-  shutdown, live on all four services since 2026-09-28. That is a workaround for
-  the missing scraper, not a replacement for one — two snapshots give a rate, a
-  dashboard would give a history, and **every counter resets when a deploy
-  restarts the process**, so a snapshot is cumulative since process start rather
-  than since the beginning. One counter also needs reading with care:
-  `alert_alerts_sent_total` includes each service's "bot started" message, so it
-  reads 1 on a fleet that has delivered no alerts.
-- **`drift` is not a backstop against forgetting to deploy.** It compares refs
-  and unit hashes only, so an in-place edit inside a release directory is
-  invisible to it; and it compares against the specs in the host's *own*
-  checkout, which only a `plan` syncs, so a merged release that has not been
-  applied shows no drift. `status` and `drift` now name the commit they
-  answered from, and `observe.yml` says when that is not the commit the run
-  was dispatched from, which is what makes the second case readable.
-- **`dedup.keys`** is declared in the spec but not consumed by the services.
-- **Root account access keys are still in use.**
-- **A host-side edit to `services/form4_insider/main.py` is not in git.** A
-  traceback from the 2026-09-21 incident places a function four lines from where
-  the repository has it, so the host has been running code that no commit
-  contains.
+- **No service has sent a real alert yet.** The platform is sound; the signal
+  isn't there yet. `clinical-trials` alerts only on trial status changes and
+  sees none; `form4-insider`'s main filter depends on an insider leaderboard
+  that has never been scored; `edgar-mna` and `fda-catalysts` don't yet report
+  why they stay quiet. This is the current priority.
+- **The alert archive has no reader.** Alerts are recorded per service
+  ([ADR 0005](docs/adr/0005-alert-archive.md)), but reading them needs a new
+  wrapper verb ([ADR 0004](docs/adr/0004-wrapper-adoption.md)) or a console panel.
+- **Nothing scrapes `/metrics`.** Each service writes its metrics to the journal
+  every 15 minutes instead, which gives rates but not history.
+- **`logs` returns the oldest part of its window**, so long windows lose their
+  end.
+- **`drift` sees refs and unit hashes, not file contents**, and compares against
+  the host's own checkout, so a merged but unapplied release shows no drift.
+- **Nothing backs up the SQLite databases**; `state.backup` and `dedup.keys` are
+  declared in the spec but not implemented.
+- **One `fda-catalysts` feed (FiercePharma) is dead.**
+- **Root account access keys are in use, and SSH is open.**
