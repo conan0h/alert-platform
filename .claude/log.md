@@ -16,95 +16,6 @@ Older entries are in [`log-archive.md`](log-archive.md). Move entries there
 once this file runs well past the last handful, so the file stays the length it
 is read at.
 
-## 2026-09-23 (second) — v0.5.0 deployed; the funnel answered #35
-Conan cut `v0.5.0` from issue #50, so the funnel reached the host and the
-question it was built for is answered.
-
-### Production report
-**Tag verified by ancestry before rolling**, per the `v0.3.0` coordination
-failure: `v0.5.0` is `837b327` exactly, and `git merge-base --is-ancestor`
-confirms the funnel commit is in it.
-
-**Roll (#53).** `clinical-trials` alone. One service on §6's criteria, checked
-against the tag by diff: only `clinical_trials/main.py` changed among the four,
-and the `alertlib` delta is a new module plus two export lines that nothing
-else imports. Rolling the other three would have restarted them for no change
-in behaviour. CI run 121 green on all six jobs.
-
-**Plan `d237e2d4a7cf`** (deploy run 9):
-
-    ~ clinical-trials  UPDATE   source.ref  v0.4.0 -> v0.5.0
-    = edgar-mna        no changes (v0.4.0)
-    = fda-catalysts    no changes (v0.4.0)
-    = form4-insider    no changes (v0.4.0)
-    1 to change, 3 unchanged.
-
-**Apply** (run 10): `✓ clinical-trials healthy at v0.5.0`, `Applied 1
-change(s)`, host exit 0, 88s, actor `gha:35839768109`. Restart at 08:54:35,
-the next line carrying `"ref": "v0.5.0"`. The other three were not touched.
-
-### The funnel, first cycle on the host
-
-    Streamed 787 of 787 recently-updated trials from ClinicalTrials.gov in 4 page(s)
-    funnel: streamed=787 parsed=787 known=787 first_sight=0
-            first_sight_completed=0 changed=0 signals=0 sent=0 new_in_window=?
-
-Four things this settles, in order of how much they change the picture.
-
-**`changed=0` is the answer to #35.** Of 787 trials whose last-update date moved
-inside the window, not one had a status different from the one we stored. There
-are no signals because `detect_signal` fires only on a status transition, and no
-status transitioned. The updates are real; they are not status changes.
-
-**`first_sight_completed=0` refutes the hypothesis the counter was built to
-test.** ADR 0006 argued the likely cause was trials entering view *because* of
-the update that matters, arriving already COMPLETED with no earlier status to
-compare against, and being dropped by signal 5's `prev_status not in
-("COMPLETED", None)`. That path never ran: `first_sight=0`, so every trial was
-already known. The counter earned its place by being zero.
-
-**`787 of 787 ... in 4 page(s)` ends the pagination question.** The fetch reads
-the entire match; the cap is not reached. Backlog #35's original framing — a
-query stuck on its first page — is now disproved twice over.
-
-**`new_in_window=?`** on the first cycle is the sentinel working: nothing to
-compare against yet, and `?` rather than `0` because zero is a real answer a
-later cycle can give.
-
-### Second cycle, and `new_in_window` is the decisive number
-Cycle 2 at 08:59:37, five minutes later:
-
-    Streamed 787 of 787 recently-updated trials from ClinicalTrials.gov in 4 page(s)
-    funnel: streamed=787 parsed=787 known=787 first_sight=0
-            first_sight_completed=0 changed=0 signals=0 sent=0 new_in_window=0
-
-**`new_in_window=0`: not one of the 787 ids is new since the previous cycle.**
-The feed returns an identical set. That is expected rather than broken —
-`LastUpdatePostDate` is date-granular, so membership of a two-day window can
-only change when the date rolls — but it has a consequence worth stating: at a
-300-second interval the service re-examines the same 787 rows about 288 times a
-day, and the set it is watching refreshes once. The poll rate and the rate at
-which the underlying data can move are three orders of magnitude apart.
-
-Both counters agree across two cycles, which is more than the first line alone
-could claim: the set is static and no status moved within five minutes.
-
-### Not concluded from two cycles
-Two cycles five minutes apart still do not establish the *daily* rate of status
-changes — they establish that nothing moved in one five-minute gap, which is
-about what you would expect even from a healthy feed. The mechanism argues
-alerts should eventually fire: a trial whose previous update fell outside the two-day window
-leaves our view, and on re-entry its stored status is weeks old, so a flip to
-COMPLETED reads as a change and signal 5 fires. What is needed is the
-cumulative counter over a day — `alert_funnel_changed_total` — not another
-single line. The funnel makes that a read rather than an investigation.
-
-### Smaller finding
-The startup Telegram message goes through `send_telegram` directly rather than
-`Service.send_alert`, so it is neither archived nor counted. Harmless for
-signal quality, but it means "the archive holds every message the bot sent" is
-not quite true. Recorded in the backlog.
-
 ## 2026-09-24 — the counters were unreadable; now they are not
 The previous entry ends by saying this run should read
 `alert_funnel_changed_total` over a day. Trying to is how the run found its
@@ -487,3 +398,168 @@ reverting it (4 failed, 14 passed). Branch reset onto `main` after the merge.
   filter about once an hour and refuses what it finds, which is not what the
   last two runs concluded. Three service changes are now finished and waiting
   on one tap from you: issue #56.
+
+## 2026-09-28 — v0.6.0 on all four, and the counters answered
+Conan cut `v0.6.0` at `d0b33cf` from handoff issue #56. Three merged service
+changes had been waiting on it since the 24th. They are now on the host, and the
+first snapshot window answered more than it was built to.
+
+### Production report
+**Tag verified by ancestry before rolling**, per the `v0.3.0` coordination
+failure: `v0.6.0` is `d0b33cf` exactly, and `19ae3e2` (#55), `82d7380` (#61) and
+`d0b33cf` (#63) are all ancestors of it.
+
+Pre-deploy, observe runs 95–98 on `04a42f6`, answered by `alertctl fb753ba9b8db`:
+all four `active`, `enabled`, `healthz=ok`; `drift` exit 0, no drift; `history`
+matching this log at seven successful applies and no rollback since August.
+
+**Roll (#65).** All four services, checked by diff rather than assumed:
+`alertlib` changed (`service.py`, `health.py`, `sources.py`, `funnel.py`) and
+every service imports it, so §6's shared-change clause genuinely applies —
+unlike `v0.5.0`, which rolled one. `fda-catalysts` was the only service with no
+code change of its own, and it is not a no-op restart: it gains the snapshot and
+the second-failure escalation rule. Six CI jobs green on `89fe764`.
+
+**Plan `2880151f4eb5`** (deploy run 13): four UPDATEs, `4 to change, 0
+unchanged`, no creates and no removes.
+
+**Apply** (run 14): each service gated in turn, `✓ … healthy at v0.6.0` four
+times, `Applied 4 change(s)`, host exit 0, 305.9s, actor `gha:36397285647`.
+Restarts at 08:27:02, 08:28:15, 08:29:30 and 08:30:43. Eleven service applies
+have now gone through the pipeline and none has needed a rollback. Observe run
+99 confirms all four at `v0.6.0`, and the control-plane stamp now reads
+`89fe7643045a — the commit this run was dispatched from`, because a `plan`
+rebuilds it.
+
+### The snapshot works, and one number in it is a trap
+Four `metrics snapshot` lines, one per service, whole registry, with
+`alert_uptime_seconds` beside the counters. Backlog #38 is closed in production:
+every cumulative counter in this fleet is now readable off the host.
+
+**`alert_alerts_sent_total` reads 1 on all four services, and no alert has been
+sent.** It is the startup Telegram message. The counter is incremented inside
+the transport (`telegram.py:107`), not inside `Service.send_alert`, so the "bot
+started" message counts even though it is not archived. Every funnel line in the
+window says `sent=0` and `alert_funnel_sent_total` is 0 on both services that
+have one, which is what makes the attribution certain rather than likely.
+
+This matters because issue #56 said this counter "answers whether this fleet has
+ever delivered an alert at all". It does not: it reads 1 on a fleet that has
+delivered none. Backlog #37 is also half wrong — it says the startup message is
+"neither recorded nor counted", and the counted half is untrue.
+
+**`alert_archive_records_total` is absent from all four snapshots.** Not zero —
+absent. `AlertArchive` is constructed lazily (`service.py:112`) so a service that
+has not archived anything never declares the counter. The metric that was meant
+to answer "is the archive filling" is not emitted by the services that most need
+to answer it, and an absent metric cannot be told apart from one that was never
+added. #27's question is still open, and #38 did not close it.
+
+### form4-insider: the candidates stop at the first stage, not the filter
+    funnel: entries=100 new=0 fetched=0 parsed=0 claimed=0 transactions=0
+            code_not_actionable=0 planned_sale=0 below_floor=0 large_trade=0
+            no_insider_history=0 thin_history=0 no_leaderboard=0
+            below_cutoff=0 top_tier=0 sent=0 new_in_window=0
+
+**`entries=100, new=0`.** The feed returns 100 entries every cycle and not one is
+new; `alert_funnel_entries_total` is 900 over nine cycles with
+`alert_funnel_new_total` at 0. Every accession is already in `alerted`, so
+nothing is fetched, nothing is parsed, and **no filter branch runs at all** —
+`no_leaderboard=0`, not a positive count.
+
+Three runs reasoned about which filter branch was refusing candidates. The
+answer is that none of them was reached. The stage that silences this service is
+dedup against `alerted`, one step after the feed.
+
+**The leaderboard is full and unscored, which corrects #39(b)'s premise:**
+
+    alert_leaderboard_insiders: 13782    alert_leaderboard_transactions: 32592
+    alert_leaderboard_eligible: 0       alert_leaderboard_scored: 0
+
+`form4_backfill.py` has run — 13,782 insiders and 32,592 transactions are
+sitting there. `form4_scorer.py` has not: nothing is scored, so nothing is
+eligible, so `get_alpha_cutoff` returns `None`. The item was written as "the
+table is empty"; it is full and unscored, which is a different fix.
+
+And it is a fix that would change nothing today. While `new=0`, a fully scored
+leaderboard produces zero extra alerts, because no candidate reaches the branch
+that would read it. **#39(b) is downstream of the `new=0` question and should not
+be done first.**
+
+### clinical-trials read `0 of 0`, and that is correct
+    Streamed 0 of 0 recently-updated trials from ClinicalTrials.gov in 1 page(s)
+    funnel: streamed=0 parsed=0 known=0 first_sight=0 first_sight_completed=0
+            changed=0 signals=0 sent=0 new_in_window=0
+
+Every previous reading returned hundreds: 787, 686, 602, 843, 530. Zero looks
+like a break, and I nearly wrote it up as one. It is the query working.
+
+`fetch_recent_changes` asks for `LastUpdatePostDate` in the last two days. At
+08:41 UTC on Monday 28 September that window is Saturday, Sunday and Monday
+before the US business day — **the only two-day window in the week that contains
+no business day**, and today is the first Monday since `v0.5.0` shipped the
+funnel on the 23rd. Each earlier reading's window contained at least one weekday:
+Sat 26 reached back to Thursday, Sun 27 to Friday.
+
+The Monday a week earlier read 399 and is not a counter-example: that was
+`v0.1.0`, before `countTotal` existed, so 399 was what it streamed rather than
+what matched. Checked in the archive rather than recalled.
+
+`countTotal` is what makes this readable at all. Without it, `streamed=0` could
+not be told apart from a failed read, and `0 of 0` says the API reported an
+authoritative match of zero. The counter that came back zero paid for itself
+again.
+
+**The product consequence is sharper than the diagnosis**, and it belongs to
+#35's open decision: a two-day window blinds this service every Monday morning
+and ages Friday's updates out over the weekend. `days_back=4` would carry Friday
+across. That is a signal-quality call for Conan, now with a concrete reason.
+
+### edgar-mna's sixteen feeds, measured for the first time
+    alert_source_fetches_total: 182    alert_source_fetch_failures_total: 1
+    alert_sources_failing: 0           alert_sources_presumed_dead: 0
+
+**One failure in 182 fetches.** The 2026-09-27 entry put PRNewswire at "roughly
+one cycle in five" from a twenty-one minute window. Over 22 cycles the rate is
+0.5%. That entry said deciding whether PRNewswire is flaky or dying needed the
+counter rather than more log lines; the counter's answer is that the
+one-in-five figure was a bad sample. Nobody had ever had a number for these
+sixteen feeds before this window.
+
+`fda-catalysts` is unchanged and correctly reported: `14/15 sources healthy;
+failing: FiercePharma (x20, presumed dead)`, a 403 on every cycle.
+
+**The new escalation rule is doing exactly what it was built for.**
+`alert_source_fetch_failures_total` is 23 while FiercePharma accounts for 20, so
+three transient failures happened in the window and produced no log line at all:
+a failing run that was never announced recovered silently. Under the old rule
+those three would have cost up to twelve lines.
+
+### Still not settled
+- **`alert_sends_refused_total` is 0 everywhere**, so #25's duplicate-send fix is
+  still unproven under contention — but it is now a cumulative number rather
+  than a window, which is the better version of the check.
+- **Whether the archive holds anything** — see the absent counter above.
+
+### A plan-output defect found by reading the plan
+Each of the four UPDATEs reported `environment … (polling, delivery, health or
+state config changed)`. None of that config changed. `ALERT_DEPLOYED_REF` is part
+of the rendered environment (`unit.go:145`) and the env hash is computed at the
+desired ref (`plan.go:155`), so **a ref roll moves the env hash on its own and
+trips a reason that names four things, none of them true.**
+
+It fired four times in the one apply this run. §6 tells the operator to read the
+plan and refuse a surprising one, so a line that cries wolf on every release is
+a safety problem and not a cosmetic one: an operator trained to expect "config
+changed" on every roll will not notice the roll where config actually did change.
+Backlog item added with the fix, which is to recompute the hash at the observed
+ref and say which of the two it was.
+
+- Catch-up: `v0.6.0` is live on all four services — thank you for the tag; it
+  went out cleanly and nothing rolled back. The instrumentation paid for itself
+  immediately. `form4-insider`'s silence is not the filter anyone has been
+  blaming for four runs: its feed returns 100 filings a cycle and every one is
+  already handled, so no filter branch runs. Its leaderboard turns out to be
+  full (13,782 insiders) but entirely unscored. And one thing to distrust:
+  `alerts sent = 1` on each service is the "bot started" message, not an alert —
+  this fleet has still never sent a real one.

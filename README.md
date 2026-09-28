@@ -240,13 +240,12 @@ Stated because they are real, not because they are planned away.
   User-Agent in `v0.3.0` is the only change that could account for it, which
   makes the User-Agent the likely cause for that feed and leaves `FiercePharma`
   a genuinely dead or IP-blocked endpoint.
-- **`edgar-mna`'s sixteen feeds are unmeasured in production.** Source-health
-  accounting is merged but reaches the host only with the next tag, so today
-  the service can report that a feed 404'd and cannot report that it has been
-  404ing for a week. One feed is known to be unreliable from reading the
-  journal directly: PRNewswire answered with 404, 502, 503 and read timeouts
-  roughly one cycle in five on 2026-09-27. What share of the other fifteen
-  work is not yet knowable.
+- **`edgar-mna`'s sixteen feeds fail about 0.5% of the time.** Measured on
+  2026-09-28, the first cumulative reading: 182 fetches, 1 failure, no source
+  failing or presumed dead. A twenty-one-minute window on 2026-09-27 had put
+  PRNewswire at roughly one cycle in five, which the longer run shows was a bad
+  sample. PRNewswire does redirect and then 404 inconsistently, and that is not
+  ours to fix; the rate is what matters and it is now visible.
 - **`clinical-trials` examines hundreds of trials per cycle and alerts on
   none.** Measured rather than inferred, since `v0.5.0` shipped the funnel: the
   fetch reads its whole match (`787 of 787 ... in 4 page(s)` on 2026-09-23,
@@ -255,23 +254,36 @@ Stated because they are real, not because they are planned away.
   stored one. `detect_signal` fires only on a status transition, so there is
   nothing to fire on. Whether to widen what counts as an event is a
   signal-quality decision, not a bug ([ADR 0006](docs/adr/0006-candidate-funnel.md)).
-- **`form4-insider` runs one of its four filter branches.** The service is
-  built around "alert when a top-quartile insider trades", and that branch has
-  never been able to fire: the leaderboard it reads is populated by
-  `form4_scorer.py` after `form4_backfill.py`, neither of which is in the fleet
-  spec, so neither runs on a schedule. `get_alpha_cutoff` returns `None`, the
-  host logs `alpha cutoff refreshed {"cutoff": null}` every hour, and every
-  trade under $1M is refused. **The live filter is "any open-market trade over
-  $1M"**; the $100k floor and the alpha comparison are unreachable. Whether the
-  scorer becomes a managed unit or the filter stops depending on it is a
-  signal-quality decision, not a bug.
+  One reading looks alarming and is not: on a Monday before the US business day
+  the two-day window holds only a weekend, so the service correctly reports
+  `Streamed 0 of 0`. It also means the window ages Friday's updates out over the
+  weekend, which is an argument for widening it.
+- **`form4-insider` reaches none of its four filter branches.** Measured on
+  2026-09-28, the first funnel window on the host: the SEC feed returns 100
+  filings a cycle and **not one is new** — every accession has already been
+  processed, so nothing is fetched, nothing is parsed, and no filter branch runs.
+  That is expected in a pre-market window rather than broken, because the table
+  it deduplicates against is written on every path a filing takes, including
+  failed fetches and refusals. The reading that means something is the post-close
+  hour, when Form 4s are actually filed.
+  Its leaderboard turns out to be **full and unscored**, not empty: 13,782
+  insiders and 32,592 transactions, of which 0 are scored, because
+  `form4_backfill.py` has run and `form4_scorer.py` never has. So **the live
+  filter is "any open-market trade over $1M"** and the $100k floor and alpha
+  comparison are unreachable — but scoring the leaderboard would change nothing
+  while no candidate reaches the branch that reads it. Whether the scorer becomes
+  a managed unit is a signal-quality decision, and it is downstream of the
+  dedup reading, not ahead of it.
 - **The alert archive has no reader yet.** Since the `v0.4.0` deploy on
   2026-09-23 every alert is recorded to an append-only table in the service's
   state directory ([ADR 0005](docs/adr/0005-alert-archive.md)), which closes the
   gap that blocked measuring signal quality. Getting those rows *out* — an
   `alerts` read verb and a console panel — needs the wrapper to accept a new
   read verb ([ADR 0004](docs/adr/0004-wrapper-adoption.md)). Until then the rows
-  accumulate on the host and can only be read there.
+  accumulate on the host and can only be read there — and **not even their count
+  is visible**: `alert_archive_records_total` is absent from the metrics snapshot
+  rather than zero, because the archive is constructed lazily and a service that
+  has archived nothing never declares the counter.
 - **Nothing backs the archive up.** `state.backup` is declared in the spec
   with no job behind it, and there is now data under `/var/lib/alert-platform/`
   whose loss would be irreversible rather than merely inconvenient.
@@ -281,8 +293,13 @@ Stated because they are real, not because they are planned away.
 - **Nothing scrapes `/metrics`.** The endpoint binds to the host's loopback and
   no Prometheus exists yet, so the counters are read from the journal instead:
   each service writes its whole registry there every 15 minutes and once at
-  shutdown. That is a workaround for the missing scraper, not a replacement for
-  one — two snapshots give a rate, a dashboard would give a history.
+  shutdown, live on all four services since 2026-09-28. That is a workaround for
+  the missing scraper, not a replacement for one — two snapshots give a rate, a
+  dashboard would give a history, and **every counter resets when a deploy
+  restarts the process**, so a snapshot is cumulative since process start rather
+  than since the beginning. One counter also needs reading with care:
+  `alert_alerts_sent_total` includes each service's "bot started" message, so it
+  reads 1 on a fleet that has delivered no alerts.
 - **`drift` is not a backstop against forgetting to deploy.** It compares refs
   and unit hashes only, so an in-place edit inside a release directory is
   invisible to it; and it compares against the specs in the host's *own*
