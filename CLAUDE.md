@@ -359,33 +359,28 @@ the evidence, and continue.
 
 Verify and update this section as you learn.
 
-**Repository.** `main` is green. Tags `v0.1.0`–`v0.5.0`, all of them released
-by Conan on request. `clinical-trials` runs `v0.5.0`; the other three run
-`v0.4.0`, deliberately — `v0.5.0` changes only `clinical_trials/main.py` plus a
-new `alertlib` module nothing else imports. **Three merged changes are ahead of
-every tag:** the metrics snapshot (`19ae3e2`, #55), the form4 funnel
-(`82d7380`, #61) and `edgar-mna`'s source health (`d0b33cf`, #63). Issue #56
-asks for `v0.6.0` at `d0b33cf`, which contains all three. Two of them touch
-`alertlib` code every service runs, so when the tag exists all four services
-roll. The `go.mod` module path is
-`github.com/conan0h/alert-platform`; tags up to `v0.1.2` predate the rename and
-carry `conanohara`, so `go install …@latest` needs a newer tag.
+**Repository.** `main` is green. Tags `v0.1.0`–`v0.6.0`, all of them released
+by Conan on request (#41, #50, #56). All four services run `v0.6.0`, which is
+`d0b33cf`: the metrics snapshot (#55), the form4 funnel (#61) and `edgar-mna`'s
+source health (#63). Nothing is merged ahead of the tag. The `go.mod` module path
+is `github.com/conan0h/alert-platform`; tags up to `v0.1.2` predate the rename
+and carry `conanohara`, so `go install …@latest` needs a newer tag.
 
-**Production, verified 2026-09-26.** All four services are `active`, `enabled`
+**Production, verified 2026-09-28.** All four services are `active`, `enabled`
 and answer `/healthz`. `drift` reports no drift, exit 0. `history` matches the
-log: seven successful service applies across four pipeline runs, no rollback
+log: eleven successful service applies across five pipeline runs, no rollback
 since August.
 
     SERVICE          REF      STATE   DEPLOYED               BY
-    clinical-trials  v0.5.0   active  2026-09-23T08:55:35Z   gha:35839768109
-    edgar-mna        v0.4.0   active  2026-09-23T08:21:12Z   gha:35836370892
-    fda-catalysts    v0.4.0   active  2026-09-23T08:22:26Z   gha:35836370892
-    form4-insider    v0.4.0   active  2026-09-23T08:23:39Z   gha:35836370892
+    clinical-trials  v0.6.0   active  2026-09-28T08:27:02Z   gha:36397285647
+    edgar-mna        v0.6.0   active  2026-09-28T08:28:15Z   gha:36397285647
+    fda-catalysts    v0.6.0   active  2026-09-28T08:29:30Z   gha:36397285647
+    form4-insider    v0.6.0   active  2026-09-28T08:30:43Z   gha:36397285647
 
-`deploy.yml` run 8 applied plan `345baa3a5442` — four UPDATEs, `Applied 4
-change(s)` in 303s. Run 10 applied `d237e2d4a7cf` — `1 to change, 3 unchanged`,
-`✓ clinical-trials healthy at v0.5.0`, 88s. Seven service applies have now gone
-through the pipeline and none has needed a rollback.
+`deploy.yml` run 13 planned `2880151f4eb5` — four UPDATEs, `4 to change, 0
+unchanged`. Run 14 applied it: `✓ … healthy at v0.6.0` four times, `Applied 4
+change(s)`, host exit 0, 305.9s. All four rolled on §6's shared-`alertlib`
+clause, checked by diff.
 
 **`infra.yml` is proven, 2026-09-22.** Run 6 on `f5ac4f5` assumed the infra role
 via OIDC, read remote state, and reported `No changes. Your infrastructure
@@ -396,39 +391,105 @@ and that wildcard matches the read a plan's refresh needs, so every plan died
 before printing a change. Narrowed in #36, with `tools/check_iam_denies.py`
 failing CI on any wildcard inside a Deny.
 
-**`fda-catalysts` has one dead source, not two** (2026-09-23, from the host):
-`14/15 sources healthy; failing: FiercePharma (x1)`. `EndpointsNews` answers
-again after the `v0.3.0` per-destination User-Agent. `FiercePharma` refuses a
-correct descriptive UA too and is presumed dead. The same read confirmed the
-#43 source-health fix in production: printed every cycle with a climbing
-counter on `v0.3.0`, once at cycle 1 and then silent on `v0.4.0`.
+**The counters are readable, and two of them do not say what they seem to.**
+The metrics snapshot is live on all four services since the 2026-09-28 apply:
+grep `metrics snapshot` in a `logs` window for the whole registry, and difference
+two of them against `alert_uptime_seconds` for a rate. Backlog #38 is closed. But
+the first reading of the values found two traps, both now backlog items:
 
-**`clinical-trials` alerts on nothing because no status ever changes.**
-Measured, not inferred — the funnel's first cycle on `v0.5.0`:
-`streamed=787 parsed=787 known=787 first_sight=0 first_sight_completed=0
-changed=0 signals=0 sent=0`, after `Streamed 787 of 787 … in 4 page(s)`. The
-fetch reads the whole match, every trial is already known, and none has a status
-different from the stored one. Backlog #35's original "stuck on page one" theory
-and ADR 0006's "the transition arrives before we do" hypothesis are both
-disproved. A third reading on 2026-09-24, cycles 280–281, returned `686 of 686`
-with the same `changed=0` and `new_in_window=0`: the window's membership does roll
-with the date (399 → 787 → 686), which is the last thing the stuck-query theory
-rested on.
+- **`alert_alerts_sent_total` reads 1 on every service and no alert has been
+  sent.** It is the startup "bot started" message: the increment is in the
+  Telegram transport (`telegram.py:107`), not in `Service.send_alert`. Do not
+  read this counter as evidence that the fleet has ever delivered an alert — it
+  has not. Backlog #37.
+- **`alert_archive_records_total` is absent from the snapshot, not zero.**
+  `AlertArchive` is constructed lazily, so a service that has archived nothing
+  never declares the counter. Whether the archive is filling is therefore still
+  unknown. Backlog #41.
 
-**The rate is not yet established**, and until `v0.6.0` it cannot be read at all
-— `alert_funnel_changed_total` lives on `/metrics`, which nothing off the host can
-reach. The metrics snapshot (below) is the instrument; the reading is the first
-`logs` window after the `v0.6.0` apply.
+**Every counter resets on restart, and every deploy restarts everything.** A
+snapshot is cumulative since process start, not since the beginning, so it cannot
+answer a historical question on the day you ship it.
+
+**`form4-insider`'s candidates stop at the first stage, not at its filter.**
+Measured 2026-09-28, first funnel window on the host:
+
+    funnel: entries=100 new=0 fetched=0 parsed=0 claimed=0 transactions=0
+            code_not_actionable=0 planned_sale=0 below_floor=0 large_trade=0
+            no_insider_history=0 thin_history=0 no_leaderboard=0
+            below_cutoff=0 top_tier=0 sent=0 new_in_window=0
+
+100 entries a cycle, none new; `alert_funnel_entries_total` 900 over nine cycles
+with `alert_funnel_new_total` 0. **No filter branch runs at all** —
+`no_leaderboard=0` is a zero, not a count — so four runs of reasoning about which
+branch refuses candidates were aimed a stage too late. This is expected in a
+pre-market window rather than a bug: `alerted` is written on every path a filing
+takes, including failed fetches and refusals (`main.py:383, 390, 402`), so it is
+an already-processed table and the feed's latest 100 do not turn over overnight.
+The read that means something is the post-close hour — backlog #42.
+
+**Its leaderboard is full and unscored, not empty.**
+`insiders 13782, transactions 32592, eligible 0, scored 0`: `form4_backfill.py`
+has run and `form4_scorer.py` never has. Backlog #39 was opened on "the table is
+empty", which is wrong. And scoring it would change nothing while `new=0`, so
+#39(b) is downstream of #42 and should not be done first.
+
+**`form4-insider` does fetch a filing occasionally.** Read 2026-09-27 at
+02:21–02:42Z, which is 22:21 ET, after the US close. Cycles 2698–2708 ran
+0.13s to 0.42s with one exception: **cycle 2702 took 2.32s**, about the cost of
+fetching and parsing one filing's XML. Read together with the funnel above, that
+is the one observed window where `new` was probably non-zero — and it is the
+reason to sample the post-close hour rather than the scheduled one (backlog #42).
+An earlier entry read this as "reaches its filter and refuses"; that was an
+inference. No branch counter has yet been seen above zero.
+
+**A source is spoken about from its second consecutive failure, not its first**
+(#63), and a failing run that was never announced recovers silently. A flapping
+source was costing four log lines per blip — `fda-catalysts` produced that
+sequence twice for PRNewswire-Biotech in one window — so a feed that is 80% fine
+out-logged one that is dead. Every failure is still counted in
+`alert_source_fetch_failures_total`: the journal reports conditions, the counters
+report rates.
+
+**`edgar-mna`'s sixteen feeds are measured: one failure in 182 fetches.**
+2026-09-28, 22 cycles: `alert_source_fetches_total 182`,
+`alert_source_fetch_failures_total 1`, no source failing or presumed dead. The
+2026-09-27 entry put PRNewswire at "roughly one cycle in five" from a
+twenty-one-minute window; over a longer run the rate is 0.5%, so that figure was
+a bad sample. This is the first number anyone has had for these feeds.
+
+**`fda-catalysts` has one dead source.** `14/15 sources healthy; failing:
+FiercePharma (x20, presumed dead)` — a 403 on every cycle, unchanged since
+August and presumed dead. `EndpointsNews` recovered with the `v0.3.0`
+per-destination User-Agent. The second-failure escalation rule from #63 is
+working as designed: `alert_source_fetch_failures_total` read 23 while
+FiercePharma accounted for 20, so three transient failures produced no log line
+at all.
+
+**`clinical-trials` alerts on nothing because no trial's status ever changes.**
+Measured on `v0.5.0`: `streamed=787 parsed=787 known=787 first_sight=0
+first_sight_completed=0 changed=0 signals=0 sent=0` after `Streamed 787 of 787 …
+in 4 page(s)`. The fetch reads the whole match, every trial is already known, and
+none has a status different from the stored one. Backlog #35's original "stuck on
+page one" theory and ADR 0006's "the transition arrives before we do" hypothesis
+are both disproved. The window's membership rolls with the date: 787 → 686 → 602
+→ 843 → 530 across five days.
+
+**A Monday pre-market reading is `0 of 0`, and that is correct.** 2026-09-28 at
+08:41Z. `fetch_recent_changes` asks for the last two days, so on a Monday before
+the US business day the window is Saturday, Sunday and a few dark hours — the
+week's only two-day window containing no business day. The Monday a week earlier
+read 399 on `v0.1.0`, before `countTotal` existed, so that was what it streamed
+rather than what matched; not a counter-example. **Do not open an incident on
+this reading.** What it does argue is a product point for #35: `days_back=2`
+blinds the service every Monday morning and ages Friday's updates out over the
+weekend.
 
 **Not yet observed:** whether the duplicate-alert loop actually stopped.
-`form4-insider` reached cycle 719 by 2026-09-24 with no `database is locked`, no
-repeated send and no `sends_refused` in any window read — consistent with the fix
-and not proof of it, because no alert has fired in any observed window, so the
-record-then-send path has never run under contention. Do not upgrade this to
-"confirmed" without a window containing an actual send. `alert_sends_refused_total`
-in the metrics snapshot is the cheap version of that check once `v0.6.0` lands:
-it covers every cycle since process start rather than the window you happened to
-read.
+`alert_sends_refused_total` is 0 on all four services and no alert has fired in
+any observed window, so the record-then-send path has never run under contention.
+Consistent with the fix and not proof of it. It is now a cumulative number rather
+than a window, which is the better version of the check.
 
 Note the `logs` window **defaults to one hour**, not one day, and it returns the
 *oldest* part of it: on 2026-09-22 at 08:03 a one-hour request returned 07:03:14
@@ -437,6 +498,41 @@ the wrong end. Two earlier log entries expected that window to slide far enough
 to show a previous evening's event; it cannot. Since #39 `observe.yml` takes a
 `--since` input, so asking for a short window is how you see all of it; the
 truncation itself is still unfixed (backlog #32).
+
+**Every scheduled run reads the same pre-market hour unless you act on it.** The
+schedule fires at ~08:15 UTC, which is 04:15 ET: Form 4s are filed after the US
+close, so that window is the quietest of the day by construction. The fix costs
+nothing and uses a bug: `logs` returns the *oldest* part of its window (#32), so
+`since=6 hours ago` at 08:22 returns 02:21 onward — 22:21 ET, the post-close
+hour. **Ask for a long window when you want a different hour and a short one when
+you want a whole hour.** Cumulative counters remain the better answer, which is
+the other reason the metrics snapshot matters.
+
+**A plan reports `environment … (polling, delivery, health or state config
+changed)` on every ref roll, and it is false.** The deployed ref is part of the
+rendered environment (`unit.go:145`) and the env hash is computed at the desired
+ref (`plan.go:155`), so a ref change always moves it. It fired four times in the
+`v0.6.0` apply with no such config changed. Read it as "the ref moved" unless
+something else in the plan says otherwise; backlog #43 has the fix.
+
+**Known gaps.** Content drift: in-place edits inside a release directory are
+invisible to `drift`. `dedup.keys` is declared but not consumed. `state.backup`
+is declared with no job behind it. **`drift` compares the host's services against
+the specs in the host's own checkout, not against `origin/main`**, which only a
+`plan` syncs — so a merged release that has not been applied shows no drift and
+exit 0. `drift` is not a backstop against forgetting to deploy. What a read verb
+*does* now say is which commit it answered from: `status` and `drift` print the
+revision stamped into the binary and `ssm-run` annotates the run when it is not
+the commit the workflow was dispatched from (backlog #23, closed 2026-09-25).
+Alert output has been recorded on the host since the `v0.4.0` apply on
+2026-09-23. There is still no read path for the rows themselves: that needs the
+`alerts` verb, which needs a wrapper change (backlog #27c), and the counter that
+would at least say whether the table is filling is absent rather than zero
+(backlog #41).
+
+**Also unfixed.** Root account access keys are in use. A host-side edit to
+`services/form4_insider/main.py` (`alerted_this_filing`) is not in git.
+`alertctl` runs on the VM over a loopback SSH alias and needs `sudo`.
 
 **Open production questions.**
 1. Resolved 2026-09-21: **secret resolution works.** The first apply through the
@@ -450,94 +546,6 @@ truncation itself is still unfixed (backlog #32).
    `docs/incidents/2026-08-20-v0.1.2-apply-blocked-by-secret-gate.md`.
    **A secret-resolution failure mutates nothing on either pass**, so attempting
    an apply costs a no-op and two accurate `failed` entries.
-
-**Nothing scrapes `/metrics`, so the counters travel by journal** (merged
-2026-09-24, on the host once `v0.6.0` lands). `/metrics` binds to loopback, the
-`health` verb curls `/healthz` and discards the body, and a `metrics` read verb
-is a wrapper change behind ADR 0004 — so every cumulative counter was recorded
-where nothing off the host could read it, and four open questions turned out to
-share that one cause. Each service now writes its whole registry to journald as
-one line every 900s and once at shutdown: grep `metrics snapshot` in a `logs`
-window, and difference two of them against `alert_uptime_seconds` for a rate.
-A workaround for the missing scraper, not a replacement — two lines give a rate,
-a dashboard would give a history.
-
-**Known gaps.** Content drift: in-place edits inside a release directory are
-invisible to `drift`. `dedup.keys` is declared but not consumed. `state.backup`
-is declared with no job behind it. **`drift` compares the host's services against
-the specs in the host's own checkout, not against `origin/main`**, which only a
-`plan` syncs — so a merged release that has not been applied shows no drift and
-exit 0. `drift` is not a backstop against forgetting to deploy. What a read verb
-*does* now say is which commit it answered from: `status` and `drift` print the
-revision stamped into the binary and `ssm-run` annotates the run when it is not
-the commit the workflow was dispatched from (backlog #23, closed 2026-09-25).
-Alert output has been recorded on the host since the `v0.4.0` apply on
-2026-09-23, the first time any alert has been persisted anywhere. There is still
-no read path for the rows themselves: that needs the `alerts` verb, which needs a
-wrapper change (backlog #27c). `alert_archive_records_total` in the metrics
-snapshot answers whether the table is filling, which is the question that was
-blocking, but not what is in it.
-
-**`form4-insider` is running one filter branch, not four.** The host logs
-`alpha cutoff refreshed {"cutoff": null}` every hour: no insider has five or
-more scored trades, so `should_alert` refuses everything under $1M with `no
-leaderboard cutoff available`. The "top 25% of scored insiders" filter the
-service is built around cannot fire until `form4_scorer.py` has run, and that
-script is not in the fleet spec. Backlog #39; found 2026-09-25, in a line three
-earlier runs read past. **The instrument for it is merged** (PR #61): a funnel
-line per cycle whose last stages are the filter's own decision, plus leaderboard
-row counts that say whether `insiders` is empty or merely unscored. It needs a
-tag to reach the host, and note the hourly line is renamed there — grep
-`leaderboard state`, not `alpha cutoff refreshed`.
-
-**The cycles are 0.2 seconds long, which is the shape of the same problem.**
-Read 2026-09-26: `form4-insider` cycles 2155, 2156 and 2158 took 0.21s, 0.20s
-and 0.21s. That is the feed fetch alone — no filing was fetched or parsed, so
-every accession in the feed was already in `alerted`. Which of five silences
-that is, the funnel above will say.
-
-**It holds in the busy hour too, but not absolutely.** Read 2026-09-27 at
-02:21–02:42Z, which is 22:21 ET — after the US close, when Form 4s are actually
-filed. Cycles 2698–2708 ran 0.13s to 0.42s, with one exception:
-**cycle 2702 took 2.32s**, about the cost of fetching and parsing one filing's
-XML. So the service does reach its filter occasionally, and refused whatever it
-found. That is the first evidence of the filter running at all, and it narrows
-the 2026-09-26 framing: not "never fetches", but "fetches perhaps once an
-hour". The funnel will say which branch refused it.
-
-**Every scheduled run had read the same pre-market hour, and there is a way
-out of it.** The first five "no alert in any observed window" readings are all
-from roughly 08:15 UTC, which is 04:15 ET: Form 4s are filed after the US
-close, so that window is the quietest of the day by construction. The readings
-were real and the inference from them was weaker than it looked.
-
-The fix costs nothing and uses a bug: `logs` returns the *oldest* part of its
-window (#32), so `since=6 hours ago` at 08:22 returns 02:21 onward — 22:21 ET,
-the post-close hour. That is how 2026-09-27 got its reading. **Ask for a long
-window when you want a different hour and a short one when you want a whole
-hour.** Cumulative counters remain the better answer, which is the other reason
-the metrics snapshot matters.
-
-**`edgar-mna`'s sixteen feeds are unmeasured in production until the tag.**
-Source health is merged (`d0b33cf`, #63) but the host runs `v0.4.0`. What is
-known from reading the journal directly on 2026-09-27: PRNewswire-AllNews
-failed roughly one cycle in five over twenty-one minutes — a read timeout, a
-502, a 503 and three 404s. The 404s name the URL with a trailing slash we do
-not configure and the 502/503s name it without, which is `requests` reporting
-the post-redirect URL: PRNewswire redirects and then 404s inconsistently. So
-the URL is not ours to fix, the failure rate is the thing to measure, and
-whether the other fifteen feeds work is still unknown.
-
-The same PR changed shared behaviour: **a source is now spoken about from its
-second consecutive failure, not its first**, and an unreported failing run
-recovers silently. A flapping source was costing four log lines per blip —
-`fda-catalysts` produced that sequence twice for PRNewswire-Biotech in the same
-window — so a feed that is 80% fine out-logged one that is dead. The failures
-are still counted in `alert_source_fetch_failures_total`.
-
-**Also unfixed.** Root account access keys are in use. A host-side edit to
-`services/form4_insider/main.py` (`alerted_this_filing`) is not in git.
-`alertctl` runs on the VM over a loopback SSH alias and needs `sudo`.
 
 **Environment.** No `gh` CLI — use the GitHub MCP tools. The system `python3`
 lacks `pyyaml`, `jsonschema`, `ruff` and `pytest`; build a 3.12 venv. The

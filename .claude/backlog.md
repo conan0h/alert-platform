@@ -68,9 +68,11 @@ actually emit.
     rather than raised (a missing archive row is lost measurement; a missing
     dedup row is duplicate alerts that reach a human).
 
-    **Whether the table is filling is answered by #38's snapshot**
-    (`alert_archive_records_total`) from `v0.6.0` on. What is *in* the rows still
-    needs (c) or (d).
+    **Whether the table is filling is still not answered.** #38's snapshot was
+    supposed to do it via `alert_archive_records_total`, and on `v0.6.0` that
+    counter is *absent* from all four snapshots rather than zero — the archive is
+    constructed lazily, so a service that has archived nothing never declares it.
+    See #41. What is *in* the rows still needs (c) or (d).
 
     **Recording has been live since the `v0.4.0` apply on 2026-09-23**, the first
     time any alert has been persisted anywhere. No row has been read yet, from
@@ -99,40 +101,26 @@ actually emit.
     (b) surface it in `history` and the console, (c) test both paths.
 
 31. **This session cannot cut a release tag.**
-    `needs-conan — issue #56 open, asking for v0.6.0 at 19ae3e2`
-    Issue #50 is closed: Conan cut `v0.5.0` at `837b327`, verified by ancestry,
-    rolled in #53 and applied. Four tags have now been cut this way.
-    `v0.4.0` is deployed on all four services as of 2026-09-23. The funnel
-    accounting for #35 is merged to `main` and needs `v0.5.0` before it can run
-    anywhere, which is the whole point of it.
-    **Three merged service changes now wait on `v0.6.0`:** the metrics snapshot
-    (#55), the form4 funnel (#61) and `edgar-mna` source health (#63). Issue #56
-    is retargeted to `d0b33cf`, which contains all three, and all four services
-    roll when it exists.
-    **Issue #41 is closed.** Conan cut `v0.3.0` (at `0f0541b`) and `v0.4.0` (at
-    `4036ffa`) on 2026-09-22. Both are deployed or rolled: `v0.3.0` is live on
-    `fda-catalysts` and verified over 329 cycles; `v0.4.0` is rolled into all
-    four specs (#46) and **awaits its apply**, which is the next run's first
-    task. Note the coordination failure worth not repeating: two concurrent
-    sessions asked for `v0.3.0` at different commits, the tag landed on one of
-    them, and the issue's four-service plan was then wrong for the tag that
-    existed. Verify what a tag contains by ancestry before rolling to it.
-    Verified 2026-09-21 by trying all three routes: `git push origin v0.2.0` →
+    `needs-conan each release; five tags cut this way, most recently v0.6.0`
+    Verified 2026-09-21 by trying all three routes: `git push origin <tag>` →
     403; `POST /releases` → 403 "Creating, editing, or deleting releases is not
     permitted for this session type"; `POST /git/refs` → 403 "Write access to
-    this GitHub API path is not permitted through this proxy". CLAUDE.md had
-    asserted the opposite and now records the truth.
-    This blocks every deploy, because `source.ref` must match
+    this GitHub API path is not permitted through this proxy".
+    This gates every deploy, because `source.ref` must match
     `^v\d+\.\d+\.\d+$` and the engine clones with `--branch`, so neither a
     branch nor a SHA is a usable substitute. Loosening that pattern would weaken
     a §2 guarantee to work around a permissions limit, which is not a trade to
     make unilaterally.
     Mitigation, not a fix: hand Conan the prefilled release URL, which is one tap
-    on a phone. A real fix would be a deploy-time mechanism that does not need a
-    human for each release — a signed artifact, or a bot token with `contents:
-    write` held by a workflow rather than by this session. Worth designing once
-    #28's infra ownership lands, since that is the same shape of problem.
-
+    on a phone. Issues #41, #50 and #56 all closed this way with no friction, so
+    the handoff route works; what it costs is a run of latency per release.
+    A real fix would be a deploy-time mechanism that does not need a human for
+    each release — a signed artifact, or a bot token with `contents: write` held
+    by a workflow rather than by this session. Worth designing when release
+    latency actually hurts; it has not yet.
+    **Verify a tag by ancestry before rolling to it.** Two concurrent sessions
+    once asked for `v0.3.0` at different commits, the tag landed on one of them,
+    and an issue's four-service plan was then wrong for the tag that existed.
 
 32. **`logs` returns the oldest part of its window, which is backwards.**
     `todo`
@@ -169,6 +157,65 @@ actually emit.
     22:21 ET. Bounding output with `journalctl -n` would make the tail survive
     and take this away, so the fix wants an explicit way to ask for the head of
     a window as well: `--since` plus a direction, not `--since` alone.
+
+41. **`alert_archive_records_total` is absent from the snapshot, not zero.**
+    `todo — found 2026-09-28, blocks the last open half of #27`
+    The counter meant to answer "is the alert archive filling" is not emitted by
+    any of the four services. `AlertArchive` is constructed lazily in
+    `Service` (`service.py:112`) so that a service which never alerts never
+    creates its database file — good for the backup and for keeping empty
+    databases off the host, but it means the counter is declared only after the
+    first archived alert. No service has archived one, so none declares it.
+    An absent metric is worse than a zero: it cannot be told apart from a metric
+    nobody added, and #38 was merged believing this question was answered.
+    Fix: declare the counter at `Service` construction and seed it from
+    `AlertArchive.count()` at startup, so it reports **rows in the table**
+    rather than rows written by this process. That also survives the restart
+    every deploy causes, which the current in-process counter does not — the
+    archive has been recording since the `v0.4.0` apply on 2026-09-23 and a
+    fresh counter cannot see any of it.
+    Seeding needs the file to exist, so keep the lazy create and treat "no file"
+    as a genuine zero. Test both: no database → 0, populated database → its row
+    count, and a declared-but-unseeded counter never regresses to 0 on restart.
+
+42. **Read `form4-insider`'s funnel in the post-close hour, not the scheduled one.**
+    `todo — the one read that decides #39(b)`
+    The first funnel window (2026-09-28, 08:37–08:46Z = 04:37 ET) reads
+    `entries=100 new=0` with every later stage 0. **That is expected, not a
+    bug**, and the code says why: `alerted` is written on *every* path a filing
+    takes — sent, refused, failed fetch, failed parse (`main.py:383, 390, 402`)
+    — so it is an already-processed table, and pre-market the feed's latest 100
+    do not turn over. The name `alerted` is misleading for what it holds; worth
+    a comment rather than a rename, since the column is on disk.
+    So the branch histogram means nothing until candidates actually flow. Form 4s
+    are filed after the US close, and the 2026-09-27 reading (22:21 ET) showed
+    one cycle in eleven taking 2.32s — about one filing fetched per hour.
+    **The read:** `observe.yml verb=logs since=6 hours ago`, which returns the
+    *oldest* part of its window (#32) and therefore the post-close hour. Then
+    `alert_funnel_new_total`, `_fetched_total`, and whichever named branch is
+    non-zero. `alert_funnel_entries_total` over `alert_uptime_seconds` gives the
+    feed's turnover rate rather than one window's snapshot.
+    Only once a branch shows a positive count does #39(b) — scorer as a managed
+    unit, or a filter that does not need one — have evidence to be decided on.
+
+43. **A plan says config changed when only the ref did.** `todo`
+    Every one of the four UPDATEs in the `v0.6.0` apply printed
+
+        environment  <old> -> <new>
+                     (polling, delivery, health or state config changed)
+
+    and none of that config had changed. `ALERT_DEPLOYED_REF` is part of the
+    rendered environment (`unit.go:145`) and the env hash is computed at the
+    *desired* ref (`plan.go:155`), so a ref roll always moves it.
+    This is a safety defect rather than a cosmetic one. §6 tells the operator to
+    read every plan and refuse a surprising one; a reason that fires on every
+    release trains them to skim past the line that would matter on the release
+    where config genuinely did change. Same class as the `built` → `committed`
+    mislabel fixed in #59.
+    Fix: recompute the hash at the observed ref. If that matches what the host
+    reports, the ref accounts for the whole difference and the plan should say
+    so; otherwise keep the existing wording, because something else did move.
+    Table-driven test for three cases: ref only, config only, both.
 
 ## P0 — Carried forward
 
@@ -248,6 +295,23 @@ actually emit.
     change. Next step is a read, not an investigation:
     `alert_funnel_changed_total` over a day, from `/metrics`.
 
+    **The Monday window is empty by construction** (2026-09-28, 08:41Z):
+    `Streamed 0 of 0 … in 1 page(s)`, where the five previous readings gave 787,
+    686, 602, 843 and 530. `fetch_recent_changes` asks for the last two days, so
+    on a Monday before the US business day the window is Saturday, Sunday and a
+    few hours of Monday — **the only two-day window in the week containing no
+    business day**, and the first Monday since `v0.5.0` shipped the funnel. The
+    Monday a week earlier read 399 on `v0.1.0`, before `countTotal` existed, so
+    that number was what it streamed rather than what matched; not a
+    counter-example. `countTotal` is what makes `0 of 0` readable as "the API
+    reported no matches" rather than "we failed to read".
+
+    That sharpens the decision below with a second, concrete option:
+    **`days_back=2` blinds this service every Monday morning and ages Friday's
+    updates out over the weekend.** `days_back=4` would carry Friday across at
+    the cost of re-examining more already-known rows — which costs little, since
+    `changed=0` is the bottleneck rather than throughput.
+
     **Then a decision for Conan, not a fix for me.** If the rate really is near
     zero, the service is watching a stream in which its declared events are
     rare, and the options are to widen what counts as an event (results posted,
@@ -255,73 +319,72 @@ actually emit.
     by design. That is a signal-quality judgment about what the channel is for.
 
 38. **Every cumulative counter is recorded where nothing can read it.**
-    `merged 19ae3e2 (#55); needs v0.6.0 to reach the host — handoff #56`
-    Found by trying to do what the previous run said the next one should:
-    read `alert_funnel_changed_total` over a day. There is no way to. `/metrics`
-    binds to the host's loopback, the `health` verb discards the response body
-    and probes only `/healthz`, and a `metrics` read verb would be a wrapper
-    change (ADR 0004, #24). So four questions the counters were added to answer
-    are unanswerable from here:
+    `done 2026-09-28 — live on all four services at v0.6.0`
+    `/metrics` binds to the host's loopback, the `health` verb discards the
+    response body, and a `metrics` read verb would be a wrapper change (ADR
+    0004). So the counters were recorded where nothing off the host could read
+    them. Fixed in the shape that worked for source health: the poll loop writes
+    the whole registry to journald every 900s and once at shutdown. Verified in
+    production 2026-09-28 — four snapshot lines, whole registry, with
+    `alert_uptime_seconds` beside the counters. Grep `metrics snapshot`.
 
-    - has any alert ever been delivered (`alert_alerts_sent_total`),
-    - is the archive filling (`alert_archive_records_total`, #27),
-    - how often does a trial status move (`alert_funnel_changed_total`, #35),
-    - has a send ever been refused (`alert_sends_refused_total`, #25).
+    **Two of the four questions it was built to answer are still open, and the
+    snapshot is why we now know that:**
+    - `alert_alerts_sent_total` reads **1 on every service with zero alerts
+      sent**. It is the startup Telegram message: the counter increments in the
+      transport (`telegram.py:107`), not in `Service.send_alert`. See #37, whose
+      "neither recorded nor counted" is half wrong.
+    - `alert_archive_records_total` is **absent from every snapshot**, not zero.
+      `AlertArchive` is constructed lazily (`service.py:112`), so a service that
+      has archived nothing never declares the counter. See #41 below.
 
-    Fix, in the shape that already worked for source health: ship the reader to
-    where the data is. The poll loop writes the whole registry to journald as
-    one line every 900s and once at shutdown, so `logs` answers all four. Not a
-    substitute for a scraper — two snapshots give a rate, not a history — but
-    the scraper does not exist and the counters do.
+39. **`form4-insider` sends nothing because its feed is entirely already-seen.**
+    `(a) done 2026-09-28; (b) open, and now known to be downstream of #42`
+    Retitled 2026-09-28. The item was opened as "the leaderboard is empty, so
+    three of four filter branches are dead". Both halves turned out to be wrong,
+    and the funnel from #61 said so on its first window:
 
-39. **`form4-insider`'s leaderboard is empty, so three of its four filter
-    branches are dead.** `(a)(c) in-pr #61; (b) is a decision for Conan`
-    The host logs `alpha cutoff refreshed {"cutoff": null}` hourly.
-    `get_alpha_cutoff` returns `None` when no insider has five or more scored
-    trades, and `should_alert` then refuses everything below
-    `LARGE_TRADE_USD` ($1M) with `no leaderboard cutoff available`. So the
-    service is not running the filter it was designed around — "top 25% of
-    scored insiders" — it is running "any trade over $1M", and the $100k floor
-    plus the alpha comparison are unreachable code on the host today.
-    `insiders.alpha_90` is populated by `form4_scorer.py` after
-    `form4_backfill.py`, neither of which is in the fleet spec: they are manual
-    scripts with no timer behind them. Slices: (a) confirm from the host
-    whether the table is empty or merely unscored — `alert_...` counters cannot
-    say, so this needs the row count; (b) decide whether the scorer becomes a
-    managed unit (like #8's backup timer) or the filter is rewritten not to
-    depend on it; (c) until then, say in the docs that the live filter is the
-    $1M branch, because "top-tier insider" describes code that cannot run.
-    Note how this surfaced: the line is INFO, once an hour, in a service that
-    logs nothing else — three runs read this window and did not look at it.
+        funnel: entries=100 new=0 fetched=0 parsed=0 claimed=0 transactions=0
+                code_not_actionable=0 planned_sale=0 below_floor=0
+                large_trade=0 no_insider_history=0 thin_history=0
+                no_leaderboard=0 below_cutoff=0 top_tier=0 sent=0
 
-    **(a) and (c) are in PR #61.** The service adopts `alertlib.CycleFunnel`
-    with the filter's own decision as its last stages, so the journal says
-    which of five silences a cycle is in rather than only that it sent
-    nothing; and the hourly line now carries `insiders`, `eligible`, `scored`
-    and `transactions` row counts, with a gauge each, which is the read (a)
-    asked for. The line is renamed `alpha cutoff refreshed` -> `leaderboard
-    state`. Needs a tag to reach the host.
-    **(b) is the open part, and it is a decision rather than a fix:** either
-    `form4_scorer.py` becomes a managed unit with a timer (like #8's backup
-    job) or the filter stops depending on a leaderboard nothing fills. Make it
-    against the row counts from (a), not before them.
-    Sharpened 2026-09-26 by a second reading: the service's cycles take 0.21s,
-    which is the feed fetch alone, so no filing is being fetched or parsed at
-    all — the filter is not even the stage that is refusing. The funnel says
-    which one is.
-    Narrowed again 2026-09-27, from the post-close hour (02:21–02:42Z = 22:21
-    ET) rather than pre-market: cycles 2698–2708 ran 0.13–0.42s **except cycle
-    2702 at 2.32s**, about the cost of one filing's XML. So it is not "never
-    fetches" — it fetches perhaps once an hour and refuses what it finds. The
-    filter does run. Which branch refuses is still the funnel's answer.
+    **(a) answered: the candidates stop at `new`, one stage after the feed.**
+    100 entries a cycle, none new (`alert_funnel_entries_total` 900 over nine
+    cycles, `alert_funnel_new_total` 0). Every accession is already in
+    `alerted`, so **no filter branch runs at all** — `no_leaderboard=0` is a
+    zero, not a count. Four runs' worth of reasoning about which branch refused
+    was aimed a stage too late. The live constraint is dedup, now item #42.
 
-37. **The startup Telegram message bypasses the archive.** `todo`
+    **The leaderboard is full and unscored, not empty:**
+
+        insiders 13782   transactions 32592   eligible 0   scored 0
+
+    `form4_backfill.py` has run; `form4_scorer.py` never has. Nothing is scored,
+    so nothing is eligible, so `get_alpha_cutoff` returns `None`.
+
+    **(b) still a decision for Conan — and no longer urgent.** Either
+    `form4_scorer.py` becomes a managed unit with a timer (like #8's backup job)
+    or the filter stops depending on a leaderboard nothing fills. But while
+    `new=0`, a fully scored leaderboard yields **zero** extra alerts, because no
+    candidate reaches the branch that reads it. Do #42 first; this changes
+    nothing until it is done.
+    **(c) done** — the docs say the live filter is the $1M branch.
+
+37. **The startup Telegram message is counted as an alert.** `todo`
     Each service sends a "bot started" message through `send_telegram` directly
-    rather than `Service.send_alert`, so it is neither recorded nor counted.
-    Harmless for signal quality, but it makes "the archive holds every message
-    the bot sent" untrue, and the archive is the measurement substrate for
-    priority 2. Either route it through `send_alert` with a `startup` source, or
-    state the exclusion in ADR 0005.
+    rather than `Service.send_alert`, so it is not archived.
+    **Corrected 2026-09-28 — it *is* counted.** `alert_alerts_sent_total`
+    increments inside the transport (`telegram.py:107`), so the startup message
+    bumps it while skipping the archive. Every service read
+    `alert_alerts_sent_total: 1` on a fleet that has delivered no alerts, and
+    issue #56 had claimed that counter "answers whether this fleet has ever
+    delivered an alert at all". A counter that reads 1 for zero is worse than a
+    missing one, because it reads as evidence.
+    Fix: route it through `send_alert` with a `startup` source so it is both
+    archived and attributable, or keep it out of the alert counter entirely and
+    state the exclusion in ADR 0005. Prefer the first — "the archive holds every
+    message the bot sent" then becomes true rather than nearly true.
 
 ## P1 — Close the documented gaps (strong design-review material)
 
@@ -439,6 +502,14 @@ actually emit.
   CI. That is how backlog #1 stayed half-hidden.
 
 ## Done
+
+- **#33/#56 — one tag across the whole fleet, twice over.** All four services run
+  `v0.6.0` as of 2026-09-28: `deploy.yml` run 13 planned `2880151f4eb5` (four
+  UPDATEs, `4 to change, 0 unchanged`), run 14 applied it — `✓ … healthy at
+  v0.6.0` four times, `Applied 4 change(s)`, 305.9s, no rollback. Eleven service
+  applies have now gone through the pipeline and none has needed one. The roll
+  covered all four on §6's shared-`alertlib` clause, checked by diff.
+
 
 - **#40 — `edgar-mna` could not say which of its sixteen feeds work.** It now
   reports through `alertlib.SourceHealth` like the other three services

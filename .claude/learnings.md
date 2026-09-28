@@ -545,6 +545,30 @@ period.
 - The correction cost nothing because the item had not been acted on. Had it
   been, the fix would have been to the one part of the service that worked.
 
+**The mirror image, 2026-09-28: the same line read `0 of 0`.** Five days of
+hundreds, then zero, which looks like a break far more than 399 ever looked like
+a cap. It was the calendar. The query asks for the last two days, so on a Monday
+before the US business day the window holds Saturday, Sunday and a few dark
+hours — the week's only two-day window with no business day in it, and the first
+Monday since the instrumented code shipped. Nothing was wrong.
+
+So the rule generalises past constants to **any** surprising number: work out
+what period the number sampled and what that period contained, before reasoning
+about the code. A zero deserves this more than a constant does, because zero
+reads as failure and invites an incident. The near-miss here was writing it up as
+one.
+
+Two guards that did the work:
+- **`countTotal` made the zero legible.** `0 of 0` says the API reported no
+  matches; a bare `streamed=0` could not be told apart from a failed read. When
+  a count can be zero for two different reasons, report the authority's own
+  total beside it.
+- **The tempting counter-example was from different code.** The Monday a week
+  earlier read 399, which would have refuted the whole explanation — except that
+  reading came from `v0.1.0`, before `countTotal`, so it was what the service
+  streamed rather than what matched. Checked in the archive rather than recalled.
+  Comparing readings across a code change is comparing two different questions.
+
 ## Ship the measurement to where the network is, and the question answers itself
 *Learned 2026-09-23, closing a question two sessions could not settle.*
 
@@ -680,6 +704,30 @@ about data that reached the right machine and then had no way off it. Same
 resolution both times: make the system that can see the answer report it as part
 of its normal output.
 
+**Extended 2026-09-28, the first time those counters were read.** The read path
+worked — four snapshots, whole registry, exactly as designed. Two of the four
+questions were still not answered, and only reading the values showed it:
+
+- **`alert_alerts_sent_total` read 1 on every service, with zero alerts sent.**
+  It counts the startup "bot started" message, because the increment lives in the
+  Telegram transport rather than in `Service.send_alert`. A counter that reads 1
+  for zero is worse than a missing one: it reads as evidence. The handoff issue
+  had claimed this counter answered "has this fleet ever delivered an alert".
+- **`alert_archive_records_total` was absent, not zero.** Its owner is
+  constructed lazily, so a service that has archived nothing never declares it.
+  An absent metric is indistinguishable from one nobody wrote.
+
+So the habit from this entry — write down the command that reads the metric, and
+run it — needs a second half: **read the value and check it against something you
+already know to be true.** "A number arrived" is not the test; "the number is the
+one the question asked for" is. Both defects here were invisible from the code
+and obvious from one line of output.
+
+A third thing the values showed: **every counter resets on restart, and a deploy
+restarts everything.** Cumulative-since-process-start is not cumulative-since-ever,
+so a counter cannot answer a historical question on the day you ship it. Where the
+truth is on disk — the archive's row count — seed the counter from it at startup.
+
 ## Look for the capability you already have before designing one you must ask for
 *Learned 2026-09-25, closing backlog #23.*
 
@@ -795,3 +843,35 @@ conditions, the counters report rates. Suppressing the line for an isolated
 failure is only acceptable because `alert_source_fetch_failures_total` still
 counts it, and "is this feed flaky or dying" is a rate question that a log line
 was always the wrong instrument for.
+
+## Explain a diff by its cause, not by a list of things that could cause it
+*Learned 2026-09-28, from reading a plan that was right and said something false.*
+
+The `v0.6.0` apply printed this under all four services:
+
+    environment  <old> -> <new>
+                 (polling, delivery, health or state config changed)
+
+None of that config had changed; the roll touched `source.ref` and nothing else.
+The deployed ref is part of the rendered environment, and the env hash is
+computed at the *desired* ref, so **a ref roll always moves this hash** — and the
+only explanation offered names four other things.
+
+The plan was correct. Its reasoning about itself was not, and that is the part an
+operator reads. It is a safety defect rather than a cosmetic one, because §6 tells
+the operator to read every plan and refuse a surprising one. A line that fires on
+every release is a line nobody reads by the third release, including on the
+release where config genuinely did change — which is the one case it exists for.
+
+The shape of the bug is general: **a hash comparison knows that something
+changed, never what.** Writing the reason as a disjunction of everything the hash
+covers is the tempting shortcut, and it is wrong in whichever case is most
+common. When the inputs are separable, separate them — recompute the hash holding
+one input at the observed value, and the answer says which input moved.
+
+The same mistake, in the same output, cost a relabel in #59: `built <timestamp>`
+was actually the commit's time, not the build's. Both were believed for weeks
+because operator-facing text is not tested the way a return value is, and both
+were caught only by reading real production output rather than a fixture written
+from the same assumption as the code.
+
