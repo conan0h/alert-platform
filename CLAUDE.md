@@ -11,8 +11,8 @@ The owner (Conan) has delegated technical decisions to you, including AWS
 infrastructure (§2). Document every decision and every production action well
 enough that he can review it afterwards and defend it to a senior engineer.
 
-Read this file, then `.claude/backlog.md`, the last five entries of
-`.claude/log.md`, and `.claude/learnings.md`, before doing anything.
+Read this file, then `.claude/backlog.md`, `.claude/log.md` and
+`.claude/learnings.md` before doing anything.
 Older run entries are in `.claude/log-archive.md`; read them only when you
 need the history behind something specific.
 
@@ -73,12 +73,10 @@ follow.
   protection or repository settings.
 - Check `git branch --show-current` immediately before committing. A denied or
   failed command leaves the shell wherever it was.
-- **Release tags are NOT yours to create in this environment.** Verified
-  2026-09-21: `git push origin <tag>` returns 403, `POST /releases` returns
-  "Creating, editing, or deleting releases is not permitted for this session
-  type", and `POST /git/refs` returns "Write access to this GitHub API path is
-  not permitted through this proxy". Cutting a release is a handoff (§10). Do not
-  spend a run rediscovering this. Never move or delete an existing tag.
+- **Release tags are not yours to create.** Every route (tag push, releases API,
+  refs API) returns 403 in this environment. Cutting a release is a handoff
+  (§10); don't retry it. Verify a tag by ancestry before rolling to it. Never
+  move or delete an existing tag.
 - Force-push only your own branch.
 
 **Production**
@@ -357,242 +355,79 @@ the evidence, and continue.
 
 ## 11. Current state
 
-Verify and update this section as you learn.
+Current facts only. When something here is fixed or stops being true, delete it.
 
-**Repository.** `main` is green. Tags `v0.1.0`–`v0.6.0`, all of them released
-by Conan on request (#41, #50, #56). All four services run `v0.6.0`, which is
-`d0b33cf`: the metrics snapshot (#55), the form4 funnel (#61) and `edgar-mna`'s
-source health (#63). Nothing is merged ahead of the tag. The `go.mod` module path
-is `github.com/conan0h/alert-platform`; tags up to `v0.1.2` predate the rename
-and carry `conanohara`, so `go install …@latest` needs a newer tag.
+**Deployed.** All four services run `v0.6.0` (`d0b33cf`); last verified
+2026-09-28: `active`, `healthz=ok`, `drift` exit 0. Nothing on `main` needs a
+newer tag.
 
-**Production, verified 2026-09-28.** All four services are `active`, `enabled`
-and answer `/healthz`. `drift` reports no drift, exit 0. `history` matches the
-log: eleven successful service applies across five pipeline runs, no rollback
-since August.
+**The main problem: the fleet has never sent a real alert.** Known causes, by
+service (details and next steps in the backlog):
+- `form4-insider`: every feed entry read so far was already processed
+  (`new=0`), but all readings were pre-market (#42). Only its >$1M branch can
+  fire, because its leaderboard is unscored (#39).
+- `clinical-trials`: no trial's status ever differs from the stored one
+  (`changed=0`), and it alerts only on status changes (#35).
+- `edgar-mna`, `fda-catalysts`: no funnel, so the cause is unmeasured (#44).
+  Source health is fine apart from `fda-catalysts`' FiercePharma feed, which
+  is dead (403).
 
-    SERVICE          REF      STATE   DEPLOYED               BY
-    clinical-trials  v0.6.0   active  2026-09-28T08:27:02Z   gha:36397285647
-    edgar-mna        v0.6.0   active  2026-09-28T08:28:15Z   gha:36397285647
-    fda-catalysts    v0.6.0   active  2026-09-28T08:29:30Z   gha:36397285647
-    form4-insider    v0.6.0   active  2026-09-28T08:30:43Z   gha:36397285647
+**Reading traps.** Each of these has misled a run.
+- `alert_alerts_sent_total` counts the startup message: it reads 1 with no
+  alert sent (#37).
+- `alert_archive_records_total` is absent until a service archives its first
+  alert (#41).
+- Counters reset on restart, and every deploy restarts all four. The snapshot
+  is `grep "metrics snapshot"` in a `logs` window, every 900s; difference two
+  against `alert_uptime_seconds` for a rate.
+- `logs` returns the *oldest* part of its window, capped near 24 KB. Use a short
+  `since` to see a whole window. The scheduled run fires at 04:15 ET, the
+  quietest hour; `since="6 hours ago"` then reads from ~22:15 ET, after the US
+  close.
+- `clinical-trials` reads `Streamed 0 of 0` on Monday pre-market: its two-day
+  window holds only a weekend. Not a fault.
+- Every ref roll's plan says `environment … (polling, delivery, health or state
+  config changed)`. It means the ref moved (#43).
+- `drift` compares refs and unit hashes against the host's own checkout, which
+  only `plan` syncs. It doesn't see file edits, and a merged but unapplied
+  release shows no drift.
 
-`deploy.yml` run 13 planned `2880151f4eb5` — four UPDATEs, `4 to change, 0
-unchanged`. Run 14 applied it: `✓ … healthy at v0.6.0` four times, `Applied 4
-change(s)`, host exit 0, 305.9s. All four rolled on §6's shared-`alertlib`
-clause, checked by diff.
-
-**`infra.yml` is proven, 2026-09-22.** Run 6 on `f5ac4f5` assumed the infra role
-via OIDC, read remote state, and reported `No changes. Your infrastructure
-matches the configuration.` Terraform is now the working path to the account, so
-an SSM document change is yours (§10) rather than a handoff. Runs 3 and 4 that morning
-found why it had never worked: the guardrail denied `iam:*OpenIDConnectProvider*`
-and that wildcard matches the read a plan's refresh needs, so every plan died
-before printing a change. Narrowed in #36, with `tools/check_iam_denies.py`
-failing CI on any wildcard inside a Deny.
-
-**The counters are readable, and two of them do not say what they seem to.**
-The metrics snapshot is live on all four services since the 2026-09-28 apply:
-grep `metrics snapshot` in a `logs` window for the whole registry, and difference
-two of them against `alert_uptime_seconds` for a rate. Backlog #38 is closed. But
-the first reading of the values found two traps, both now backlog items:
-
-- **`alert_alerts_sent_total` reads 1 on every service and no alert has been
-  sent.** It is the startup "bot started" message: the increment is in the
-  Telegram transport (`telegram.py:107`), not in `Service.send_alert`. Do not
-  read this counter as evidence that the fleet has ever delivered an alert — it
-  has not. Backlog #37.
-- **`alert_archive_records_total` is absent from the snapshot, not zero.**
-  `AlertArchive` is constructed lazily, so a service that has archived nothing
-  never declares the counter. Whether the archive is filling is therefore still
-  unknown. Backlog #41.
-
-**Every counter resets on restart, and every deploy restarts everything.** A
-snapshot is cumulative since process start, not since the beginning, so it cannot
-answer a historical question on the day you ship it.
-
-**`form4-insider`'s candidates stop at the first stage, not at its filter.**
-Measured 2026-09-28, first funnel window on the host:
-
-    funnel: entries=100 new=0 fetched=0 parsed=0 claimed=0 transactions=0
-            code_not_actionable=0 planned_sale=0 below_floor=0 large_trade=0
-            no_insider_history=0 thin_history=0 no_leaderboard=0
-            below_cutoff=0 top_tier=0 sent=0 new_in_window=0
-
-100 entries a cycle, none new; `alert_funnel_entries_total` 900 over nine cycles
-with `alert_funnel_new_total` 0. **No filter branch runs at all** —
-`no_leaderboard=0` is a zero, not a count — so four runs of reasoning about which
-branch refuses candidates were aimed a stage too late. This is expected in a
-pre-market window rather than a bug: `alerted` is written on every path a filing
-takes, including failed fetches and refusals (`main.py:383, 390, 402`), so it is
-an already-processed table and the feed's latest 100 do not turn over overnight.
-The read that means something is the post-close hour — backlog #42.
-
-**Its leaderboard is full and unscored, not empty.**
-`insiders 13782, transactions 32592, eligible 0, scored 0`: `form4_backfill.py`
-has run and `form4_scorer.py` never has. Backlog #39 was opened on "the table is
-empty", which is wrong. And scoring it would change nothing while `new=0`, so
-#39(b) is downstream of #42 and should not be done first.
-
-**`form4-insider` does fetch a filing occasionally.** Read 2026-09-27 at
-02:21–02:42Z, which is 22:21 ET, after the US close. Cycles 2698–2708 ran
-0.13s to 0.42s with one exception: **cycle 2702 took 2.32s**, about the cost of
-fetching and parsing one filing's XML. Read together with the funnel above, that
-is the one observed window where `new` was probably non-zero — and it is the
-reason to sample the post-close hour rather than the scheduled one (backlog #42).
-An earlier entry read this as "reaches its filter and refuses"; that was an
-inference. No branch counter has yet been seen above zero.
-
-**A source is spoken about from its second consecutive failure, not its first**
-(#63), and a failing run that was never announced recovers silently. A flapping
-source was costing four log lines per blip — `fda-catalysts` produced that
-sequence twice for PRNewswire-Biotech in one window — so a feed that is 80% fine
-out-logged one that is dead. Every failure is still counted in
-`alert_source_fetch_failures_total`: the journal reports conditions, the counters
-report rates.
-
-**`edgar-mna`'s sixteen feeds are measured: one failure in 182 fetches.**
-2026-09-28, 22 cycles: `alert_source_fetches_total 182`,
-`alert_source_fetch_failures_total 1`, no source failing or presumed dead. The
-2026-09-27 entry put PRNewswire at "roughly one cycle in five" from a
-twenty-one-minute window; over a longer run the rate is 0.5%, so that figure was
-a bad sample. This is the first number anyone has had for these feeds.
-
-**`fda-catalysts` has one dead source.** `14/15 sources healthy; failing:
-FiercePharma (x20, presumed dead)` — a 403 on every cycle, unchanged since
-August and presumed dead. `EndpointsNews` recovered with the `v0.3.0`
-per-destination User-Agent. The second-failure escalation rule from #63 is
-working as designed: `alert_source_fetch_failures_total` read 23 while
-FiercePharma accounted for 20, so three transient failures produced no log line
-at all.
-
-**`clinical-trials` alerts on nothing because no trial's status ever changes.**
-Measured on `v0.5.0`: `streamed=787 parsed=787 known=787 first_sight=0
-first_sight_completed=0 changed=0 signals=0 sent=0` after `Streamed 787 of 787 …
-in 4 page(s)`. The fetch reads the whole match, every trial is already known, and
-none has a status different from the stored one. Backlog #35's original "stuck on
-page one" theory and ADR 0006's "the transition arrives before we do" hypothesis
-are both disproved. The window's membership rolls with the date: 787 → 686 → 602
-→ 843 → 530 across five days.
-
-**A Monday pre-market reading is `0 of 0`, and that is correct.** 2026-09-28 at
-08:41Z. `fetch_recent_changes` asks for the last two days, so on a Monday before
-the US business day the window is Saturday, Sunday and a few dark hours — the
-week's only two-day window containing no business day. The Monday a week earlier
-read 399 on `v0.1.0`, before `countTotal` existed, so that was what it streamed
-rather than what matched; not a counter-example. **Do not open an incident on
-this reading.** What it does argue is a product point for #35: `days_back=2`
-blinds the service every Monday morning and ages Friday's updates out over the
-weekend.
-
-**Not yet observed:** whether the duplicate-alert loop actually stopped.
-`alert_sends_refused_total` is 0 on all four services and no alert has fired in
-any observed window, so the record-then-send path has never run under contention.
-Consistent with the fix and not proof of it. It is now a cumulative number rather
-than a window, which is the better version of the check.
-
-Note the `logs` window **defaults to one hour**, not one day, and it returns the
-*oldest* part of it: on 2026-09-22 at 08:03 a one-hour request returned 07:03:14
-to 07:16:44 and then `--output truncated--` — thirteen minutes of sixty, from
-the wrong end. Two earlier log entries expected that window to slide far enough
-to show a previous evening's event; it cannot. Since #39 `observe.yml` takes a
-`--since` input, so asking for a short window is how you see all of it; the
-truncation itself is still unfixed (backlog #32).
-
-**Every scheduled run reads the same pre-market hour unless you act on it.** The
-schedule fires at ~08:15 UTC, which is 04:15 ET: Form 4s are filed after the US
-close, so that window is the quietest of the day by construction. The fix costs
-nothing and uses a bug: `logs` returns the *oldest* part of its window (#32), so
-`since=6 hours ago` at 08:22 returns 02:21 onward — 22:21 ET, the post-close
-hour. **Ask for a long window when you want a different hour and a short one when
-you want a whole hour.** Cumulative counters remain the better answer, which is
-the other reason the metrics snapshot matters.
-
-**A plan reports `environment … (polling, delivery, health or state config
-changed)` on every ref roll, and it is false.** The deployed ref is part of the
-rendered environment (`unit.go:145`) and the env hash is computed at the desired
-ref (`plan.go:155`), so a ref change always moves it. It fired four times in the
-`v0.6.0` apply with no such config changed. Read it as "the ref moved" unless
-something else in the plan says otherwise; backlog #43 has the fix.
-
-**Known gaps.** Content drift: in-place edits inside a release directory are
-invisible to `drift`. `dedup.keys` is declared but not consumed. `state.backup`
-is declared with no job behind it. **`drift` compares the host's services against
-the specs in the host's own checkout, not against `origin/main`**, which only a
-`plan` syncs — so a merged release that has not been applied shows no drift and
-exit 0. `drift` is not a backstop against forgetting to deploy. What a read verb
-*does* now say is which commit it answered from: `status` and `drift` print the
-revision stamped into the binary and `ssm-run` annotates the run when it is not
-the commit the workflow was dispatched from (backlog #23, closed 2026-09-25).
-Alert output has been recorded on the host since the `v0.4.0` apply on
-2026-09-23. There is still no read path for the rows themselves: that needs the
-`alerts` verb, which needs a wrapper change (backlog #27c), and the counter that
-would at least say whether the table is filling is absent rather than zero
-(backlog #41).
-
-**Also unfixed.** Root account access keys are in use. A host-side edit to
-`services/form4_insider/main.py` (`alerted_this_filing`) is not in git.
-`alertctl` runs on the VM over a loopback SSH alias and needs `sudo`.
-
-**Open production questions.**
-1. Resolved 2026-09-21: **secret resolution works.** The first apply through the
-   pipeline passed that gate and completed, so the instance role fixed what the
-   August attempt failed on.
-2. Resolved 2026-09-21: the August rollbacks logged `failed` were accurate.
-   `applyService` resolves secrets before its first mutating step and
-   `rollbackTo` calls the same `applyService`, so both passes returned having
-   changed nothing, and the service stayed on `v0.1.0` because nothing moved it.
-   Pinned by `internal/engine/secretgate_test.go`; write-up in
-   `docs/incidents/2026-08-20-v0.1.2-apply-blocked-by-secret-gate.md`.
-   **A secret-resolution failure mutates nothing on either pass**, so attempting
-   an apply costs a no-op and two accurate `failed` entries.
-
-**Environment.** No `gh` CLI — use the GitHub MCP tools. The system `python3`
-lacks `pyyaml`, `jsonschema`, `ruff` and `pytest`; build a 3.12 venv. The
-image's `golangci-lint` is v2.5.0 against a v1-format config, so it runs only in
-CI. Repository auto-merge is off: merge by hand once every check is green.
-Check GitHub write access early — it has been read-only before, which also
-blocks the handoff route, since issue creation fails with it.
-
-The sandbox refuses edits to the mechanisms that bound this agent — the wrapper
-installer and `infra/terraform/iam_infra.tf` have both been declined as
-`Security Weaken` / `Self-Modification`. That refusal agrees with §2; write the
-proposal, do not re-author it through a different tool.
-
-**Two scheduled sessions can be live at once.** On 2026-09-22 `main` moved three
-times mid-run and both sessions diagnosed the same defect independently. Re-read
-`git log origin/main` before writing `.claude/log.md` and before starting a
-second piece of work, and attribute findings from the commit history rather than
-from memory.
-
-The GitHub check-runs endpoint and a run's top-level status are both sometimes
-stale. A job's archived logs — 404 until it completes — are reliable. If checks
-appear to be missing entirely, read `mergeable_state` before blaming the API.
-
----
+**Environment.**
+- No `gh` CLI: use the GitHub MCP tools. Build a Python 3.12 venv with
+  `pyyaml jsonschema ruff pytest requests feedparser`.
+- `golangci-lint` and `terraform validate` run only in CI. This session's egress
+  also blocks the services' data sources: measure from the host.
+- Auto-merge is off: merge by hand once every check is green. If checks are
+  missing, read `mergeable_state`.
+- `deploy.yml` takes the plan id as input `plan`.
+- Two scheduled sessions can be live at once: re-read `git log origin/main`
+  before writing the log.
+- The sandbox refuses edits to the wrapper installer and `iam_infra.tf`. That
+  agrees with §2: write a proposal instead.
 
 ## 12. Tidy the documentation before you stop
 
-Every run adds prose. Without a pass to remove what it superseded, the files a
-run is required to read first grow into the least accurate thing in the
-repository. Each run, check these and fix what it found:
+**The documentation describes the present and the open work, nothing else.**
+Git history and `.claude/log-archive.md` are the record of what was fixed and
+when, so the docs never need to say it. No "fixed on", "resolved", "corrected",
+"verified 2026-…" notes, no Done lists, no narrative of how something was found.
+A reader who wants the history runs `git log`.
 
-- **Close what you closed.** A gap you fixed, a question you answered or an
-  outstanding action someone completed is removed from `README.md`'s known
-  gaps, from CLAUDE.md §11 and from the runbook that told a reader to do it —
-  not left with a note beside it. A stale "you must still do X" is worse than
-  no note, because a reader acts on it.
-- **Move a finished investigation out of the backlog.** When an item is done,
-  compress it to its outcome in `## Done` and let the detail live where it
-  already does: the ADR, the incident write-up, the log. The backlog is a list
-  of work, not an archive of reasoning.
-- **Keep `log.md` the length it is read at.** §5 reads the last five entries.
-  Move older ones verbatim into `.claude/log-archive.md`; never delete them,
-  since they are the evidence behind the production claims in the docs.
-- **Deduplicate `learnings.md`.** Two sessions can run at once and write the
-  same lesson twice — this has happened. Before appending, read the existing
-  headings; if yours restates one, extend that entry instead. Merge duplicates
-  you find.
+Every line the next run reads costs attention, and a list of solved or minor
+problems pulls it away from the main one. Keep targets few and concrete. Before
+adding a backlog item, ask whether it moves the fleet toward alerts that matter;
+if not, park it in one line or leave it out.
+
+Each run, before stopping:
+
+- **Delete what you closed.** A fixed gap, an answered question or a finished
+  backlog item is removed from `README.md`, CLAUDE.md §11, the backlog and any
+  runbook, with no note left beside it.
+- **Keep `log.md` to the last three entries**, each under ~25 lines. Move older
+  ones verbatim to `.claude/log-archive.md`; they are the evidence behind
+  production claims, so never delete them.
+- **Keep `learnings.md` as rules, not stories.** One or two lines each. If a new
+  lesson overlaps an existing rule, sharpen that rule instead of adding one.
 - **Say it once, in the right file.** A fact belongs in one place: CLAUDE.md
   §11 for current state, the ADR for a decision, the runbook for a procedure,
   `learnings.md` for a durable lesson. When the same paragraph appears twice,
