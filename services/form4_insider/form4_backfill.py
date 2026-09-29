@@ -155,12 +155,23 @@ def parse_form4_xml(xml_bytes: bytes) -> dict | None:
     rel = owner.find("reportingOwnerRelationship")
     relationship = _build_relationship(rel) if rel is not None else None
 
+    # The Rule 10b5-1 checkbox SEC added in April 2023 is one element for the
+    # whole filing, <aff10b5One> directly under the root, not a per-transaction
+    # flag. It says the filing reports trades made under a 10b5-1 plan, so
+    # every transaction in it is treated as planned. A filing that mixes plan
+    # and discretionary trades loses its discretionary ones; the alternative,
+    # alerting on scheduled sales as if they were decisions, is the noise the
+    # filter exists to remove.
+    filing_is_10b5_1 = _txt(root.find("aff10b5One")) in ("1", "true", "True")
+
     transactions: list[dict] = []
     ndt = root.find("nonDerivativeTable")
     if ndt is not None:
         for tx in ndt.findall("nonDerivativeTransaction"):
             parsed = _parse_non_derivative_tx(tx)
             if parsed:
+                if filing_is_10b5_1:
+                    parsed["is_10b5_1"] = 1
                 transactions.append(parsed)
 
     return {
@@ -209,10 +220,10 @@ def _parse_non_derivative_tx(tx: ET.Element) -> dict | None:
     if shares <= 0:
         return None
 
-    # 10b5-1 checkbox (added April 2023). Pre-2023 filings won't have this;
-    # treat missing as 0 (not-10b5-1) since that's the conservative assumption.
+    # Pre-2023 filings have no 10b5-1 field; missing means 0. The filing-level
+    # checkbox is applied by `parse_form4_xml`. These per-transaction tags are
+    # kept for filer software that emits them; SEC's schema does not define them.
     is_10b5_1 = 0
-    # The flag may appear in several places depending on filer software:
     for tag in ("isRule10b5-1Transaction", "rule10b5-1Transaction"):
         el = tx_coding.find(tag)
         if el is not None and _txt(el) in ("1", "true", "True"):
