@@ -188,7 +188,7 @@ Built, and running the fleet:
 
 ### Production
 
-From `observe.yml` against the live host, 2026-09-28:
+From `observe.yml` against the live host, 2026-09-29:
 
 | Service | Ref | Unit | Health |
 |---|---|---|---|

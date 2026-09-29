@@ -25,3 +25,25 @@ Found: `alert_alerts_sent_total` counts the startup message (#37);
 `alert_archive_records_total` is absent (#41); the plan's env-change reason is
 false on every ref roll (#43).
 Next: #42, the post-close `form4-insider` read.
+
+## 2026-09-29 — the fleet alerts; a digest to read them; 10b5-1 fix
+Production, 08:18–08:20Z (04:18 ET): all four `v0.6.0`, active, `healthz=ok`,
+`drift` exit 0 (host alertctl `89fe764`). `history` ends at the 2026-09-28
+applies. No deploy this run.
+Alerts, snapshots at 02:19–02:23Z (22:19 ET), ~64,300s after the 08:30Z restart:
+- `form4-insider`: 46 archived, all `large_trade`. Cumulative funnel: new 1369,
+  fetched 696, parsed 362, transactions 515, code_not_actionable 269,
+  planned_sale 0, below_floor 118, no_insider_history 82, thin_history,
+  no_leaderboard, below_cutoff, top_tier 0; sent 46. 107 poll errors (SEC
+  read timeouts in the window).
+- `edgar-mna`: 15 archived; 377 of 10,554 fetches failed. `fda-catalysts`: 2
+  archived; FiercePharma dead. `clinical-trials`: `403 of 403`, `changed=0`.
+- `sends_refused` 0 and `delivery_failures` 0 in all three snapshots.
+Content unreadable off the host: no read verb, and `logs` can't reach the
+`Alert sent` lines.
+Shipped: #68 (`alert digest` journal line), #69 (`form4-insider` reads the
+filing-level `<aff10b5One>`; the old per-transaction tags don't exist, so
+`planned_sale` never fired). Handoff #70: tag `v0.7.0` at `fc0c89c`.
+Found: #42 closed by the cumulative counters: 82 candidates a day reach the
+leaderboard check and stop at `no_insider_history` (#39).
+Next: when #70 is done, roll all four to `v0.7.0` (#45), then read the digests.
