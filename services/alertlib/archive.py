@@ -45,6 +45,7 @@ import sqlite3
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .log import get_logger
 
@@ -82,6 +83,13 @@ CREATE INDEX IF NOT EXISTS alerts_dedup      ON alerts (service, dedup_key);
 PENDING = "pending"
 SENT = "sent"
 FAILED = "failed"
+
+# The digest lists at most this many alerts, newest first, with titles cut to
+# DIGEST_TITLE_CHARS. It is written to the journal every snapshot interval, and
+# `logs` returns only ~24 KB, so the line is bounded at about 3 KB however
+# busy the service was.
+DIGEST_LIMIT = 25
+DIGEST_TITLE_CHARS = 80
 
 
 @dataclass(frozen=True)
@@ -241,3 +249,47 @@ class AlertArchive:
         with self._lock:
             conn = self._connect()
             return conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
+
+
+def digest(path: str, since: datetime, limit: int = DIGEST_LIMIT) -> dict:
+    """Summarise the alerts archived at or after `since`, for the journal.
+
+    The archive lives on the host and no read verb can query it yet, so this
+    is how its contents leave the host: counts by reason and by delivery
+    outcome, and the newest `limit` alerts as one line each.
+
+    Opens its own short-lived connection in `mode=rw`, which fails rather than
+    creating the file: a service that has never alerted keeps no database, and
+    reports a total of 0. Raises on any other read error; the caller decides
+    what a failed digest costs.
+    """
+    empty = {"since": since.isoformat(timespec="seconds"), "total": 0,
+             "by_reason": {}, "by_delivery": {}, "alerts": []}
+    if not Path(path).exists():
+        return empty
+    conn = sqlite3.connect(f"{Path(path).as_uri()}?mode=rw", uri=True, timeout=5.0)
+    try:
+        cutoff = since.isoformat()
+        by_reason = dict(conn.execute(
+            "SELECT reason, COUNT(*) FROM alerts WHERE created_at >= ? "
+            "GROUP BY reason ORDER BY reason", (cutoff,)).fetchall())
+        by_delivery = dict(conn.execute(
+            "SELECT delivery, COUNT(*) FROM alerts WHERE created_at >= ? "
+            "GROUP BY delivery ORDER BY delivery", (cutoff,)).fetchall())
+        rows = conn.execute(
+            "SELECT created_at, ticker, reason, title, delivery FROM alerts "
+            "WHERE created_at >= ? ORDER BY id DESC LIMIT ?",
+            (cutoff, limit)).fetchall()
+    finally:
+        conn.close()
+
+    alerts = []
+    for created_at, ticker, reason, title, delivery in rows:
+        # "09-28T20:14Z DELL [large trade] DELL S $4,612,795 by ..." — the
+        # date and minute are enough to line an alert up against price data.
+        line = f"{created_at[5:16]}Z {ticker or '-'} [{reason}] {title[:DIGEST_TITLE_CHARS]}"
+        if delivery != SENT:
+            line += f" ({delivery})"
+        alerts.append(line)
+    return {**empty, "total": sum(by_reason.values()), "by_reason": by_reason,
+            "by_delivery": by_delivery, "alerts": alerts}

@@ -22,6 +22,7 @@ SERVICES = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SERVICES))
 
 from alertlib import Service  # noqa: E402
+from alertlib.archive import Alert  # noqa: E402
 from alertlib.health import Metrics  # noqa: E402
 from alertlib.log import JsonFormatter  # noqa: E402
 from alertlib.service import METRICS_SNAPSHOT_INTERVAL_SEC  # noqa: E402
@@ -72,6 +73,10 @@ def logged(capsys) -> list[dict]:
 
 def snapshots(capsys) -> list[dict]:
     return [r["metrics"] for r in logged(capsys) if r["msg"] == "metrics snapshot"]
+
+
+def digests(records: list[dict]) -> list[dict]:
+    return [r["digest"] for r in records if r["msg"] == "alert digest"]
 
 
 # -- what the snapshot contains -------------------------------------------
@@ -212,3 +217,55 @@ def test_the_snapshot_never_carries_a_secret_value(env, capsys):
     assert "123:fake" not in json.dumps(snapshot)
     assert "-1001" not in json.dumps(snapshot)
     assert all(isinstance(v, (int, float)) for v in snapshot.values())
+
+
+# -- the alert digest -----------------------------------------------------
+def test_each_snapshot_is_followed_by_an_alert_digest(env, capsys):
+    """Same cadence, so the `logs` reads that find one find the other."""
+    svc = Service.from_env()
+    with svc.poll_cycle():
+        pass
+    svc._last_snapshot_at -= METRICS_SNAPSHOT_INTERVAL_SEC
+    with svc.poll_cycle():
+        pass
+
+    records = logged(capsys)
+    assert len(digests(records)) == 2
+    assert digests(records)[0]["total"] == 0
+
+
+def test_the_digest_lists_what_the_service_sent(env, capsys, monkeypatch):
+    svc = Service.from_env()
+    monkeypatch.setattr(svc.telegram, "send", lambda body: True)
+    svc.send_alert(Alert(source="EDGAR", dedup_key="k1", ticker="ACME",
+                         title="ACME to be acquired at $12.00", body="stub",
+                         reason="merger agreement"))
+    with svc.poll_cycle():
+        pass
+
+    (result,) = digests(logged(capsys))
+    assert result["total"] == 1
+    assert result["by_delivery"] == {"sent": 1}
+    assert result["alerts"][0].endswith(
+        "ACME [merger agreement] ACME to be acquired at $12.00")
+
+
+def test_a_failing_digest_does_not_end_the_poll_loop_or_the_snapshot(
+        env, capsys, monkeypatch):
+    import alertlib.service as service_module
+
+    def explode(path, since):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(service_module, "digest", explode)
+    svc = Service.from_env()
+    with svc.poll_cycle():
+        pass
+    with svc.poll_cycle():
+        pass
+
+    records = logged(capsys)
+    assert svc.metrics.get("alert_polls_total") == 2
+    assert svc.metrics.get("alert_poll_errors_total") == 0
+    assert len([r for r in records if r["msg"] == "metrics snapshot"]) == 1
+    assert len([r for r in records if r["msg"] == "alert digest failed"]) == 1
