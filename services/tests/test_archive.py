@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -22,12 +23,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from alertlib.archive import (  # noqa: E402
+    DIGEST_LIMIT,
     FAILED,
     PENDING,
     SCHEMA_VERSION,
     SENT,
     Alert,
     AlertArchive,
+    digest,
 )
 
 
@@ -201,3 +204,70 @@ def test_rows_are_valid_json_end_to_end(archive):
     whatever goes in has to come back out as JSON."""
     archive.record_delivery(archive.record(an_alert()), True)
     assert json.loads(json.dumps(archive.recent(), default=str))
+
+
+# -- the digest -------------------------------------------------------------
+
+def _age(archive, tmp_path, hours: float) -> None:
+    """Backdate every row by `hours`, as if it had been written then."""
+    conn = sqlite3.connect(str(tmp_path / "alerts.db"))
+    rows = conn.execute("SELECT id, created_at FROM alerts").fetchall()
+    for row_id, created_at in rows:
+        aged = datetime.fromisoformat(created_at) - timedelta(hours=hours)
+        conn.execute("UPDATE alerts SET created_at = ? WHERE id = ?",
+                     (aged.isoformat(), row_id))
+    conn.commit()
+    conn.close()
+
+
+def _day_ago() -> datetime:
+    return datetime.now(timezone.utc) - timedelta(hours=24)
+
+
+def test_digest_of_a_service_that_never_alerted_is_zero_and_creates_nothing(tmp_path):
+    path = tmp_path / "alerts.db"
+    result = digest(str(path), _day_ago())
+    assert result["total"] == 0
+    assert result["alerts"] == []
+    assert not path.exists(), "the digest must not create the archive it reads"
+
+
+def test_digest_counts_only_the_window(archive, tmp_path):
+    archive.record_delivery(archive.record(an_alert(title="old")), True)
+    _age(archive, tmp_path, 30)
+    archive.record_delivery(archive.record(an_alert(title="new sell")), True)
+    archive.record_delivery(
+        archive.record(an_alert(title="new cluster", reason="cluster buy")), False)
+
+    result = digest(str(tmp_path / "alerts.db"), _day_ago())
+
+    assert result["total"] == 2
+    assert result["by_reason"] == {"cluster buy": 1, "large trade": 1}
+    assert result["by_delivery"] == {FAILED: 1, SENT: 1}
+    assert len(result["alerts"]) == 2
+    assert all("old" not in line for line in result["alerts"])
+
+
+def test_digest_lines_are_newest_first_and_mark_undelivered_alerts(archive, tmp_path):
+    archive.record_delivery(archive.record(an_alert(title="first")), True)
+    archive.record_delivery(archive.record(an_alert(title="second")), False)
+
+    lines = digest(str(tmp_path / "alerts.db"), _day_ago())["alerts"]
+
+    assert lines[0].endswith("DELL [large trade] second (failed)")
+    assert lines[1].endswith("DELL [large trade] first")
+    # MM-DDTHH:MMZ: enough to line the alert up against a price chart.
+    assert lines[1][11:17] == "Z DELL"
+
+
+def test_digest_is_bounded_however_busy_the_day_was(archive, tmp_path):
+    """It goes to the journal every quarter hour, where `logs` returns ~24 KB."""
+    for i in range(DIGEST_LIMIT + 10):
+        archive.record(an_alert(dedup_key=f"k{i}", title=f"t{i} " + "x" * 300))
+
+    result = digest(str(tmp_path / "alerts.db"), _day_ago())
+
+    assert result["total"] == DIGEST_LIMIT + 10, "the count is not capped, only the list"
+    assert len(result["alerts"]) == DIGEST_LIMIT
+    assert result["alerts"][0].split("] ")[1].startswith(f"t{DIGEST_LIMIT + 9} ")
+    assert len(json.dumps(result)) < 4096

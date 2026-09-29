@@ -201,14 +201,17 @@ From `observe.yml` against the live host, 2026-09-28:
 
 ### Known gaps
 
-- **No service has sent a real alert yet.** The platform is sound; the signal
-  isn't there yet. `clinical-trials` alerts only on trial status changes and
-  sees none; `form4-insider`'s main filter depends on an insider leaderboard
-  that has never been scored; `edgar-mna` and `fda-catalysts` don't yet report
-  why they stay quiet. This is the current priority.
-- **The alert archive has no reader.** Alerts are recorded per service
-  ([ADR 0005](docs/adr/0005-alert-archive.md)), but reading them needs a new
-  wrapper verb ([ADR 0004](docs/adr/0004-wrapper-adoption.md)) or a console panel.
+- **Nobody has judged whether the alerts are any good.** Between the v0.6.0
+  deploy and 02:20Z on 2026-09-29, `form4-insider` archived 46 alerts (all from
+  its over-$1M branch), `edgar-mna` 15 and `fda-catalysts` 2. `clinical-trials`
+  alerts only on status changes and has seen none (`changed=0`).
+  `form4-insider`'s main filter depends on an insider leaderboard that has
+  never been scored.
+- **The alert archive has no query interface.** Alerts are recorded per service
+  ([ADR 0005](docs/adr/0005-alert-archive.md)); from the next release each
+  service also summarises them in the journal every 15 minutes (the `alert
+  digest` line). Querying them needs a new wrapper
+  verb ([ADR 0004](docs/adr/0004-wrapper-adoption.md)) or a console panel.
 - **Nothing scrapes `/metrics`.** Each service writes its metrics to the journal
   every 15 minutes instead, which gives rates but not history.
 - **`logs` returns the oldest part of its window**, so long windows lose their

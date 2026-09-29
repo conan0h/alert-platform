@@ -67,6 +67,12 @@ the journal instead — each service writes the whole registry every 15 minutes:
 Two snapshots from one service and the gap between their `alert_uptime_seconds`
 give a rate rather than a total, which is usually the number being asked for.
 
+Each snapshot is followed by an `alert digest` line: the last 24 hours of that
+service's archive, with counts and the newest 25 alerts. Read
+`since=10 minutes ago` and `since=30 minutes ago`: at the fleet's usual log
+volume (24 KB is about 12 minutes) the two windows between them hold one of
+each from every service.
+
 - **`items_seen` climbing, `alerts_sent` flat** — the service is working and
   nothing met the alert criteria. Verify against the thresholds in the spec
   before touching anything. This is the most common false alarm.

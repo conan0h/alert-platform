@@ -18,8 +18,9 @@ import contextlib
 import signal
 import time
 from collections.abc import Iterator
+from datetime import datetime, timedelta, timezone
 
-from .archive import Alert, AlertArchive
+from .archive import Alert, AlertArchive, digest
 from .config import ServiceConfig
 from .health import HealthServer, Heartbeat, Metrics
 from .log import configure_logging
@@ -42,6 +43,11 @@ from .telegram import TelegramClient
 # 96 lines a day per service, against the ~1,900 that the source-health
 # escalation schedule exists to avoid.
 METRICS_SNAPSHOT_INTERVAL_SEC = 900
+
+# How far back each alert digest looks. A day covers everything since the
+# previous daily agent run, so one digest per service answers "what did the
+# bots send" without the reader stitching windows together.
+ALERT_DIGEST_HOURS = 24
 
 
 class Service:
@@ -146,6 +152,17 @@ class Service:
         self._last_snapshot_at = time.time()
         self.log.info("metrics snapshot", extra={"metrics": self.metrics.snapshot()})
 
+    def log_alert_digest(self) -> None:
+        """Write the last day of this service's alert archive as one line.
+
+        The counters say how many alerts went out; this says which ones, so
+        a reader of the journal can judge them against what the market did.
+        It rides the snapshot's cadence so the same `logs` reads find both.
+        """
+        since = datetime.now(timezone.utc) - timedelta(hours=ALERT_DIGEST_HOURS)
+        self.log.info("alert digest",
+                      extra={"digest": digest(self.state_file("alerts.db"), since)})
+
     def _snapshot_if_due(self) -> None:
         if time.time() - self._last_snapshot_at < METRICS_SNAPSHOT_INTERVAL_SEC:
             return
@@ -156,6 +173,13 @@ class Service:
             # context manager and ends the caller's loop. Bookkeeping must not
             # be able to stop the service it is measuring.
             self.log.warning("metrics snapshot failed", extra={"error": str(exc)})
+        # Separate from the snapshot so a locked or corrupt archive costs only
+        # the digest. Due exactly when the snapshot is, so it inherits the
+        # snapshot's once-per-interval stamp and never warns every cycle.
+        try:
+            self.log_alert_digest()
+        except Exception as exc:
+            self.log.warning("alert digest failed", extra={"error": str(exc)})
 
     # -- state ------------------------------------------------------------
     def state_file(self, filename: str) -> str:

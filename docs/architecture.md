@@ -391,6 +391,21 @@ Services reach it through `Service.send_alert`, not by calling the archive and
 the Telegram client in sequence, so "every alert is recorded" is a property of
 the send path rather than a convention four services have to remember.
 
+No read verb can query the archive yet, so its contents leave the host the
+same way the counters do. With every metrics snapshot each service writes an
+`alert digest` line covering the last 24 hours:
+
+    {"msg": "alert digest", "digest": {"since": "...", "total": 46,
+      "by_reason": {"large trade": 46}, "by_delivery": {"sent": 46},
+      "alerts": ["09-28T20:14Z DELL [large trade] DELL S $4,612,795 by ...", ...]}}
+
+The counts cover the whole window; the list is the newest 25, titles cut to
+80 characters, so the line stays near 3 KB against the ~24 KB `logs` returns.
+The digest opens the database in `mode=rw`, which fails rather than creating
+the file, so a service that has never alerted still has no `alerts.db` and
+reports a total of 0. A failed digest is logged once per interval and costs
+nothing else.
+
 ## What is still deliberately absent
 
 - **Multi-host scheduling.** `targets` models one EC2 host. The shape leaves
