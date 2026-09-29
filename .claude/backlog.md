@@ -7,35 +7,35 @@ found. Numbers are stable references; don't renumber.
 
 Statuses: `todo`, `in-pr #N`, `needs-conan`, `blocked: <reason>`.
 
-## Target: the first real alert
+## Target: alerts worth acting on
 
-**No service has ever sent a real alert.** Every item in this section works
-toward one actionable alert and the ability to judge it. Don't start
-lower sections while this one has unblocked work.
+**The fleet alerts; nobody has judged whether the alerts are any good.**
+Every item in this section works toward reading what the bots sent and improving it.
+Don't start lower sections while this one has unblocked work.
 
-42. **Read `form4-insider`'s funnel in the post-close hour.** `todo` — a read,
-    not code; do it first.
-    Every window read so far was pre-market and showed `entries=100 new=0`: all
-    feed entries already processed, so no filter branch runs. That is expected
-    pre-market (`alerted` records every filing the service has handled, not only
-    those it alerted on). Form 4s are filed after the US close.
-    Next: `observe.yml verb=logs since="6 hours ago"` at the scheduled time
-    returns ~22:20 ET onward. Record `new`, `fetched`, and which named branch
-    counts are non-zero. That decides #39.
+45. **Roll `v0.7.0` and read the digests.** `needs-conan` (tag, #70), then ours.
+    `main` carries the `alert digest` line (#68) and the 10b5-1 fix (#69).
+    Once tagged: roll all four (`alertlib` is shared), then read `logs`
+    `since="10 minutes ago"` and `"30 minutes ago"` for one digest per service.
+    For each alert, record ticker and time, and whether the price moved after
+    it. Confirm `alert_funnel_planned_sale_total` goes non-zero after a US
+    session; if it stays 0, #69's element name is wrong.
 
-44. **`edgar-mna` and `fda-catalysts` have no funnel, so their silence is
-    unexplained.** `todo`
-    Both poll healthily (edgar sees ~2 items/cycle) and neither has alerted.
+44. **`edgar-mna` and `fda-catalysts` have no funnel.** `todo`
+    Both alert (15 and 2 archived in the first v0.6.0 day), but what they
+    examine and drop is unmeasured, so a filter that is too tight or too loose
+    can't be told apart from a quiet news day.
     Next: adopt `alertlib.CycleFunnel` as `clinical-trials` and `form4-insider`
     did (ADR 0006), with the filter's own decision as the last stages. Needs a
     tag to deploy.
 
-39. **`form4-insider` can only alert on trades over $1M.** `needs-conan`, after #42
+39. **`form4-insider` can only alert on trades over $1M.** `needs-conan`
     The leaderboard behind its main filter is populated but unscored: 13,782
     insiders, 32,592 transactions, 0 scored, because `form4_scorer.py` has never
-    run. Decision: make the scorer a managed unit with a timer, or rewrite the
-    filter not to need it. Pointless until #42 shows candidates reaching the
-    filter.
+    run. In one day (2026-09-28) 82 trades of $100k–$1M reached the leaderboard
+    check and stopped at `no_insider_history`, the stage an unscored insider
+    lands in. Decision: make the scorer a managed unit with a timer, or rewrite
+    the filter not to need it.
 
 35. **`clinical-trials` finds no status changes to alert on.** `needs-conan`
     It reads the full two-day window (530–843 trials a day) and no trial's
@@ -110,9 +110,9 @@ lower sections while this one has unblocked work.
 
 ## Verify when it happens
 
-- **#25, duplicate sends:** the mark-before-send fix is deployed but has never
-  run under contention. When the first real alert fires, confirm
-  `alert_sends_refused_total` stays 0 and no alert repeats.
+- **#25, duplicate sends:** `form4-insider` sent 46 with
+  `alert_sends_refused_total` 0. Confirm from the first digest that no alert
+  repeats.
 
 ## Parked — don't start while no service alerts
 

@@ -26,7 +26,11 @@ one covers it and sharpen that instead.
   `0 of 0` on a Monday pre-market is the weekend. Readings from different code
   versions are not comparable.
 - **Readings from the same hour of day are one reading.** Record when a window
-  was read. For "has this ever happened", prefer a cumulative counter.
+  was read. For "has this ever happened", read the cumulative counter in the
+  snapshot before planning a timed read of per-cycle lines.
+- **A filter branch that never fires across hundreds of inputs is a parser bug
+  until shown otherwise.** Check that the parser produces the field the branch
+  reads, against the source's schema.
 - **A metric is an instrument only once you have read it and checked the value
   against something you know.** When adding one, write and run the command that
   reads it. Counters reset on every deploy.
