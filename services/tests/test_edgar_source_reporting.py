@@ -17,8 +17,11 @@ Run: python3 -m pytest services/tests -q     (from the repo root)
 """
 from __future__ import annotations
 
+import logging
+
 import pytest
 from _loader import load_service_main  # noqa: E402
+from alertlib.funnel import CycleFunnel  # noqa: E402
 from alertlib.sources import PRESUMED_DEAD_AFTER, SourceHealth  # noqa: E402
 
 edgar = load_service_main("edgar_mna", "edgar_mna_main")
@@ -36,6 +39,12 @@ class _Metrics:
 
     def set(self, name: str, value: float) -> None:
         self.gauges[name] = float(value)
+
+    def declare_counter(self, name: str, _help: str) -> None:
+        self.counters.setdefault(name, 0.0)
+
+    def declare_gauge(self, name: str, _help: str) -> None:
+        self.gauges.setdefault(name, 0.0)
 
 
 class _Svc:
@@ -58,6 +67,8 @@ def svc(monkeypatch):
     s = _Svc()
     monkeypatch.setattr(edgar, "SVC", s)
     monkeypatch.setattr(edgar, "SOURCES", SourceHealth())
+    monkeypatch.setattr(edgar, "FUNNEL", CycleFunnel(
+        s.metrics, edgar.FUNNEL_STAGES, log=logging.getLogger("test"), cohort=False))
     return s
 
 
@@ -203,4 +214,4 @@ def test_enrichment_fetches_are_not_sources(svc, always_404):
     """
     assert edgar.fetch_pr_body("https://example.invalid/some-release") is None
     assert edgar.SOURCES.sources == {}
-    assert svc.metrics.counters == {}
+    assert {k: v for k, v in svc.metrics.counters.items() if v} == {}

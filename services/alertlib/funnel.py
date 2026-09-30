@@ -65,7 +65,11 @@ class CycleFunnel:
         *,
         log: logging.Logger,
         label: str = "funnel",
+        cohort: bool = True,
     ) -> None:
+        """`cohort=False` is for a service with no single candidate stream to
+        compare between cycles. It declares no `new_in_window` gauge, because
+        a gauge that is never set reads 0, and 0 is a real answer."""
         if not stages:
             raise ValueError("a funnel needs at least one stage")
         if len(set(stages)) != len(stages):
@@ -75,6 +79,7 @@ class CycleFunnel:
         self._metrics = metrics
         self._log = log
         self._label = label
+        self._cohort = cohort
         self._lock = threading.Lock()
         self._counts: dict[str, int] = dict.fromkeys(self._stages, 0)
         self._prev_ids: frozenset[str] | None = None
@@ -85,10 +90,11 @@ class CycleFunnel:
                 f"{METRIC_PREFIX}_{stage}_total",
                 f"Candidates that reached the {stage} stage of the poll cycle.",
             )
-        metrics.declare_gauge(
-            f"{METRIC_PREFIX}_new_in_window",
-            "Candidates in the most recent cycle that the previous cycle did not return.",
-        )
+        if cohort:
+            metrics.declare_gauge(
+                f"{METRIC_PREFIX}_new_in_window",
+                "Candidates in the most recent cycle that the previous cycle did not return.",
+            )
 
     @property
     def stages(self) -> tuple[str, ...]:
@@ -108,6 +114,8 @@ class CycleFunnel:
         Returns the number not present last cycle, or 0 on the first cycle,
         where there is nothing to compare and `render` reports `?` instead.
         """
+        if not self._cohort:
+            raise RuntimeError("this funnel was declared with cohort=False")
         cohort = frozenset(ids)
         with self._lock:
             previous = self._prev_ids
@@ -121,7 +129,8 @@ class CycleFunnel:
         with self._lock:
             parts = [f"{stage}={self._counts[stage]}" for stage in self._stages]
             new = self._new_in_window
-        parts.append(f"new_in_window={UNKNOWN if new is None else new}")
+        if self._cohort:
+            parts.append(f"new_in_window={UNKNOWN if new is None else new}")
         return " ".join(parts)
 
     @contextmanager

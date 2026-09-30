@@ -364,9 +364,14 @@ that matters today is `no_leaderboard`, which says the alpha filter refused
 because there is no leaderboard to compare against rather than because the
 insider fell short.
 
-`edgar-mna` and `fda-catalysts` have not adopted it. Both alert, so the
-question it answers is not open for them, and adopting it everywhere to be
-uniform would be breadth for its own sake.
+`edgar-mna` and `fda-catalysts` count every feed entry into one of
+`unclassified`, `matched` (and, in `edgar-mna`, the `disclosure_noise` and
+`letter_of_intent` title filters), then every match into `already_seen`,
+`sent` or `send_failed`. They emit no per-cycle line and no
+`new_in_window`: they cycle every 45 seconds over up to sixteen feeds on three
+cadences, so a line per cycle would crowd the `logs` window and there is no
+single cohort to compare. The counters reach the journal in the metrics
+snapshot.
 
 ### The alert archive
 

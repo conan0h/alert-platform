@@ -149,3 +149,35 @@ second point matters more than it sounds: every scheduled run has read the same
 pre-market hour, when no Form 4 is filed, so the per-cycle line alone would
 describe the quietest hour of the day. The cumulative counters in the metrics
 snapshot do not.
+
+## Third and fourth adopters, 2026-09-30
+
+`edgar-mna` and `fda-catalysts` adopt the funnel. The reason given above for
+leaving them out, that both alert, stopped being sufficient once they did:
+15 and 2 alerts in the first v0.6.0 day say nothing about whether the category
+phrases are too tight or too loose, and a quiet news day reads the same as a
+filter that rejects everything (backlog #44).
+
+Their stages are the drop branches of the existing code, in order:
+`entries`, then one of `disclosure_noise`, `letter_of_intent` (`edgar-mna`
+only), `unclassified` or `matched`, then one of `already_seen`, `sent` or
+`send_failed`. The ratio that matters is `unclassified` to `matched`.
+
+Two parts of the decision above do not apply, and both are departures worth
+defending.
+
+**No per-cycle line.** Both services cycle every 45 seconds: about 1,900 lines
+a day each, the volume `SourceHealth` was built to remove. The value of the
+line was comparing consecutive cycles of one candidate stream; these services
+poll up to sixteen feeds on three cadences, so consecutive cycles are not
+comparable anyway. The counters carry the cumulative numbers into the journal
+through the metrics snapshot every 900 seconds, which is where the other two
+funnels are read in practice.
+
+**No cohort.** `CycleFunnel(cohort=False)` declares no
+`alert_funnel_new_in_window` gauge. Declared and never set, it would read 0,
+and 0 is a real answer. `observe_cohort` on such a funnel raises.
+
+A static test reads each service's source for `FUNNEL.count("…")` and asserts
+the set equals `FUNNEL_STAGES`, because `count` raises only when its branch
+runs, and a typo in a rare branch would otherwise surface on the host.
