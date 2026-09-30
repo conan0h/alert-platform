@@ -79,6 +79,7 @@ FUNNEL_STAGES = (
     "send_failed",
 )
 FUNNEL: CycleFunnel = None   # bound in main()
+
 log = get_logger("edgar-mna")
 
 # Set from the spec in main(): polling.user_agent_secret resolved by
