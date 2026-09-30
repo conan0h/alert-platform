@@ -14,20 +14,15 @@ Every item in this section works toward reading what the bots sent and improving
 Don't start lower sections while this one has unblocked work.
 
 45. **Roll `v0.7.0` and read the digests.** `needs-conan` (tag, #70), then ours.
-    `main` carries the `alert digest` line (#68) and the 10b5-1 fix (#69).
-    Once tagged: roll all four (`alertlib` is shared), then read `logs`
-    `since="10 minutes ago"` and `"30 minutes ago"` for one digest per service.
-    For each alert, record ticker and time, and whether the price moved after
-    it. Confirm `alert_funnel_planned_sale_total` goes non-zero after a US
-    session; if it stays 0, #69's element name is wrong.
-
-44. **`edgar-mna` and `fda-catalysts` have no funnel.** `todo`
-    Both alert (15 and 2 archived in the first v0.6.0 day), but what they
-    examine and drop is unmeasured, so a filter that is too tight or too loose
-    can't be told apart from a quiet news day.
-    Next: adopt `alertlib.CycleFunnel` as `clinical-trials` and `form4-insider`
-    did (ADR 0006), with the filter's own decision as the last stages. Needs a
-    tag to deploy.
+    `main` carries the `alert digest` line (#68), the 10b5-1 fix (#69) and the
+    `edgar-mna` / `fda-catalysts` funnels (#72). Once tagged: roll all four
+    (`alertlib` is shared), then read `logs` `since="10 minutes ago"` and
+    `"30 minutes ago"` for one digest per service. For each alert, record
+    ticker and time, and whether the price moved after it; `clinical-trials`
+    (55 in two days) is the least understood. Confirm
+    `alert_funnel_planned_sale_total` goes non-zero after a US session; if it
+    stays 0, #69's element name is wrong. Record `unclassified : matched` for
+    the two news services.
 
 39. **`form4-insider` can only alert on trades over $1M.** `needs-conan`
     The leaderboard behind its main filter is populated but unscored: 13,782
@@ -36,13 +31,6 @@ Don't start lower sections while this one has unblocked work.
     check and stopped at `no_insider_history`, the stage an unscored insider
     lands in. Decision: make the scorer a managed unit with a timer, or rewrite
     the filter not to need it.
-
-35. **`clinical-trials` finds no status changes to alert on.** `needs-conan`
-    It reads the full two-day window (530–843 trials a day) and no trial's
-    status ever differs from the stored one (`changed=0`); it alerts only on
-    status changes. Decision: widen what counts as an event (results posted,
-    enrolment or completion-date changes), or widen `days_back` from 2 to 4 so
-    Friday's updates survive the weekend, or accept a quiet feed.
 
 ## Measurement
 

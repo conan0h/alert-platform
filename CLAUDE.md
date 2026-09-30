@@ -358,28 +358,31 @@ the evidence, and continue.
 Current facts only. When something here is fixed or stops being true, delete it.
 
 **Deployed.** All four services run `v0.6.0` (`d0b33cf`); last verified
-2026-09-29: `active`, `healthz=ok`, `drift` exit 0. `main` carries #68 (alert
-digest) and #69 (10b5-1 fix), waiting on the `v0.7.0` tag (handoff #70).
+2026-09-30: `active`, `healthz=ok`, `drift` exit 0. `main` carries #68 (alert
+digest), #69 (10b5-1 fix) and #72 (`edgar-mna` / `fda-catalysts` funnels),
+waiting on the `v0.7.0` tag at `c0a4919` (handoff #70).
 
-**The main problem: nobody has judged the alerts.** The fleet alerts: between
-the v0.6.0 restart (2026-09-28 08:30Z) and 02:20Z on 2026-09-29, `form4-insider`
-archived 46 (all `large_trade`), `edgar-mna` 15, `fda-catalysts` 2. Their
-content is not readable off the host until `v0.7.0` ships the digest (#45).
+**The main problem: nobody has judged the alerts.** All four services alert.
+Archived in the 48 hours after the v0.6.0 restart (2026-09-28 08:27–08:30Z):
+`form4-insider` 87 (all `large_trade`), `clinical-trials` 55, `edgar-mna` 29,
+`fda-catalysts` 6. Their content is not readable off the host until `v0.7.0`
+ships the digest (#45).
 - `form4-insider`: alerts only on trades over $1M, because its leaderboard is
   unscored (#39). Until #69 deploys, 10b5-1 planned sales pass as large trades.
-- `clinical-trials`: no trial's status ever differs from the stored one
-  (`changed=0`), and it alerts only on status changes (#35).
-- `edgar-mna`, `fda-catalysts`: no funnel, so what they drop is unmeasured
-  (#44). `fda-catalysts`' FiercePharma feed is dead (403).
+- `clinical-trials`: 55 signals from 26 status changes and 377 first sightings.
+- `edgar-mna`, `fda-catalysts`: what the category filter drops is measured
+  from `v0.7.0` (`alert_funnel_unclassified_total` against `_matched_total`).
+  `fda-catalysts`' FiercePharma feed is dead (403).
 
 **Reading traps.** Each of these has misled a run.
 - `alert_alerts_sent_total` counts the startup message: it reads 1 with no
   alert sent (#37).
 - `alert_archive_records_total` is absent after a restart until the service
   archives an alert (#41).
-- Per-cycle funnel lines describe one cycle. `form4-insider` reads `new=0` in
-  every window read at 04:15 or 22:15 ET while its cumulative
-  `alert_funnel_new_total` reached 1,369 in a day. Read the snapshot first.
+- Per-cycle funnel lines describe one cycle, and read 0 at the 04:15 ET run
+  hour on every service. `clinical-trials` printed `changed=0` in every line
+  read for a week while `alert_funnel_changed_total` reached 26 in two days.
+  Read the snapshot first.
 - Counters reset on restart, and every deploy restarts all four. The snapshot
   is `grep "metrics snapshot"` in a `logs` window, every 900s; difference two
   against `alert_uptime_seconds` for a rate.
