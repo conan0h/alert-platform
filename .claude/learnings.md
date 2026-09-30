@@ -26,8 +26,9 @@ one covers it and sharpen that instead.
   `0 of 0` on a Monday pre-market is the weekend. Readings from different code
   versions are not comparable.
 - **Readings from the same hour of day are one reading.** Record when a window
-  was read. For "has this ever happened", read the cumulative counter in the
-  snapshot before planning a timed read of per-cycle lines.
+  was read. Before concluding "never happens" on any service, read its
+  cumulative counter in the snapshot; a per-cycle zero at the run hour is not
+  evidence.
 - **A filter branch that never fires across hundreds of inputs is a parser bug
   until shown otherwise.** Check that the parser produces the field the branch
   reads, against the source's schema.
