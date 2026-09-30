@@ -137,3 +137,16 @@ def test_a_moving_window_reports_the_arrivals(funnel, metrics):
 def test_cohort_comparison_ignores_order_and_duplicates(funnel):
     funnel.observe_cohort(["NCT1", "NCT2"])
     assert funnel.observe_cohort(["NCT2", "NCT1", "NCT1"]) == 0
+
+
+def test_without_cohort_there_is_no_new_in_window(metrics, log, lines):
+    """A gauge that is never set reads 0, which is a real answer, so a funnel
+    with no cohort to compare must not declare one."""
+    funnel = CycleFunnel(metrics, STAGES, log=log, cohort=False)
+    with funnel.cycle():
+        funnel.count("streamed", 3)
+
+    assert lines == ["funnel: streamed=3 parsed=0 sent=0"]
+    assert f"{METRIC_PREFIX}_new_in_window" not in metrics.snapshot()
+    with pytest.raises(RuntimeError):
+        funnel.observe_cohort(["a"])

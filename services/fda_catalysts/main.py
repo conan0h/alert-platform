@@ -42,9 +42,22 @@ import requests
 # Configuration, credentials, state location, logging and delivery all come
 # from the platform (see services/alertlib). Nothing is read from a local
 # .env and no path is relative to the working directory.
-from alertlib import Alert, Service, SourceHealth, get_logger
+from alertlib import Alert, CycleFunnel, Service, SourceHealth, get_logger
 
 SVC: Service = None          # bound in main()
+
+# What happens to every feed entry, in order (#44). `unclassified` against
+# `matched` says whether the category phrases are too tight or the news is
+# quiet; `already_seen` is the same item returned by a later poll.
+#
+#   entries -> unclassified | matched
+#   matched -> already_seen | sent | send_failed
+#
+# Counters only, as in edgar-mna: a 45-second cycle is too frequent for a
+# line each, and the metrics snapshot carries the totals (ADR 0006).
+FUNNEL_STAGES = ("entries", "unclassified", "matched", "already_seen", "sent", "send_failed")
+FUNNEL: CycleFunnel = None   # bound in main()
+
 log = get_logger("fda-catalysts")
 
 # Set from the spec in main(): polling.user_agent_secret resolved by
@@ -475,7 +488,9 @@ def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50
         return []
     _report_fetch(name)
 
-    for entry in getattr(feed, "entries", [])[:limit]:
+    entries = getattr(feed, "entries", [])[:limit]
+    FUNNEL.count("entries", len(entries))
+    for entry in entries:
         title = (getattr(entry, "title", "") or "").strip()
         link = (getattr(entry, "link", "") or "").strip()
         summary_raw = getattr(entry, "summary", "") or getattr(entry, "description", "") or ""
@@ -484,7 +499,9 @@ def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50
         text_blob = f"{title}\n{summary_raw}"
         category, phrase = classify(text_blob)
         if not category:
+            FUNNEL.count("unclassified")
             continue
+        FUNNEL.count("matched")
 
         hits.append(Hit(
             source=name,
@@ -516,7 +533,9 @@ def fetch_edgar_8k(name: str, url: str) -> list[Hit]:
         return []
     _report_fetch(name)
 
-    for entry in getattr(feed, "entries", [])[:60]:
+    entries = getattr(feed, "entries", [])[:60]
+    FUNNEL.count("entries", len(entries))
+    for entry in entries:
         title = (getattr(entry, "title", "") or "").strip()
         link = (getattr(entry, "link", "") or "").strip()
         summary_raw = getattr(entry, "summary", "") or ""
@@ -525,7 +544,9 @@ def fetch_edgar_8k(name: str, url: str) -> list[Hit]:
         text_blob = f"{title}\n{summary_raw}"
         category, phrase = classify(text_blob)
         if not category:
+            FUNNEL.count("unclassified")
             continue
+        FUNNEL.count("matched")
 
         hits.append(Hit(
             source=name,
@@ -625,24 +646,28 @@ def _process_hits(conn, hits: list[Hit]) -> int:
     for hit in hits_sorted:
         fp = hit.fingerprint()
         if is_seen(conn, fp):
+            FUNNEL.count("already_seen")
             continue
         # Mark seen BEFORE sending — prevents duplicates if Telegram errors
         mark_seen(conn, hit)
         if SVC.send_alert(build_alert(hit, format_alert(hit))):
+            FUNNEL.count("sent")
             sent += 1
             log.info("Alert sent: [%s] %s | %s",
                      category_meta(hit.category).get("urgency"),
                      hit.category, hit.title[:90])
         else:
+            FUNNEL.count("send_failed")
             log.warning("Alert failed: %s | %s", hit.category, hit.title[:90])
     return sent
 
 
 def main():
-    global SVC, DB_PATH, EDGAR_USER_AGENT
+    global SVC, FUNNEL, DB_PATH, EDGAR_USER_AGENT
     global WIRE_POLL_INTERVAL_SECONDS, EDGAR_POLL_INTERVAL_SECONDS, FDA_POLL_INTERVAL_SECONDS
 
     SVC = Service.from_env()
+    FUNNEL = CycleFunnel(SVC.metrics, FUNNEL_STAGES, log=log, cohort=False)
     DB_PATH = SVC.state_file("fda_seen.db")
 
     # SEC blocks unidentified clients; the UA is a credential-ish value and

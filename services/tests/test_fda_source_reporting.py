@@ -10,8 +10,11 @@ Run: python3 -m pytest services/tests -q     (from the repo root)
 """
 from __future__ import annotations
 
+import logging
+
 import pytest
 from _loader import load_service_main  # noqa: E402
+from alertlib.funnel import CycleFunnel  # noqa: E402
 from alertlib.sources import PRESUMED_DEAD_AFTER, SourceHealth  # noqa: E402
 
 fda = load_service_main("fda_catalysts", "fda_catalysts_main")
@@ -30,6 +33,12 @@ class _Metrics:
     def set(self, name: str, value: float) -> None:
         self.gauges[name] = float(value)
 
+    def declare_counter(self, name: str, _help: str) -> None:
+        self.counters.setdefault(name, 0.0)
+
+    def declare_gauge(self, name: str, _help: str) -> None:
+        self.gauges.setdefault(name, 0.0)
+
 
 class _Svc:
     def __init__(self):
@@ -42,6 +51,8 @@ def svc(monkeypatch):
     s = _Svc()
     monkeypatch.setattr(fda, "SVC", s)
     monkeypatch.setattr(fda, "SOURCES", SourceHealth())
+    monkeypatch.setattr(fda, "FUNNEL", CycleFunnel(
+        s.metrics, fda.FUNNEL_STAGES, log=logging.getLogger("test"), cohort=False))
     return s
 
 

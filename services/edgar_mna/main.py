@@ -53,9 +53,32 @@ import requests
 # Configuration, credentials, state location, logging and delivery all come
 # from the platform (see services/alertlib). Nothing is read from a local
 # .env and no path is relative to the working directory.
-from alertlib import Alert, Service, SourceHealth, get_logger
+from alertlib import Alert, CycleFunnel, Service, SourceHealth, get_logger
 
 SVC: Service = None          # bound in main()
+
+# What happens to every feed entry, in order. Each drop stage is a different
+# reason for silence: the UK disclosure and LOI title filters, no category
+# phrase matching, and an entry already alerted on. Without them, a filter
+# that is too tight and a quiet news day produce the same output (#44).
+#
+#   entries -> disclosure_noise | letter_of_intent | unclassified | matched
+#   matched -> already_seen | sent | send_failed
+#
+# Counters only: the service cycles every 45 seconds, so a line per cycle
+# would crowd the `logs` window, and the metrics snapshot carries the
+# cumulative counts every 900 seconds (ADR 0006).
+FUNNEL_STAGES = (
+    "entries",
+    "disclosure_noise",
+    "letter_of_intent",
+    "unclassified",
+    "matched",
+    "already_seen",
+    "sent",
+    "send_failed",
+)
+FUNNEL: CycleFunnel = None   # bound in main()
 log = get_logger("edgar-mna")
 
 # Set from the spec in main(): polling.user_agent_secret resolved by
@@ -677,7 +700,9 @@ def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50
         return []
     _report_fetch(name)
 
-    for entry in getattr(feed, "entries", [])[:limit]:
+    entries = getattr(feed, "entries", [])[:limit]
+    FUNNEL.count("entries", len(entries))
+    for entry in entries:
         title = clean_text(getattr(entry, "title", "") or "", max_len=300)
         link = (getattr(entry, "link", "") or "").strip()
         summary_raw = getattr(entry, "summary", "") or getattr(entry, "description", "") or ""
@@ -685,17 +710,21 @@ def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50
 
         # Skip UK Rule 8.3/8.5 disclosure noise
         if re.search(r"\bForm\s+8\.(?:3|5)\b", title):
+            FUNNEL.count("disclosure_noise")
             continue
 
         # Skip non-binding letters of intent — user specced these as dropped.
         # LOIs are overwhelmingly small-cap mining noise and rarely trade well.
         if re.search(r"\b(?:letter\s+of\s+intent|non[-\s]?binding\s+LOI|\bLOI\s+to\s+acquire)\b", title, re.I):
+            FUNNEL.count("letter_of_intent")
             continue
 
         text_blob = f"{title}\n{summary_raw}"
         category, phrase = classify(text_blob)
         if not category:
+            FUNNEL.count("unclassified")
             continue
+        FUNNEL.count("matched")
 
         hits.append(Hit(
             source=name, category=category, title=title, link=link,
@@ -725,7 +754,9 @@ def fetch_edgar(name: str, url: str, form_type: str) -> list[Hit]:
         "DEFM14A": ("EDGAR_MERGER_PROXY", "DEFM14A"),
     }
 
-    for entry in getattr(feed, "entries", [])[:60]:
+    entries = getattr(feed, "entries", [])[:60]
+    FUNNEL.count("entries", len(entries))
+    for entry in entries:
         title = clean_text(getattr(entry, "title", "") or "", max_len=300)
         link = (getattr(entry, "link", "") or "").strip()
         summary_raw = getattr(entry, "summary", "") or ""
@@ -737,7 +768,9 @@ def fetch_edgar(name: str, url: str, form_type: str) -> list[Hit]:
             text_blob = f"{title}\n{summary_raw}"
             category, phrase = classify(text_blob)
             if not category:
+                FUNNEL.count("unclassified")
                 continue
+        FUNNEL.count("matched")
 
         hits.append(Hit(
             source=name, category=category, title=title, link=link,
@@ -854,6 +887,7 @@ def _process_hits(conn, hits: list[Hit]) -> int:
     for hit in hits_sorted:
         fp = hit.fingerprint()
         if is_seen(conn, fp):
+            FUNNEL.count("already_seen")
             continue
         try:
             enrich_hit(hit)
@@ -861,21 +895,24 @@ def _process_hits(conn, hits: list[Hit]) -> int:
             log.debug("Enrichment failed for %s: %s", hit.title[:60], e)
         mark_seen(conn, hit)
         if SVC.send_alert(build_alert(hit, format_alert(hit))):
+            FUNNEL.count("sent")
             sent += 1
             log.info("Alert: [%s] %s | %s | offer=%s premium=%s",
                      category_meta(hit.category).get("urgency"),
                      hit.category, hit.title[:70],
                      hit.facts.offer_price, hit.facts.premium_pct)
         else:
+            FUNNEL.count("send_failed")
             log.warning("Alert failed: %s | %s", hit.category, hit.title[:90])
     return sent
 
 
 def main():
-    global SVC, DB_PATH, EDGAR_USER_AGENT
+    global SVC, FUNNEL, DB_PATH, EDGAR_USER_AGENT
     global WIRE_POLL_INTERVAL_SECONDS, EDGAR_POLL_INTERVAL_SECONDS, PRESS_POLL_INTERVAL_SECONDS
 
     SVC = Service.from_env()
+    FUNNEL = CycleFunnel(SVC.metrics, FUNNEL_STAGES, log=log, cohort=False)
     DB_PATH = SVC.state_file("ma_seen.db")
 
     # SEC blocks unidentified clients; the UA is a credential-ish value and
