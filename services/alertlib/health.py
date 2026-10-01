@@ -52,8 +52,10 @@ class Metrics:
         self.declare_counter("alert_polls_total", "Poll cycles started.")
         self.declare_counter("alert_poll_errors_total", "Poll cycles that raised.")
         self.declare_counter("alert_items_seen_total", "Upstream items examined.")
-        self.declare_counter("alert_alerts_sent_total", "Alerts delivered successfully.")
-        self.declare_counter("alert_delivery_failures_total", "Delivery attempts that failed.")
+        self.declare_counter("alert_alerts_sent_total",
+                             "Alerts delivered. Startup and crash messages are not alerts.")
+        self.declare_counter("alert_delivery_failures_total",
+                             "Telegram messages not delivered after retries, alerts or not.")
         self.declare_counter("alert_sends_refused_total",
                              "Sends withheld because the dedup record would not persist.")
         self.declare_counter("alert_source_fetches_total", "Source fetches attempted.")

@@ -127,10 +127,16 @@ class AlertArchive:
         if metrics is not None:
             metrics.declare_counter(
                 "alert_archive_records_total",
-                "Alerts written to the archive.")
+                "Alerts in the archive, including rows written before this process started.")
             metrics.declare_counter(
                 "alert_archive_write_failures_total",
                 "Archive writes that did not persist. An alert was still sent.")
+            # Seeded from the file because every deploy restarts the service:
+            # a count of this process's writes alone reads 0 after each one,
+            # and cannot say whether the archive is filling.
+            rows = self._existing_rows()
+            if rows:
+                metrics.inc("alert_archive_records_total", rows)
 
     # -- connection -------------------------------------------------------
     def _connect(self) -> sqlite3.Connection:
@@ -152,6 +158,27 @@ class AlertArchive:
             conn.commit()
             self._conn = conn
         return self._conn
+
+    def _existing_rows(self) -> int:
+        """Rows already in the file, without creating it.
+
+        `mode=rw` fails rather than creating, as in `digest`. A file that
+        cannot be read costs the seed, not the service: the counter starts
+        at 0 and the warning says why.
+        """
+        if not Path(self.path).exists():
+            return 0
+        try:
+            conn = sqlite3.connect(f"{Path(self.path).as_uri()}?mode=rw", uri=True,
+                                   timeout=self.timeout)
+            try:
+                return conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
+            finally:
+                conn.close()
+        except (sqlite3.Error, OSError) as exc:
+            log.warning("archive row count unreadable; alert_archive_records_total "
+                        "counts from 0", extra={"path": self.path, "error": str(exc)})
+            return 0
 
     def close(self) -> None:
         with self._lock:
