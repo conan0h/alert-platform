@@ -14,15 +14,16 @@ Every item in this section works toward reading what the bots sent and improving
 Don't start lower sections while this one has unblocked work.
 
 45. **Roll `v0.7.0` and read the digests.** `needs-conan` (tag, #70), then ours.
-    `main` carries the `alert digest` line (#68), the 10b5-1 fix (#69) and the
-    `edgar-mna` / `fda-catalysts` funnels (#72). Once tagged: roll all four
-    (`alertlib` is shared), then read `logs` `since="10 minutes ago"` and
-    `"30 minutes ago"` for one digest per service. For each alert, record
-    ticker and time, and whether the price moved after it; `clinical-trials`
-    (55 in two days) is the least understood. Confirm
-    `alert_funnel_planned_sale_total` goes non-zero after a US session; if it
-    stays 0, #69's element name is wrong. Record `unclassified : matched` for
-    the two news services.
+    `main` carries the `alert digest` line (#68), the 10b5-1 fix (#69), the
+    `edgar-mna` / `fda-catalysts` funnels (#72) and honest sent / archive
+    counters (#74). Once tagged: roll all four (`alertlib` is shared), then read
+    `logs` `since="10 minutes ago"` and `"30 minutes ago"` for one digest per
+    service. For each alert, record ticker and time, and whether the price moved
+    after it; `clinical-trials` (81 in three days) is the least understood.
+    Check #74: `alerts_sent` equals archived, and `alert_archive_records_total`
+    is non-zero at start. Confirm `alert_funnel_planned_sale_total` goes
+    non-zero after a US session; if it stays 0, #69's element name is wrong.
+    Record `unclassified : matched` for the two news services.
 
 39. **`form4-insider` can only alert on trades over $1M.** `needs-conan`
     The leaderboard behind its main filter is populated but unscored: 13,782
@@ -33,21 +34,6 @@ Don't start lower sections while this one has unblocked work.
     the filter not to need it.
 
 ## Measurement
-
-41. **`alert_archive_records_total` is absent until the first archived alert.**
-    `todo`
-    `AlertArchive` is constructed lazily (`service.py:112`), so the counter is
-    never declared, and "is the archive filling" can't be answered. Fix: declare
-    it at `Service` construction and seed it from `AlertArchive.count()`, so it
-    reports rows in the table and survives restarts. Keep the lazy file create;
-    no file means 0. Tests: no database → 0; populated database → row count.
-
-37. **The startup message counts as a sent alert.** `todo`
-    `alert_alerts_sent_total` increments in the Telegram transport
-    (`telegram.py:107`), so the "bot started" message makes it read 1 when no
-    alert was sent, and the message is not archived. Fix: send it through
-    `Service.send_alert` with source `startup`, and exclude that source from the
-    alert counter.
 
 27. **Nothing can read the alert archive.** `todo` for (d); (c) blocked on #24
     Alerts are recorded per service in SQLite (ADR 0005). (d) a read-only

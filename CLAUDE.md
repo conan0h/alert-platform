@@ -358,27 +358,26 @@ the evidence, and continue.
 Current facts only. When something here is fixed or stops being true, delete it.
 
 **Deployed.** All four services run `v0.6.0` (`d0b33cf`); last verified
-2026-09-30: `active`, `healthz=ok`, `drift` exit 0. `main` carries #68 (alert
-digest), #69 (10b5-1 fix) and #72 (`edgar-mna` / `fda-catalysts` funnels),
-waiting on the `v0.7.0` tag at `c0a4919` (handoff #70).
+2026-10-01: `active`, `drift` exit 0. `main` carries #68 (alert digest), #69
+(10b5-1 fix), #72 (`edgar-mna` / `fda-catalysts` funnels) and #74 (sent and
+archive counters), waiting on the `v0.7.0` tag at `c3ee78e` (handoff #70).
 
 **The main problem: nobody has judged the alerts.** All four services alert.
-Archived in the 48 hours after the v0.6.0 restart (2026-09-28 08:27–08:30Z):
-`form4-insider` 87 (all `large_trade`), `clinical-trials` 55, `edgar-mna` 29,
-`fda-catalysts` 6. Their content is not readable off the host until `v0.7.0`
+Archived in the ~71 hours after the v0.6.0 restart (2026-09-28 08:27–08:30Z):
+`form4-insider` 216 (all `large_trade`), `clinical-trials` 81, `edgar-mna` 38,
+`fda-catalysts` 10. Their content is not readable off the host until `v0.7.0`
 ships the digest (#45).
 - `form4-insider`: alerts only on trades over $1M, because its leaderboard is
   unscored (#39). Until #69 deploys, 10b5-1 planned sales pass as large trades.
-- `clinical-trials`: 55 signals from 26 status changes and 377 first sightings.
+- `clinical-trials`: 81 signals from 42 status changes and 550 first sightings.
 - `edgar-mna`, `fda-catalysts`: what the category filter drops is measured
   from `v0.7.0` (`alert_funnel_unclassified_total` against `_matched_total`).
   `fda-catalysts`' FiercePharma feed is dead (403).
 
 **Reading traps.** Each of these has misled a run.
-- `alert_alerts_sent_total` counts the startup message: it reads 1 with no
-  alert sent (#37).
-- `alert_archive_records_total` is absent after a restart until the service
-  archives an alert (#41).
+- Until `v0.7.0` deploys, `alert_alerts_sent_total` is archived + 1 (the
+  startup message), and `alert_archive_records_total` is absent after a
+  restart until the first alert, then counts only that process's writes.
 - Per-cycle funnel lines describe one cycle, and read 0 at the 04:15 ET run
   hour on every service. `clinical-trials` printed `changed=0` in every line
   read for a week while `alert_funnel_changed_total` reached 26 in two days.

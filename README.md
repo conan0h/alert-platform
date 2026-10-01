@@ -201,9 +201,9 @@ From `observe.yml` against the live host, 2026-09-29:
 
 ### Known gaps
 
-- **Nobody has judged whether the alerts are any good.** In the 48 hours after
-  the v0.6.0 deploy, `form4-insider` archived 87 alerts (all from its over-$1M
-  branch), `clinical-trials` 55, `edgar-mna` 29 and `fda-catalysts` 6.
+- **Nobody has judged whether the alerts are any good.** In the ~71 hours after
+  the v0.6.0 deploy, `form4-insider` archived 216 alerts (all from its over-$1M
+  branch), `clinical-trials` 81, `edgar-mna` 38 and `fda-catalysts` 10.
   `form4-insider`'s main filter depends on an insider leaderboard that has
   never been scored.
 - **The alert archive has no query interface.** Alerts are recorded per service

@@ -10,22 +10,6 @@ verbatim to [`log-archive.md`](log-archive.md).
     Found: new facts, with backlog numbers.
     Next: the first thing the next run should do.
 
-## 2026-09-28 — v0.6.0 on all four services
-Production: plan `2880151f4eb5` (4 UPDATEs), apply run 14 `Applied 4 change(s)`,
-305.9s, no rollback. All four `v0.6.0`, active, `healthz=ok`, `drift` exit 0.
-Alerts, 08:37–08:47Z (04:37 ET, pre-market): none sent.
-- `form4-insider`: `entries=100 new=0`, every later stage 0. Leaderboard
-  13,782 insiders, 0 scored.
-- `clinical-trials`: `0 of 0`, the Monday window (weekend only).
-- `edgar-mna`: 1 source failure in 182 fetches. `fda-catalysts`: 14/15,
-  FiercePharma dead.
-Shipped: #65 (roll to `v0.6.0`), #66 (records), then a docs pass that cut
-the docs to current state and open work.
-Found: `alert_alerts_sent_total` counts the startup message (#37);
-`alert_archive_records_total` is absent (#41); the plan's env-change reason is
-false on every ref roll (#43).
-Next: #42, the post-close `form4-insider` read.
-
 ## 2026-09-29 — the fleet alerts; a digest to read them; 10b5-1 fix
 Production, 08:18–08:20Z (04:18 ET): all four `v0.6.0`, active, `healthz=ok`,
 `drift` exit 0 (host alertctl `89fe764`). `history` ends at the 2026-09-28
@@ -68,4 +52,22 @@ drops; `CycleFunnel(cohort=False)`; ADR 0006 amended). Handoff #70 retargeted
 to `c0a4919`.
 Found: #35's premise was false. `clinical-trials` alerts, and the per-cycle
 line at the run hour hid it for a week. Deleted #35; its alerts join #45.
+Next: when #70 is done, roll all four to `v0.7.0` (#45), then read the digests.
+
+## 2026-10-01 — honest sent and archive counters
+Production, 08:18–08:20Z (04:18 ET): all four `v0.6.0`, active, `drift` exit 0
+(host alertctl `89fe764`). No deploy: `v0.7.0` is still untagged (#70).
+Alerts, snapshots 07:51–08:06Z, ~257,000s after the 2026-09-28 restart:
+- `form4-insider`: 216 archived, all `large_trade` (~72/day). new 4461,
+  transactions 1781, code_not_actionable 875, below_floor 401,
+  no_insider_history 289, planned_sale 0 (#69 not deployed); 115 poll errors.
+- `clinical-trials`: 81 archived. first_sight 550, changed 42, signals 81.
+- `edgar-mna`: 38 archived; 397 of 44,849 fetches failed.
+- `fda-catalysts`: 10 archived; 5,840 of 54,370 failed, 1 source dead.
+- `sends_refused` 0, `delivery_failures` 0 on all four. `alerts_sent` =
+  archived + 1 on every service: the startup banner (#37).
+Shipped: #74 (`alert_alerts_sent_total` counted in `Service.send_alert`, so
+startup and crash messages are excluded; `alert_archive_records_total`
+declared at start and seeded from the rows in `alerts.db`). Handoff #70
+retargeted to `c3ee78e`.
 Next: when #70 is done, roll all four to `v0.7.0` (#45), then read the digests.
