@@ -250,6 +250,52 @@ def test_the_digest_lists_what_the_service_sent(env, capsys, monkeypatch):
         "ACME [merger agreement] ACME to be acquired at $12.00")
 
 
+def test_the_archive_count_is_in_the_first_snapshot_after_a_restart(env, capsys,
+                                                                     monkeypatch):
+    """Backlog #41: the counter was declared only when the first alert built
+    the archive, so a restarted service reported no count at all."""
+    svc = Service.from_env()
+    with svc.poll_cycle():
+        pass
+    assert snapshots(capsys)[0]["alert_archive_records_total"] == 0
+
+    monkeypatch.setattr(svc.telegram, "send", lambda body: True)
+    for key in ("k1", "k2"):
+        svc.send_alert(Alert(source="EDGAR", dedup_key=key, title="t", body="stub"))
+    svc.archive.close()
+
+    restarted = Service.from_env()
+    with restarted.poll_cycle():
+        pass
+    assert snapshots(capsys)[0]["alert_archive_records_total"] == 2
+
+
+def test_only_a_delivered_alert_counts_as_sent(env, monkeypatch):
+    """Backlog #37: the transport counted every message, so the startup banner
+    made `alert_alerts_sent_total` read 1 on a service that had sent nothing."""
+    import alertlib.telegram as telegram_module
+
+    class _Ok:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+    svc = Service.from_env()
+    monkeypatch.setattr(svc.telegram.session, "post", lambda *a, **kw: _Ok())
+    monkeypatch.setattr(telegram_module.time, "sleep", lambda s: None)
+
+    assert svc.telegram.send("✅ <b>bot started</b>")
+    assert svc.metrics.get("alert_alerts_sent_total") == 0
+
+    assert svc.send_alert(Alert(source="EDGAR", dedup_key="k1", title="t", body="stub"))
+    assert svc.metrics.get("alert_alerts_sent_total") == 1
+
+    monkeypatch.setattr(svc.telegram, "send", lambda body: False)
+    assert not svc.send_alert(Alert(source="EDGAR", dedup_key="k2", title="t", body="stub"))
+    assert svc.metrics.get("alert_alerts_sent_total") == 1
+
+
 def test_a_failing_digest_does_not_end_the_poll_loop_or_the_snapshot(
         env, capsys, monkeypatch):
     import alertlib.service as service_module

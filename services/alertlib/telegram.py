@@ -103,8 +103,6 @@ class TelegramClient:
                     time.sleep(min(retry_after, 30))
                     continue
                 resp.raise_for_status()
-                if self.metrics:
-                    self.metrics.inc("alert_alerts_sent_total")
                 return True
             except Exception as exc:
                 log.error("telegram send failed",

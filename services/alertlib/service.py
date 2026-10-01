@@ -64,7 +64,15 @@ class Service:
             self.heartbeat,
         )
         self._telegram: TelegramClient | None = None
-        self._archive: AlertArchive | None = None
+        # Built here rather than on first alert so its counters exist, and
+        # report the rows already on disk, from the first snapshot. Building
+        # it does not create the file; the first `record` does.
+        self._archive = AlertArchive(
+            path=self.state_file("alerts.db"),
+            service=cfg.name,
+            ref=cfg.deployed_ref,
+            metrics=self.metrics,
+        )
         self._stopping = False
         self._cycle = 0
         # Zero rather than now, so the first cycle always emits a snapshot and
@@ -114,13 +122,6 @@ class Service:
         alertlib/archive.py for why sharing that file is the one thing this
         must not do.
         """
-        if self._archive is None:
-            self._archive = AlertArchive(
-                path=self.state_file("alerts.db"),
-                service=self.cfg.name,
-                ref=self.cfg.deployed_ref,
-                metrics=self.metrics,
-            )
         return self._archive
 
     def send_alert(self, alert: Alert) -> bool:
@@ -131,10 +132,16 @@ class Service:
         of a convention four services each have to remember. The return value
         is the delivery result, unchanged, because callers use it to decide
         whether to mark an item as alerted.
+
+        `alert_alerts_sent_total` is counted here, not in the transport, so
+        the startup and crash messages that go straight to `telegram.send`
+        are not counted as alerts.
         """
         row_id = self.archive.record(alert)
         delivered = self.telegram.send(alert.body)
         self.archive.record_delivery(row_id, delivered)
+        if delivered:
+            self.metrics.inc("alert_alerts_sent_total")
         return delivered
 
     # -- measurement ------------------------------------------------------
@@ -211,8 +218,7 @@ class Service:
         self._last_snapshot_at = 0.0
         self._snapshot_if_due()
         self.health.stop()
-        if self._archive is not None:
-            self._archive.close()
+        self._archive.close()
         return False
 
     def _on_signal(self, signum, _frame) -> None:

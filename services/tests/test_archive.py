@@ -185,6 +185,41 @@ def test_the_counters_are_declared_so_they_appear_before_the_first_alert(tmp_pat
     assert "alert_archive_write_failures_total" in metrics.declared
 
 
+def test_the_record_count_starts_from_the_rows_already_on_disk(tmp_path):
+    """Every deploy restarts the service. A counter of this process's writes
+    alone reads 0 after each one, and cannot say whether the archive fills."""
+    path = str(tmp_path / "alerts.db")
+    first = AlertArchive(path=path, service="form4-insider")
+    for i in range(3):
+        first.record(an_alert(dedup_key=f"key-{i}"))
+    first.close()
+
+    metrics = _Metrics()
+    second = AlertArchive(path=path, service="form4-insider", metrics=metrics)
+    assert metrics.counts["alert_archive_records_total"] == 3
+    second.record(an_alert(dedup_key="key-3"))
+    assert metrics.counts["alert_archive_records_total"] == 4
+
+
+def test_no_file_means_a_count_of_zero_and_no_file_created(tmp_path):
+    path = tmp_path / "alerts.db"
+    metrics = _Metrics()
+    AlertArchive(path=str(path), service="edgar-mna", metrics=metrics)
+    assert metrics.counts.get("alert_archive_records_total", 0) == 0
+    assert not path.exists()
+
+
+def test_an_unreadable_file_costs_the_seed_not_the_service(tmp_path):
+    """A file with no alerts table stands in for corruption: the constructor
+    must still return, because the service builds the archive at start."""
+    path = tmp_path / "alerts.db"
+    sqlite3.connect(str(path)).close()
+    path.write_bytes(b"not a database")
+    metrics = _Metrics()
+    AlertArchive(path=str(path), service="edgar-mna", metrics=metrics)
+    assert metrics.counts.get("alert_archive_records_total", 0) == 0
+
+
 # -- the seam with the rest of the platform ---------------------------------
 
 def test_the_archive_survives_the_service_being_restarted(tmp_path):

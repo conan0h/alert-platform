@@ -390,11 +390,15 @@ The archive is a separate database from the service's dedup state, and a
 failed archive write is logged and counted rather than raised — the reasoning
 for both, and why they point in opposite directions, is in
 [ADR 0005](adr/0005-alert-archive.md). It exposes
-`alert_archive_records_total` and `alert_archive_write_failures_total`.
+`alert_archive_records_total`, the rows in the file (seeded from it at start, so
+it survives restarts), and `alert_archive_write_failures_total`.
 
 Services reach it through `Service.send_alert`, not by calling the archive and
 the Telegram client in sequence, so "every alert is recorded" is a property of
 the send path rather than a convention four services have to remember.
+`alert_alerts_sent_total` is counted there too, so it counts delivered alerts
+only; the startup and crash messages go to Telegram directly and are neither
+archived nor counted.
 
 No read verb can query the archive yet, so its contents leave the host the
 same way the counters do. With every metrics snapshot each service writes an
