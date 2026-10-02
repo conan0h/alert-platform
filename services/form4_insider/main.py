@@ -35,7 +35,7 @@ import form4_common
 # Platform runtime
 # ---------------------------------------------------------------------------
 from alertlib import Alert, CycleFunnel, Service, get_logger
-from form4_backfill import _ACCESSION_RE, fetch_primary_xml, parse_form4_xml
+from form4_backfill import _ACCESSION_RE, FetchFailed, fetch_filing_xml, parse_form4_xml
 from form4_common import edgar_get, init_db
 
 SVC: Service = None          # bound in main()
@@ -74,10 +74,15 @@ DECISIONS = (
 # The two that alert. Everything else is a refusal with a reason.
 ALERTING_DECISIONS = frozenset({"large_trade", "top_tier"})
 
+# Why a new filing was not fetched; `form4_backfill.FetchFailed.stage`. About
+# 44% of new filings stopped between `new` and `fetched` in the 2026-10-02
+# snapshot (6379 new, 3563 fetched), and the three causes need different fixes.
+FETCH_FAILURES = ("index_unavailable", "no_form4_xml", "xml_unavailable")
+
 # The candidate pipeline, in order:
 #
-#   entries -> new -> fetched -> parsed -> claimed -> transactions
-#           -> <one of DECISIONS> -> sent
+#   entries -> new -> <one of FETCH_FAILURES> | fetched -> parsed -> claimed
+#           -> transactions -> <one of DECISIONS> -> sent
 #
 # Named here so the funnel line and the /metrics counters cannot drift apart.
 # Each stage before the decisions is a different reason for silence with a
@@ -89,6 +94,7 @@ ALERTING_DECISIONS = frozenset({"large_trade", "top_tier"})
 FUNNEL_STAGES = (
     "entries",
     "new",
+    *FETCH_FAILURES,
     "fetched",
     "parsed",
     "claimed",
@@ -376,13 +382,17 @@ def process_filing(
         return 0
     funnel.count("new")
 
-    result = fetch_primary_xml(cik, accession)
-    if result is None:
-        # Mark to stop re-fetching; we will never recover this one. Nothing is
-        # sent on this path, so a failed write costs only a repeated fetch.
+    try:
+        _, xml_bytes = fetch_filing_xml(cik, accession)
+    except FetchFailed as e:
+        # Marked so it is never fetched again, transient failures included.
+        # Whether to retry those waits on the stage counts. Nothing is sent on
+        # this path, so a failed write costs only a repeated fetch.
+        funnel.count(e.stage)
+        log.warning("filing not fetched",
+                    extra={"accession": accession, "stage": e.stage, "detail": e.detail})
         mark_alerted(conn, accession)
         return 0
-    _, xml_bytes = result
     funnel.count("fetched")
 
     parsed = parse_form4_xml(xml_bytes)

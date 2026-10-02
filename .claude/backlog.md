@@ -33,6 +33,14 @@ Don't start lower sections while this one has unblocked work.
     lands in. Decision: make the scorer a managed unit with a timer, or rewrite
     the filter not to need it.
 
+46. **`form4-insider` never fetches ~44% of new filings.** `in-pr`
+    Snapshot 2026-10-02: `new` 6379, `fetched` 3563. A failed fetch is marked
+    handled and never retried, so those filings never reach the filter. From
+    `v0.7.0`, `index_unavailable`, `no_form4_xml` and `xml_unavailable` split
+    the loss, and each failure logs `filing not fetched` with its HTTP status
+    or index listing. Next: read the split, then retry transient failures
+    while the filing stays in the feed (~1.5 h), or fix the XML selection rule.
+
 ## Measurement
 
 27. **Nothing can read the alert archive.** `todo` for (d); (c) blocked on #24
