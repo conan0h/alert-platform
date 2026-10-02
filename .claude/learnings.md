@@ -36,6 +36,8 @@ one covers it and sharpen that instead.
   against something you know.** When adding one, write and run the command that
   reads it. Counters reset on every deploy.
 - **Instrument the hypothesis and its alternatives.** A zero is a result.
+- **Read a funnel as ratios between adjacent stages, not only for zeros.**
+  `new` → `fetched` read 1369 → 696 on 2026-09-29 and went unflagged for 3 runs.
 - **Before reusing a module, check that it fits the new place's failure mode.**
   The journal reports conditions; counters report rates.
 

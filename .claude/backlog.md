@@ -15,15 +15,17 @@ Don't start lower sections while this one has unblocked work.
 
 45. **Roll `v0.7.0` and read the digests.** `needs-conan` (tag, #70), then ours.
     `main` carries the `alert digest` line (#68), the 10b5-1 fix (#69), the
-    `edgar-mna` / `fda-catalysts` funnels (#72) and honest sent / archive
-    counters (#74). Once tagged: roll all four (`alertlib` is shared), then read
-    `logs` `since="10 minutes ago"` and `"30 minutes ago"` for one digest per
-    service. For each alert, record ticker and time, and whether the price moved
-    after it; `clinical-trials` (81 in three days) is the least understood.
+    `edgar-mna` / `fda-catalysts` funnels (#72), honest sent / archive
+    counters (#74) and form4 fetch-failure stages (#77). Once tagged: roll all
+    four (`alertlib` is shared), then read `logs` `since="10 minutes ago"`
+    and `"30 minutes ago"` for one digest per service. For each alert, record
+    ticker and time, and whether the price moved after it; `clinical-trials`
+    (109 in four days) is the least understood.
     Check #74: `alerts_sent` equals archived, and `alert_archive_records_total`
     is non-zero at start. Confirm `alert_funnel_planned_sale_total` goes
     non-zero after a US session; if it stays 0, #69's element name is wrong.
-    Record `unclassified : matched` for the two news services.
+    Record `unclassified : matched` for the two news services, and the #46
+    split of fetch failures.
 
 39. **`form4-insider` can only alert on trades over $1M.** `needs-conan`
     The leaderboard behind its main filter is populated but unscored: 13,782
@@ -33,7 +35,7 @@ Don't start lower sections while this one has unblocked work.
     lands in. Decision: make the scorer a managed unit with a timer, or rewrite
     the filter not to need it.
 
-46. **`form4-insider` never fetches ~44% of new filings.** `in-pr`
+46. **`form4-insider` never fetches ~44% of new filings.** `needs-conan` (tag, #70)
     Snapshot 2026-10-02: `new` 6379, `fetched` 3563. A failed fetch is marked
     handled and never retried, so those filings never reach the filter. From
     `v0.7.0`, `index_unavailable`, `no_form4_xml` and `xml_unavailable` split
