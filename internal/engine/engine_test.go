@@ -264,6 +264,70 @@ func TestPlanDetectsRefChangeAndInactiveUnit(t *testing.T) {
 	}
 }
 
+// Every ref roll changes the env hash, because the env file carries
+// ALERT_DEPLOYED_REF. The plan must say whether config changed as well,
+// or an operator reading a ref roll is told config changed when it did not.
+func TestPlanExplainsEnvironmentChangeByItsCause(t *testing.T) {
+	repo := loadFixture(t)
+	svc, _ := repo.Service("fixture-trials")
+	eff := fleet.Resolve(repo.Fleet, svc)
+	target, _ := repo.DefaultTarget()
+	unit := RenderUnit(eff, target)
+	placeholders := map[string]string{}
+	for _, n := range eff.SecretNames() {
+		placeholders[n] = SecretPlaceholder
+	}
+	const oldRef = "v0.9.0"
+	oldConfig := Hash("an env file rendered from different config")
+
+	cases := []struct {
+		name       string
+		ref        string
+		envHash    string
+		wantReason string
+	}{
+		{"ref only", oldRef, Hash(RenderEnv(eff, oldRef, placeholders)),
+			"ALERT_DEPLOYED_REF follows source.ref; no config changed"},
+		{"config only", fixtureRef, oldConfig,
+			"polling, delivery, health or state config changed"},
+		{"ref and config", oldRef, oldConfig,
+			"polling, delivery, health or state config changed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, _ := json.Marshal(Manifest{
+				Service: "fixture-trials", Ref: tc.ref,
+				UnitHash: Hash(unit), EnvHash: tc.envHash,
+			})
+			runner := pexec.NewDry(nil)
+			runner.Responses["cat "+ManifestPath("fixture-trials")+" 2>/dev/null || true"] =
+				pexec.Result{Stdout: string(raw)}
+			runner.Responses["sha256sum "+UnitPath("fixture-trials")+" 2>/dev/null | cut -c1-16 || true"] =
+				pexec.Result{Stdout: Hash(unit) + "\n"}
+			runner.Responses["systemctl show "+UnitName("fixture-trials")+
+				" --property=ActiveState,UnitFileState --value 2>/dev/null || true"] =
+				pexec.Result{Stdout: "active\nenabled\n"}
+
+			plan, err := BuildPlan(repo, runner, []string{"fixture-trials"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got *Change
+			for i, c := range plan.Services[0].Changes {
+				if c.Field == "environment" {
+					got = &plan.Services[0].Changes[i]
+				}
+			}
+			if got == nil {
+				t.Fatalf("no environment change reported; got %+v", plan.Services[0].Changes)
+			}
+			if got.Reason != tc.wantReason {
+				t.Errorf("reason = %q, want %q", got.Reason, tc.wantReason)
+			}
+		})
+	}
+}
+
 func TestPlanNeverContainsSecretValues(t *testing.T) {
 	repo := loadFixture(t)
 	plan, err := BuildPlan(repo, pexec.NewDry(nil), nil)

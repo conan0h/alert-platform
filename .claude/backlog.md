@@ -42,13 +42,6 @@ Don't start lower sections while this one has unblocked work.
 
 ## Deploy safety
 
-43. **A plan claims config changed when only the ref did.** `todo`
-    `ALERT_DEPLOYED_REF` is in the rendered env (`unit.go:145`) and the env hash
-    is computed at the desired ref (`plan.go:155`), so every ref roll prints
-    `(polling, delivery, health or state config changed)`. Fix: also hash the env
-    at the observed ref; if that matches the host, say the ref accounts for the
-    change. Table test: ref only, config only, both.
-
 30. **The audit log can't tell "refused before acting" from "failed mid-way".**
     `todo`
     Both are `failed`. Fix: a `mutated: bool` detail set once the first mutating
