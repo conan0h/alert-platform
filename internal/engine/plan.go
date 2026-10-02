@@ -189,7 +189,7 @@ func BuildPlan(repo *fleet.Repo, r exec.Runner, only []string) (Plan, error) {
 			if obs.Manifest.EnvHash != envHash {
 				sp.Changes = append(sp.Changes, Change{
 					Field: "environment", Observed: shortHash(obs.Manifest.EnvHash), Desired: envHash,
-					Reason: "polling, delivery, health or state config changed",
+					Reason: envChangeReason(eff, obs.Manifest, placeholders),
 				})
 			}
 			if obs.Active != "active" {
@@ -215,6 +215,17 @@ func BuildPlan(repo *fleet.Repo, r exec.Runner, only []string) (Plan, error) {
 
 	plan.ID = plan.fingerprint()
 	return plan, nil
+}
+
+// envChangeReason explains a changed environment hash. The env file carries
+// ALERT_DEPLOYED_REF, so every ref roll changes the hash. Re-rendering the
+// desired config at the observed ref separates the two causes: if that
+// matches the host, the ref is the whole difference.
+func envChangeReason(eff fleet.Effective, observed Manifest, placeholders map[string]string) string {
+	if observed.Ref != "" && Hash(RenderEnv(eff, observed.Ref, placeholders)) == observed.EnvHash {
+		return "ALERT_DEPLOYED_REF follows source.ref; no config changed"
+	}
+	return "polling, delivery, health or state config changed"
 }
 
 // fingerprint identifies a plan by its content. `apply` recomputes it from

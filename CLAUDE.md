@@ -391,8 +391,6 @@ ships the digest (#45).
   close.
 - `clinical-trials` reads `Streamed 0 of 0` on Monday pre-market: its two-day
   window holds only a weekend. Not a fault.
-- Every ref roll's plan says `environment … (polling, delivery, health or state
-  config changed)`. It means the ref moved (#43).
 - `drift` compares refs and unit hashes against the host's own checkout, which
   only `plan` syncs. It doesn't see file edits, and a merged but unapplied
   release shows no drift.
