@@ -364,6 +364,14 @@ that matters today is `no_leaderboard`, which says the alpha filter refused
 because there is no leaderboard to compare against rather than because the
 insider fell short.
 
+A fetch that fails is counted under one of `main.FETCH_FAILURES`:
+`index_unavailable` (the filing's `index.json` request failed),
+`no_form4_xml` (the index lists no candidate XML) or `xml_unavailable` (the
+XML request failed). Each is also logged as `filing not fetched`, with the
+HTTP status or exception type, or with the index listing for `no_form4_xml`.
+The first and last may succeed on a retry. The middle one points at the
+file-selection rule in `form4_backfill.fetch_filing_xml`.
+
 `edgar-mna` and `fda-catalysts` count every feed entry into one of
 `unclassified`, `matched` (and, in `edgar-mna`, the `disclosure_noise` and
 `letter_of_intent` title filters), then every match into `already_seen`,

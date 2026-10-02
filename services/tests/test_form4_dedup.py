@@ -42,7 +42,7 @@ def fake_filing(monkeypatch):
     """
     svc = Svc()
 
-    monkeypatch.setattr(form4, "fetch_primary_xml", lambda cik, acc: ("url", b"<xml/>"))
+    monkeypatch.setattr(form4, "fetch_filing_xml", lambda cik, acc: ("url", b"<xml/>"))
     monkeypatch.setattr(form4, "parse_form4_xml", lambda _b: {
         "insider_cik": "0001005731",
         "insider_name": "Silver Lake Partners IV, L.P.",

@@ -16,7 +16,7 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
-from _form4 import ACCESSION, CIK, Svc, form4, form4_common, make_funnel
+from _form4 import ACCESSION, CIK, Svc, form4, form4_backfill, form4_common, make_funnel
 
 
 def tx(**over) -> dict:
@@ -93,7 +93,7 @@ def funnel(svc):
 
 
 def filing(monkeypatch, transactions, insider=None):
-    monkeypatch.setattr(form4, "fetch_primary_xml", lambda cik, acc: ("url", b"<xml/>"))
+    monkeypatch.setattr(form4, "fetch_filing_xml", lambda cik, acc: ("url", b"<xml/>"))
     monkeypatch.setattr(form4, "parse_form4_xml", lambda _b: {
         "insider_cik": "0001005731",
         "insider_name": "Silver Lake Partners IV, L.P.",
@@ -123,16 +123,26 @@ def test_a_filing_already_handled_stops_at_entries(db, funnel, svc, monkeypatch)
     assert svc.metrics.get("alert_funnel_fetched_total") == 0
 
 
-def test_a_fetch_that_fails_is_counted_as_new_but_not_fetched(db, funnel, svc, monkeypatch):
+@pytest.mark.parametrize("stage", form4.FETCH_FAILURES)
+def test_a_fetch_that_fails_is_counted_under_its_reason(db, funnel, svc, monkeypatch,
+                                                         caplog, stage):
     filing(monkeypatch, [tx()])
-    monkeypatch.setattr(form4, "fetch_primary_xml", lambda cik, acc: None)
 
-    with funnel.cycle():
+    def refuse(cik, acc):
+        raise form4_backfill.FetchFailed(stage, "HTTP 429")
+    monkeypatch.setattr(form4, "fetch_filing_xml", refuse)
+
+    with caplog.at_level("WARNING"), funnel.cycle():
         assert form4.process_filing(db, ACCESSION, CIK, None, funnel) == 0
 
     assert svc.metrics.get("alert_funnel_new_total") == 1
+    assert svc.metrics.get(f"alert_funnel_{stage}_total") == 1
+    for other in set(form4.FETCH_FAILURES) - {stage}:
+        assert svc.metrics.get(f"alert_funnel_{other}_total") == 0
     assert svc.metrics.get("alert_funnel_fetched_total") == 0
-    assert svc.metrics.get("alert_funnel_parsed_total") == 0
+    assert form4.is_already_alerted(db, ACCESSION)
+    [record] = [r for r in caplog.records if r.getMessage() == "filing not fetched"]
+    assert (record.stage, record.detail) == (stage, "HTTP 429")
 
 
 def test_xml_that_will_not_parse_is_fetched_but_not_parsed(db, funnel, svc, monkeypatch):
@@ -316,3 +326,67 @@ def test_the_gauges_reach_the_metrics_snapshot(db, svc):
     snapshot = svc.metrics.snapshot()
     for metric, _help in form4.LEADERBOARD_GAUGES.values():
         assert metric in snapshot
+
+
+# --- why a fetch fails ------------------------------------------------------
+
+class _Resp:
+    def __init__(self, status=200, json=None, content=b""):
+        self.status_code = status
+        self._json = json
+        self.content = content
+
+    def json(self):
+        return self._json
+
+
+def _edgar(monkeypatch, index, xml=None):
+    """Route edgar_get: `index` and `xml` are a _Resp or an exception."""
+    def get(url, timeout=30, extra_headers=None):
+        answer = index if url.endswith("/index.json") else xml
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+    monkeypatch.setattr(form4_backfill, "edgar_get", get)
+
+
+def _listing(*names):
+    return _Resp(json={"directory": {"item": [{"name": n} for n in names]}})
+
+
+def test_an_http_error_on_the_index_names_its_status(monkeypatch):
+    import requests
+    _edgar(monkeypatch, requests.HTTPError(response=_Resp(status=429)))
+
+    with pytest.raises(form4_backfill.FetchFailed) as e:
+        form4_backfill.fetch_filing_xml(CIK, ACCESSION)
+    assert (e.value.stage, e.value.detail) == ("index_unavailable", "HTTP 429")
+
+
+def test_an_index_with_no_candidate_xml_lists_what_it_held(monkeypatch):
+    _edgar(monkeypatch, _listing("filing.txt", "index.htm"))
+
+    with pytest.raises(form4_backfill.FetchFailed) as e:
+        form4_backfill.fetch_filing_xml(CIK, ACCESSION)
+    assert (e.value.stage, e.value.detail) == ("no_form4_xml", "filing.txt,index.htm")
+
+
+def test_a_timeout_on_the_xml_names_the_exception(monkeypatch):
+    import requests
+    _edgar(monkeypatch, _listing("primary_doc.xml"), xml=requests.ReadTimeout())
+
+    with pytest.raises(form4_backfill.FetchFailed) as e:
+        form4_backfill.fetch_filing_xml(CIK, ACCESSION)
+    assert (e.value.stage, e.value.detail) == ("xml_unavailable", "ReadTimeout")
+
+
+def test_a_fetch_that_succeeds_returns_the_xml(monkeypatch):
+    _edgar(monkeypatch, _listing("doc4.xml"), xml=_Resp(content=b"<ownershipDocument/>"))
+
+    assert form4_backfill.fetch_filing_xml(CIK, ACCESSION) == (ACCESSION, b"<ownershipDocument/>")
+
+
+def test_the_backfill_wrapper_still_returns_none(monkeypatch):
+    _edgar(monkeypatch, _listing())
+
+    assert form4_backfill.fetch_primary_xml(CIK, ACCESSION) is None

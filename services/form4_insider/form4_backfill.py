@@ -265,13 +265,34 @@ def index_row_to_xml_urls(cik: str, filename: str) -> list[str]:
     return [f"{base}/index.json", f"{base}/{accession}-index.htm"]
 
 
-def fetch_primary_xml(cik: str, filename: str) -> tuple[str, bytes] | None:
+class FetchFailed(Exception):
+    """A filing whose XML could not be fetched, and which step refused it.
+
+    `stage` is a funnel stage name in `form4-insider`. The three stages have
+    different fixes: an index request that failed may succeed later, an index
+    that lists no candidate XML points at the file-selection rule, and a
+    failed XML request is the same transport question as the index.
     """
-    Return (accession, xml_bytes) or None. Tries the index.json route first.
-    """
+
+    def __init__(self, stage: str, detail: str):
+        super().__init__(f"{stage}: {detail}")
+        self.stage = stage
+        self.detail = detail
+
+
+def _describe(e: Exception) -> str:
+    """The status code for an HTTP error, otherwise the exception's type."""
+    response = getattr(e, "response", None)
+    if response is not None:
+        return f"HTTP {response.status_code}"
+    return type(e).__name__
+
+
+def fetch_filing_xml(cik: str, filename: str) -> tuple[str, bytes]:
+    """Return (accession, xml_bytes), or raise FetchFailed naming the step."""
     m = _ACCESSION_RE.search(filename)
     if not m:
-        return None
+        raise FetchFailed("no_form4_xml", f"no accession in {filename!r}")
     accession = m.group(1)
     accession_nodash = accession.replace("-", "")
     base = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession_nodash}"
@@ -280,34 +301,39 @@ def fetch_primary_xml(cik: str, filename: str) -> tuple[str, bytes] | None:
     try:
         idx = edgar_get(f"{base}/index.json", timeout=30).json()
     except Exception as e:
-        log.debug("index.json failed for %s: %s", accession, e)
-        return None
+        raise FetchFailed("index_unavailable", _describe(e)) from e
 
     items = idx.get("directory", {}).get("item", [])
+    names = [it.get("name", "") for it in items]
     xml_name = None
     # Prefer primary_doc.xml if present, else first .xml that isn't a financial statement
-    for it in items:
-        name = it.get("name", "")
-        if name == "primary_doc.xml":
-            xml_name = name
-            break
-    if xml_name is None:
-        for it in items:
-            name = it.get("name", "")
+    if "primary_doc.xml" in names:
+        xml_name = "primary_doc.xml"
+    else:
+        for name in names:
             if name.lower().endswith(".xml") and "r" not in name.split(".")[0][-2:]:
                 # Skip Rxxx.xml financial statement files
                 xml_name = name
                 break
     if xml_name is None:
-        return None
+        # The listing is the evidence for whether the selection rule is wrong.
+        raise FetchFailed("no_form4_xml", ",".join(names)[:200] or "empty index")
 
     try:
         xml_bytes = edgar_get(f"{base}/{xml_name}", timeout=30).content
     except Exception as e:
-        log.debug("xml fetch failed for %s: %s", accession, e)
-        return None
+        raise FetchFailed("xml_unavailable", _describe(e)) from e
 
     return accession, xml_bytes
+
+
+def fetch_primary_xml(cik: str, filename: str) -> tuple[str, bytes] | None:
+    """`fetch_filing_xml` for callers that only need success or failure."""
+    try:
+        return fetch_filing_xml(cik, filename)
+    except FetchFailed as e:
+        log.debug("fetch failed for %s: %s", filename, e)
+        return None
 
 
 # ---------------------------------------------------------------------------
