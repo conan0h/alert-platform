@@ -4,7 +4,7 @@ form4_common.py
 Shared utilities for the Form 4 bot suite:
   - SQLite schema
   - EDGAR helpers (rate-limited requests, User-Agent compliance)
-  - Yahoo Finance price fetcher (free, cached to SQLite)
+  - Yahoo Finance price fetcher (v8 chart API, cached to SQLite)
   - Transaction-code classification
 
 Used by form4_backfill.py, form4_scorer.py, and form4_bot.py.
@@ -17,7 +17,7 @@ import os
 import sqlite3
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import requests
@@ -205,8 +205,15 @@ def edgar_get(url: str, timeout: int = 30, extra_headers: dict | None = None) ->
 # ---------------------------------------------------------------------------
 # Yahoo Finance — free price history (no API key needed)
 # ---------------------------------------------------------------------------
+# The v8 chart endpoint, not the v7 CSV download the scorer was written
+# against: v7 has required a session cookie and crumb since 2023 and is
+# expected to answer 401 to a bare request. Not yet observed from the host;
+# `probe_price_source` makes the host report what v8 returns (backlog #39).
+YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?{query}"
+YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0 Form4-Bot"}
+
+
 def _yahoo_history_url(ticker: str, start_unix: int, end_unix: int) -> str:
-    # v7 download endpoint returns CSV — simpler to parse than v8 JSON
     q = urlencode({
         "period1": start_unix,
         "period2": end_unix,
@@ -214,7 +221,56 @@ def _yahoo_history_url(ticker: str, start_unix: int, end_unix: int) -> str:
         "events": "history",
         "includeAdjustedClose": "true",
     })
-    return f"https://query1.finance.yahoo.com/v7/finance/download/{ticker}?{q}"
+    return YAHOO_CHART_URL.format(ticker=ticker, query=q)
+
+
+def parse_chart(body: dict) -> dict[str, float]:
+    """{YYYY-MM-DD: adjusted close} from a v8 chart response.
+
+    Timestamps are bar open times in UTC; adding the exchange's `gmtoffset`
+    gives the trading date. A null close (a halted day) is skipped. Raises
+    ValueError when the body is not a chart result, including when the
+    timestamp and close arrays differ in length.
+    """
+    try:
+        result = body["chart"]["result"][0]
+        offset = int(result["meta"].get("gmtoffset", 0))
+        stamps = result.get("timestamp") or []
+        indicators = result["indicators"]
+        adj = (indicators.get("adjclose") or [{}])[0].get("adjclose")
+        closes = adj if adj is not None else indicators["quote"][0]["close"]
+    except (KeyError, IndexError, TypeError) as e:
+        raise ValueError(f"not a chart result: {e!r}") from e
+
+    out: dict[str, float] = {}
+    for ts, close in zip(stamps, closes, strict=True):
+        if close is None:
+            continue
+        day = datetime.fromtimestamp(ts + offset, tz=timezone.utc).strftime("%Y-%m-%d")
+        out[day] = float(close)
+    return out
+
+
+def fetch_yahoo_closes(ticker: str, start: datetime, end: datetime) -> tuple[str, dict[str, float]]:
+    """One uncached request. Returns (outcome, closes).
+
+    `outcome` is the HTTP status as a string, `unparsable` for a 200 whose
+    body is not a chart, or the exception's class name when no response
+    arrived. The scorer only needs the closes; the probe needs the outcome,
+    because "no prices" alone cannot tell a dead endpoint from a delisted
+    ticker.
+    """
+    url = _yahoo_history_url(ticker, int(start.timestamp()), int(end.timestamp()))
+    try:
+        resp = requests.get(url, headers=YAHOO_HEADERS, timeout=20)
+    except requests.RequestException as e:
+        return type(e).__name__, {}
+    if resp.status_code != 200:
+        return str(resp.status_code), {}
+    try:
+        return "200", parse_chart(resp.json())
+    except ValueError:
+        return "unparsable", {}
 
 
 def fetch_price_history(ticker: str, start: datetime, end: datetime,
@@ -239,40 +295,20 @@ def fetch_price_history(ticker: str, start: datetime, end: datetime,
     if len(cached) >= int(expected_days * 0.55):  # ~0.7 trading days per calendar day, give leeway
         return cached
 
-    # Otherwise fetch from Yahoo
-    url = _yahoo_history_url(ticker, int(start.timestamp()), int(end.timestamp()))
-    try:
-        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0 Form4-Bot"}, timeout=20)
-        if resp.status_code != 200:
-            logging.getLogger("form4").debug("Yahoo %s returned %s", ticker, resp.status_code)
-            return cached
-        lines = resp.text.splitlines()
-        if len(lines) < 2:
-            return cached
-        # CSV: Date,Open,High,Low,Close,Adj Close,Volume
-        result: dict[str, float] = {}
-        for line in lines[1:]:
-            parts = line.split(",")
-            if len(parts) < 6:
-                continue
-            date_str, _, _, _, _, adj_close = parts[:6]
-            try:
-                result[date_str] = float(adj_close)
-            except ValueError:
-                continue
-
-        # Write-through cache
-        if cache_conn is not None and result:
-            cache_conn.executemany(
-                "INSERT OR IGNORE INTO price_cache (ticker, date, close) VALUES (?, ?, ?)",
-                [(ticker, d, c) for d, c in result.items()],
-            )
-            cache_conn.commit()
-
-        return result
-    except Exception as e:
-        logging.getLogger("form4").debug("Yahoo fetch failed %s: %s", ticker, e)
+    outcome, result = fetch_yahoo_closes(ticker, start, end)
+    if not result:
+        logging.getLogger("form4").debug("Yahoo %s returned %s", ticker, outcome)
         return cached
+
+    # Write-through cache
+    if cache_conn is not None:
+        cache_conn.executemany(
+            "INSERT OR IGNORE INTO price_cache (ticker, date, close) VALUES (?, ?, ?)",
+            [(ticker, d, c) for d, c in result.items()],
+        )
+        cache_conn.commit()
+
+    return result
 
 
 def price_on_or_after(prices: dict[str, float], target_date: str) -> tuple[str, float] | None:

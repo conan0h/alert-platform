@@ -372,6 +372,13 @@ HTTP status or exception type, or with the index listing for `no_form4_xml`.
 The first and last may succeed on a retry. The middle one points at the
 file-selection rule in `form4_backfill.fetch_filing_xml`.
 
+The leaderboard is scored by `form4_scorer.py` from daily closes fetched with
+`form4_common.fetch_yahoo_closes` (Yahoo's v8 chart endpoint). At startup the
+service fetches 30 days of SPY closes once and reports the result as
+`price source probe` (HTTP status or exception name, and the number of
+closes) and as the `alert_price_source_closes` gauge. A 0 there means the
+scorer would score nothing.
+
 `edgar-mna` and `fda-catalysts` count every feed entry into one of
 `unclassified`, `matched` (and, in `edgar-mna`, the `disclosure_noise` and
 `letter_of_intent` title filters), then every match into `already_seen`,
