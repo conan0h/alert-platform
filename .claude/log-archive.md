@@ -1772,3 +1772,25 @@ filing-level `<aff10b5One>`; the old per-transaction tags don't exist, so
 Found: #42 closed by the cumulative counters: 82 candidates a day reach the
 leaderboard check and stop at `no_insider_history` (#39).
 Next: when #70 is done, roll all four to `v0.7.0` (#45), then read the digests.
+
+## 2026-09-30 — funnels for the news services; clinical-trials alerts
+Production, 08:18–08:26Z (04:18 ET): all four `v0.6.0`, active, `healthz=ok`,
+`drift` exit 0 (host alertctl `89fe764`). `history` ends at the 2026-09-28
+applies. No deploy: `v0.7.0` is still untagged (#70).
+Alerts, snapshots 07:57–08:26Z, ~171,000–172,800s after the restart:
+- `form4-insider`: 87 archived, all `large_trade`. new 3209, parsed 770,
+  transactions 1086, code_not_actionable 665, below_floor 205,
+  no_insider_history 129, planned_sale 0; 115 poll errors.
+- `clinical-trials`: 55 archived. first_sight 377, first_sight_completed 69,
+  changed 26, signals 55. Every per-cycle line read `changed=0`.
+- `edgar-mna`: 29 archived; 397 of 29,573 fetches failed. One alert in the
+  window: SIGNED_DEAL, "MT Højgaard Danmark acquires Nordisk Funderin…"
+  (Danish, no US ticker).
+- `fda-catalysts`: 6 archived; 3,918 of 36,112 fetches failed (FiercePharma).
+- `sends_refused` 0 and `delivery_failures` 0 on all four.
+Shipped: #72 (`edgar-mna` and `fda-catalysts` count what the category filter
+drops; `CycleFunnel(cohort=False)`; ADR 0006 amended). Handoff #70 retargeted
+to `c0a4919`.
+Found: #35's premise was false. `clinical-trials` alerts, and the per-cycle
+line at the run hour hid it for a week. Deleted #35; its alerts join #45.
+Next: when #70 is done, roll all four to `v0.7.0` (#45), then read the digests.

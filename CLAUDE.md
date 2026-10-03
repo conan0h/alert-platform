@@ -360,18 +360,19 @@ Current facts only. When something here is fixed or stops being true, delete it.
 **Deployed.** All four services run `v0.6.0` (`d0b33cf`); last verified
 2026-10-02: `active`, `drift` exit 0. `main` carries #68 (alert digest), #69
 (10b5-1 fix), #72 (`edgar-mna` / `fda-catalysts` funnels), #74 (sent and
-archive counters) and #77 (form4 fetch-failure stages), waiting on the
-`v0.7.0` tag at `bfebf22` (handoff #70).
+archive counters), #77 (form4 fetch-failure stages) and #79 (form4 price
+source probe), waiting on the `v0.7.0` tag (handoff #70).
 
 **The main problem: nobody has judged the alerts.** All four services alert.
-Archived in the ~96 hours after the v0.6.0 restart (2026-09-28 08:27–08:30Z):
-`form4-insider` 262 (all `large_trade`), `clinical-trials` 109, `edgar-mna` 47,
-`fda-catalysts` 15. Their content is not readable off the host until `v0.7.0`
+Archived in the ~119 hours after the v0.6.0 restart (2026-09-28 08:27–08:30Z):
+`form4-insider` 324 (all `large_trade`), `clinical-trials` 130, `edgar-mna` 52,
+`fda-catalysts` 16. Their content is not readable off the host until `v0.7.0`
 ships the digest (#45).
 - `form4-insider`: alerts only on trades over $1M, because its leaderboard is
-  unscored (#39). Until #69 deploys, 10b5-1 planned sales pass as large trades.
-  ~44% of new filings are never fetched (#46).
-- `clinical-trials`: 109 signals from 49 status changes and 760 first sightings.
+  unscored (#39), and the scorer's price source is unproven on the host.
+  Until #69 deploys, 10b5-1 planned sales pass as large trades. 37–44% of new
+  filings are never fetched (#46).
+- `clinical-trials`: 130 signals from 62 status changes and 960 first sightings.
 - `edgar-mna`, `fda-catalysts`: what the category filter drops is measured
   from `v0.7.0` (`alert_funnel_unclassified_total` against `_matched_total`).
   `fda-catalysts`' FiercePharma feed is dead (403).

@@ -38,6 +38,9 @@ one covers it and sharpen that instead.
 - **Instrument the hypothesis and its alternatives.** A zero is a result.
 - **Read a funnel as ratios between adjacent stages, not only for zeros.**
   `new` → `fetched` read 1369 → 696 on 2026-09-29 and went unflagged for 3 runs.
+- **Before scheduling code that has never run, check that its external
+  endpoints still answer.** `form4_scorer.py` was written against a Yahoo
+  endpoint that now needs a crumb.
 - **Before reusing a module, check that it fits the new place's failure mode.**
   The journal reports conditions; counters report rates.
 
