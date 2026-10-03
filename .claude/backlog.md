@@ -24,19 +24,22 @@ Don't start lower sections while this one has unblocked work.
     Check #74: `alerts_sent` equals archived, and `alert_archive_records_total`
     is non-zero at start. Confirm `alert_funnel_planned_sale_total` goes
     non-zero after a US session; if it stays 0, #69's element name is wrong.
-    Record `unclassified : matched` for the two news services, and the #46
-    split of fetch failures.
+    Record `unclassified : matched` for the two news services, the #46
+    split of fetch failures, and the #39 price probe.
 
-39. **`form4-insider` can only alert on trades over $1M.** `needs-conan`
+39. **`form4-insider` can only alert on trades over $1M.** `needs-conan` (tag, #70)
     The leaderboard behind its main filter is populated but unscored: 13,782
     insiders, 32,592 transactions, 0 scored, because `form4_scorer.py` has never
-    run. In one day (2026-09-28) 82 trades of $100k–$1M reached the leaderboard
-    check and stopped at `no_insider_history`, the stage an unscored insider
-    lands in. Decision: make the scorer a managed unit with a timer, or rewrite
-    the filter not to need it.
+    run. 576 trades of $100k–$1M stopped at `no_insider_history` in the ~5 days
+    to 2026-10-03. The scorer needs daily closes. From `v0.7.0` it reads them
+    from Yahoo's v8 chart API (#79), and the service reports
+    `price source probe` and `alert_price_source_closes` at start. Next: read
+    the probe. If it is non-zero, decide between a timer unit for the scorer
+    and an in-process daily scoring step. If it is 0, find another price
+    source first.
 
-46. **`form4-insider` never fetches ~44% of new filings.** `needs-conan` (tag, #70)
-    Snapshot 2026-10-02: `new` 6379, `fetched` 3563. A failed fetch is marked
+46. **`form4-insider` never fetches ~40% of new filings.** `needs-conan` (tag, #70)
+    Snapshot 2026-10-03: `new` 9076, `fetched` 5703. A failed fetch is marked
     handled and never retried, so those filings never reach the filter. From
     `v0.7.0`, `index_unavailable`, `no_form4_xml` and `xml_unavailable` split
     the loss, and each failure logs `filing not fetched` with its HTTP status

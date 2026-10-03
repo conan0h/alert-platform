@@ -10,28 +10,6 @@ verbatim to [`log-archive.md`](log-archive.md).
     Found: new facts, with backlog numbers.
     Next: the first thing the next run should do.
 
-## 2026-09-30 — funnels for the news services; clinical-trials alerts
-Production, 08:18–08:26Z (04:18 ET): all four `v0.6.0`, active, `healthz=ok`,
-`drift` exit 0 (host alertctl `89fe764`). `history` ends at the 2026-09-28
-applies. No deploy: `v0.7.0` is still untagged (#70).
-Alerts, snapshots 07:57–08:26Z, ~171,000–172,800s after the restart:
-- `form4-insider`: 87 archived, all `large_trade`. new 3209, parsed 770,
-  transactions 1086, code_not_actionable 665, below_floor 205,
-  no_insider_history 129, planned_sale 0; 115 poll errors.
-- `clinical-trials`: 55 archived. first_sight 377, first_sight_completed 69,
-  changed 26, signals 55. Every per-cycle line read `changed=0`.
-- `edgar-mna`: 29 archived; 397 of 29,573 fetches failed. One alert in the
-  window: SIGNED_DEAL, "MT Højgaard Danmark acquires Nordisk Funderin…"
-  (Danish, no US ticker).
-- `fda-catalysts`: 6 archived; 3,918 of 36,112 fetches failed (FiercePharma).
-- `sends_refused` 0 and `delivery_failures` 0 on all four.
-Shipped: #72 (`edgar-mna` and `fda-catalysts` count what the category filter
-drops; `CycleFunnel(cohort=False)`; ADR 0006 amended). Handoff #70 retargeted
-to `c0a4919`.
-Found: #35's premise was false. `clinical-trials` alerts, and the per-cycle
-line at the run hour hid it for a week. Deleted #35; its alerts join #45.
-Next: when #70 is done, roll all four to `v0.7.0` (#45), then read the digests.
-
 ## 2026-10-01 — honest sent and archive counters
 Production, 08:18–08:20Z (04:18 ET): all four `v0.6.0`, active, `drift` exit 0
 (host alertctl `89fe764`). No deploy: `v0.7.0` is still untagged (#70).
@@ -68,3 +46,25 @@ changed` on a ref-only roll; closes #43; reaches the host at the next `plan`).
 `xml_unavailable` and logs `filing not fetched`). Handoff #70 retargeted.
 Found: #46: ~44% of new Form 4 filings are never fetched and never retried.
 Next: when #70 is done, roll all four to `v0.7.0` (#45), read the #46 split.
+
+## 2026-10-03 — form4 price source switched to v8 and probed on the host
+Production, 08:17–08:20Z (04:17 ET): all four `v0.6.0`, active, `drift` exit 0
+(host alertctl `89fe764`). `history` ends at the 2026-09-28 applies. No deploy:
+`v0.7.0` still untagged (#70, no comment since 2026-09-29).
+Alerts, snapshots 07:51–08:00Z, ~429,800–430,400s uptime. `logs` 07:48–08:05Z:
+76 INFO lines, no WARNING or ERROR.
+- `form4-insider`: 324 archived, all `large_trade` (62 in the last ~24h).
+  new 9076, fetched 5703 (37% lost), parsed 3313, transactions 4430,
+  code_not_actionable 2675, below_floor 855, no_insider_history 576,
+  planned_sale 0; 115 poll errors.
+- `clinical-trials`: 130 archived. first_sight 960, changed 62, signals 130.
+- `edgar-mna`: 52 archived; 401 of 75,591 fetches failed.
+- `fda-catalysts`: 16 archived; 9,682 of 90,748 failed, 1 source dead.
+- `sends_refused` 0, `delivery_failures` 0 on all four.
+Shipped: #79 (`form4_common` fetches closes from Yahoo's v8 chart API; the
+service probes 30 days of SPY at start: `price source probe` and
+`alert_price_source_closes`). Handoff #70 retargeted.
+Found: #39: the scorer's v7 CSV endpoint is expected to need a cookie and crumb,
+so scheduling the scorer could score nothing. Unverified: this session's egress
+cannot reach Yahoo, and the probe reaches the host only with `v0.7.0`.
+Next: when #70 is done, roll all four to `v0.7.0` (#45), and read the probe.
