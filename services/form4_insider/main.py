@@ -26,7 +26,7 @@ from __future__ import annotations
 import html
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import feedparser
 import form4_common
@@ -166,6 +166,35 @@ def publish_leaderboard_state(conn: sqlite3.Connection, cutoff: float | None) ->
         SVC.metrics.set(metric, state[key])
     log.info("leaderboard state", extra={**state, "alpha_cutoff": cutoff})
     return state
+
+
+# The scorer that fills the leaderboard needs daily closes, and this session
+# cannot reach the price source to check that it answers. The host can, so
+# it reports the answer once per start, in the snapshot and the journal.
+PRICE_PROBE_TICKER = "SPY"
+PRICE_PROBE_DAYS = 30
+PRICE_PROBE_GAUGE = "alert_price_source_closes"
+PRICE_PROBE_HELP = (
+    f"Daily closes the price source returned for {PRICE_PROBE_TICKER} over the "
+    f"last {PRICE_PROBE_DAYS} days, probed at startup. 0 means the scorer "
+    "cannot score anything (backlog #39)."
+)
+
+
+def probe_price_source(now: datetime | None = None) -> tuple[str, int]:
+    """Fetch recent closes for the probe ticker, uncached. Never raises."""
+    end = now or datetime.now(timezone.utc)
+    start = end - timedelta(days=PRICE_PROBE_DAYS)
+    try:
+        outcome, closes = form4_common.fetch_yahoo_closes(PRICE_PROBE_TICKER, start, end)
+    except Exception as e:  # a probe must not stop the alerter starting
+        outcome, closes = type(e).__name__, {}
+    SVC.metrics.set(PRICE_PROBE_GAUGE, len(closes))
+    log.info("price source probe", extra={
+        "ticker": PRICE_PROBE_TICKER, "outcome": outcome, "closes": len(closes),
+        "last_date": max(closes) if closes else None,
+    })
+    return outcome, len(closes)
 
 
 def get_insider_stats(conn: sqlite3.Connection, insider_cik: str) -> dict | None:
@@ -459,6 +488,7 @@ def main():
 
     for metric, help_text in LEADERBOARD_GAUGES.values():
         SVC.metrics.declare_gauge(metric, help_text)
+    SVC.metrics.declare_gauge(PRICE_PROBE_GAUGE, PRICE_PROBE_HELP)
 
     with SVC:
         conn = init_db()
@@ -466,6 +496,7 @@ def main():
 
         alpha_cutoff = get_alpha_cutoff(conn)
         state = publish_leaderboard_state(conn, alpha_cutoff)
+        probe_price_source()
 
         # The last bullet is conditional because without a cutoff it describes
         # a branch that cannot be reached: everything under LARGE_TRADE_USD is
