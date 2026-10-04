@@ -16,7 +16,8 @@ Don't start lower sections while this one has unblocked work.
 45. **Roll `v0.7.0` and read the digests.** `needs-conan` (tag, #70), then ours.
     `main` carries the `alert digest` line (#68), the 10b5-1 fix (#69), the
     `edgar-mna` / `fda-catalysts` funnels (#72), honest sent / archive
-    counters (#74) and form4 fetch-failure stages (#77). Once tagged: roll all
+    counters (#74), form4 fetch-failure stages (#77), the price probe (#79)
+    and the form4 feed filter (#81). Once tagged: roll all
     four (`alertlib` is shared), then read `logs` `since="10 minutes ago"`
     and `"30 minutes ago"` for one digest per service. For each alert, record
     ticker and time, and whether the price moved after it; `clinical-trials`
@@ -25,7 +26,7 @@ Don't start lower sections while this one has unblocked work.
     is non-zero at start. Confirm `alert_funnel_planned_sale_total` goes
     non-zero after a US session; if it stays 0, #69's element name is wrong.
     Record `unclassified : matched` for the two news services, the #46
-    split of fetch failures, and the #39 price probe.
+    split (`not_form4`, fetch failures, `unparsed`), and the #39 price probe.
 
 39. **`form4-insider` can only alert on trades over $1M.** `needs-conan` (tag, #70)
     The leaderboard behind its main filter is populated but unscored: 13,782
@@ -38,13 +39,16 @@ Don't start lower sections while this one has unblocked work.
     and an in-process daily scoring step. If it is 0, find another price
     source first.
 
-46. **`form4-insider` never fetches ~40% of new filings.** `needs-conan` (tag, #70)
-    Snapshot 2026-10-03: `new` 9076, `fetched` 5703. A failed fetch is marked
-    handled and never retried, so those filings never reach the filter. From
-    `v0.7.0`, `index_unavailable`, `no_form4_xml` and `xml_unavailable` split
-    the loss, and each failure logs `filing not fetched` with its HTTP status
-    or index listing. Next: read the split, then retry transient failures
-    while the filing stays in the feed (~1.5 h), or fix the XML selection rule.
+46. **`form4-insider` loses most of what its feed calls new.** `needs-conan` (tag, #70)
+    Snapshot 2026-10-03: `new` 9076, `fetched` 5703, `parsed` 3313. A failed
+    fetch or parse is marked handled and never retried. Suspected cause of
+    much of it: the feed's `type=4` is a prefix match that admits 424B2, 497
+    and similar (#81 filters them, unverified). From `v0.7.0`: `not_form4`
+    counts dropped entries (`feed entry is not a Form 4` names each type);
+    `index_unavailable`, `no_form4_xml`, `xml_unavailable` and `unparsed`
+    split what remains. Next: read them. If new→parsed is still well under
+    100%, retry transient failures while the filing stays in the feed
+    (~1.5 h), or fix the XML selection rule.
 
 ## Measurement
 
