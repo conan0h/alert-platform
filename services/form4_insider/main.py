@@ -26,6 +26,7 @@ from __future__ import annotations
 import html
 import sqlite3
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 
 import feedparser
@@ -53,6 +54,14 @@ CURRENT_FORM4_URL = (
     "?action=getcurrent&type=4&company=&dateb=&owner=include&count=100&output=atom"
 )
 
+# `type=4` above is EDGAR's form-type prefix match, so the feed can also carry
+# 424B2, 425, 497 and other forms beginning with "4". None has ownership XML,
+# so each would end at `no_form4_xml` or `unparsed`. On 2026-10-03, 37% of
+# `new` stopped before `fetched` and 42% of `fetched` before `parsed`;
+# `not_form4` measures how much of that these forms were. `form4_backfill`
+# already filters the quarterly index to the same two types.
+FORM4_TYPES = frozenset({"4", "4/A"})
+
 
 # Every outcome `should_alert` can reach, named rather than described. The
 # funnel counts these, so the per-cycle line is a histogram of the filter
@@ -79,10 +88,15 @@ ALERTING_DECISIONS = frozenset({"large_trade", "top_tier"})
 # snapshot (6379 new, 3563 fetched), and the three causes need different fixes.
 FETCH_FAILURES = ("index_unavailable", "no_form4_xml", "xml_unavailable")
 
+# Form types already logged as dropped by this process. The feed repeats the
+# same 100 entries every poll, so logging each drop would repeat every cycle.
+_dropped_types_logged: set[str] = set()
+
 # The candidate pipeline, in order:
 #
-#   entries -> new -> <one of FETCH_FAILURES> | fetched -> parsed -> claimed
-#           -> transactions -> <one of DECISIONS> -> sent
+#   entries -> not_form4 | new -> <one of FETCH_FAILURES> | fetched
+#           -> unparsed | parsed -> claimed -> transactions
+#           -> <one of DECISIONS> -> sent
 #
 # Named here so the funnel line and the /metrics counters cannot drift apart.
 # Each stage before the decisions is a different reason for silence with a
@@ -93,9 +107,11 @@ FETCH_FAILURES = ("index_unavailable", "no_form4_xml", "xml_unavailable")
 # second, which is what the host has logged for weeks.
 FUNNEL_STAGES = (
     "entries",
+    "not_form4",
     "new",
     *FETCH_FAILURES,
     "fetched",
+    "unparsed",
     "parsed",
     "claimed",
     "transactions",
@@ -340,19 +356,41 @@ def build_alert(parsed: dict, tx: dict, accession: str, reason: str, body: str) 
 # ---------------------------------------------------------------------------
 # Fetch + process loop
 # ---------------------------------------------------------------------------
-def fetch_current_form4_entries() -> list[tuple[str, str]]:
+def entry_form_type(entry) -> str | None:
+    """The form type of one atom entry, or None if the entry does not say.
+
+    EDGAR puts it in `<category label="form type" term="4"/>` and at the start
+    of the title ("4 - Name (CIK) (Reporting)"). The category is preferred;
+    the title is the fallback.
     """
-    Returns list of (accession, cik) from EDGAR's current Form 4 atom feed.
-    Filter duplicates via DB state upstream.
+    for tag in getattr(entry, "tags", None) or []:
+        if tag.get("label") == "form type" and tag.get("term"):
+            return tag["term"].strip()
+    title = (getattr(entry, "title", "") or "").strip()
+    if " - " in title:
+        return title.split(" - ", 1)[0].strip()
+    return None
+
+
+def parse_form4_feed(content: bytes) -> tuple[list[tuple[str, str]], int]:
+    """Return ([(accession, cik)] for Form 4 entries, count of other forms).
+
+    An entry with no readable form type is kept: if EDGAR changes the feed's
+    layout, the service degrades to its old behaviour rather than to silence.
     """
-    resp = edgar_get(CURRENT_FORM4_URL, timeout=30,
-                     extra_headers={"Accept": "application/atom+xml"})
-    feed = feedparser.parse(resp.content)
+    feed = feedparser.parse(content)
     out: list[tuple[str, str]] = []
+    not_form4 = 0
     for entry in getattr(feed, "entries", []):
+        form_type = entry_form_type(entry)
+        if form_type is not None and form_type not in FORM4_TYPES:
+            not_form4 += 1
+            if form_type not in _dropped_types_logged:
+                _dropped_types_logged.add(form_type)
+                log.info("feed entry is not a Form 4", extra={"form_type": form_type})
+            continue
         link = (getattr(entry, "link", "") or "").strip()
-        # Example: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0001234567&...
-        # Or direct: https://www.sec.gov/Archives/edgar/data/1234567/000120919124012345/0001209191-24-012345-index.htm
+        # Example: https://www.sec.gov/Archives/edgar/data/1234567/000120919124012345/0001209191-24-012345-index.htm
         m = _ACCESSION_RE.search(link)
         if not m:
             continue
@@ -365,7 +403,14 @@ def fetch_current_form4_entries() -> list[tuple[str, str]]:
         if not cik:
             continue
         out.append((accession, cik))
-    return out
+    return out, not_form4
+
+
+def fetch_current_form4_entries() -> tuple[list[tuple[str, str]], int]:
+    """`parse_form4_feed` over EDGAR's current-filings feed."""
+    resp = edgar_get(CURRENT_FORM4_URL, timeout=30,
+                     extra_headers={"Accept": "application/atom+xml"})
+    return parse_form4_feed(resp.content)
 
 
 def is_already_alerted(conn: sqlite3.Connection, accession: str) -> bool:
@@ -399,6 +444,13 @@ def mark_alerted(conn: sqlite3.Connection, accession: str) -> bool:
         return False
 
 
+def _root_tag(xml_bytes: bytes) -> str:
+    try:
+        return ET.fromstring(xml_bytes).tag
+    except ET.ParseError:
+        return "not XML"
+
+
 def process_filing(
     conn: sqlite3.Connection,
     accession: str,
@@ -426,6 +478,11 @@ def process_filing(
 
     parsed = parse_form4_xml(xml_bytes)
     if parsed is None:
+        # The root element separates a filing that is not a Form 4 (an XBRL
+        # instance, say) from a Form 4 the parser cannot read.
+        funnel.count("unparsed")
+        log.warning("filing not parsed",
+                    extra={"accession": accession, "root": _root_tag(xml_bytes)})
         mark_alerted(conn, accession)
         return 0
     funnel.count("parsed")
@@ -528,9 +585,10 @@ def main():
                     last_cutoff_refresh = time.time()
                     publish_leaderboard_state(conn, alpha_cutoff)
 
-                entries = fetch_current_form4_entries()
-                SVC.metrics.inc("alert_items_seen_total", len(entries))
-                funnel.count("entries", len(entries))
+                entries, not_form4 = fetch_current_form4_entries()
+                SVC.metrics.inc("alert_items_seen_total", len(entries) + not_form4)
+                funnel.count("entries", len(entries) + not_form4)
+                funnel.count("not_form4", not_form4)
 
                 sent_this_cycle = 0
                 for accession, cik in entries:

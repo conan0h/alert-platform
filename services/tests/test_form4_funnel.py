@@ -145,16 +145,27 @@ def test_a_fetch_that_fails_is_counted_under_its_reason(db, funnel, svc, monkeyp
     assert (record.stage, record.detail) == (stage, "HTTP 429")
 
 
-def test_xml_that_will_not_parse_is_fetched_but_not_parsed(db, funnel, svc, monkeypatch):
-    filing(monkeypatch, [tx()])
-    monkeypatch.setattr(form4, "parse_form4_xml", lambda _b: None)
+@pytest.mark.parametrize(("xml", "root"), [
+    # An XBRL instance: what a non-Form-4 filing's first XML file usually is.
+    (b'<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance"/>',
+     "{http://www.xbrl.org/2003/instance}xbrl"),
+    (b"<html><body>Forbidden", "not XML"),
+])
+def test_xml_that_will_not_parse_is_counted_and_names_its_root(db, funnel, svc, monkeypatch,
+                                                               caplog, xml, root):
+    """Fetched minus parsed was 2390 of 5703 on 2026-10-03, with no stage for it."""
+    monkeypatch.setattr(form4, "fetch_filing_xml", lambda cik, acc: ("url", xml))
 
-    with funnel.cycle():
+    with caplog.at_level("WARNING"), funnel.cycle():
         assert form4.process_filing(db, ACCESSION, CIK, None, funnel) == 0
 
     assert svc.metrics.get("alert_funnel_fetched_total") == 1
+    assert svc.metrics.get("alert_funnel_unparsed_total") == 1
     assert svc.metrics.get("alert_funnel_parsed_total") == 0
     assert svc.metrics.get("alert_funnel_claimed_total") == 0
+    assert form4.is_already_alerted(db, ACCESSION)
+    [record] = [r for r in caplog.records if r.getMessage() == "filing not parsed"]
+    assert (record.accession, record.root) == (ACCESSION, root)
 
 
 def test_a_refused_claim_is_parsed_but_never_claimed(db, funnel, svc, monkeypatch, tmp_path):

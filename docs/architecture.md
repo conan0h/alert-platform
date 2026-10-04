@@ -372,6 +372,15 @@ HTTP status or exception type, or with the index listing for `no_form4_xml`.
 The first and last may succeed on a retry. The middle one points at the
 file-selection rule in `form4_backfill.fetch_filing_xml`.
 
+Two stages bracket those. `not_form4` counts feed entries dropped before
+`new` because their form type is neither `4` nor `4/A`: the feed URL's
+`type=4` is a prefix match, so it can also carry 424B2, 497 and similar
+filings. Each distinct dropped type is logged once per process as
+`feed entry is not a Form 4`. An entry whose form type cannot be read is
+kept. `unparsed` counts fetched XML that `parse_form4_xml` rejects, logged as
+`filing not parsed` with the document's root element, which separates a
+non-Form-4 document from a Form 4 the parser cannot read.
+
 The leaderboard is scored by `form4_scorer.py` from daily closes fetched with
 `form4_common.fetch_yahoo_closes` (Yahoo's v8 chart endpoint). At startup the
 service fetches 30 days of SPY closes once and reports the result as
