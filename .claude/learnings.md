@@ -36,8 +36,11 @@ one covers it and sharpen that instead.
   against something you know.** When adding one, write and run the command that
   reads it. Counters reset on every deploy.
 - **Instrument the hypothesis and its alternatives.** A zero is a result.
-- **Read a funnel as ratios between adjacent stages, not only for zeros.**
-  `new` → `fetched` read 1369 → 696 on 2026-09-29 and went unflagged for 3 runs.
+- **Read a funnel as ratios between every pair of adjacent stages, not only
+  for zeros.** `new` → `fetched` went unflagged for 3 runs; `fetched` →
+  `parsed` (42% lost) for 6, while attention was on the first gap.
+- **Check that a source query returns only what the code assumes.** EDGAR's
+  The form4 backfill filtered its index by form type; the live feed path did not (#46).
 - **Before scheduling code that has never run, check that its external
   endpoints still answer.** `form4_scorer.py` was written against a Yahoo
   endpoint that now needs a crumb.
