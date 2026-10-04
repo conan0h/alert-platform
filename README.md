@@ -205,7 +205,9 @@ From `observe.yml` against the live host, 2026-09-29:
   the v0.6.0 deploy, `form4-insider` archived 324 alerts (all from its over-$1M
   branch), `clinical-trials` 130, `edgar-mna` 52 and `fda-catalysts` 16.
   `form4-insider`'s main filter depends on an insider leaderboard that has
-  never been scored, and about 40% of new Form 4 filings are never fetched.
+  never been scored. Of the filings its feed reports as new, 37% are never
+  fetched and a further 42% of those fetched never parse; part of both may be
+  non-Form-4 filings that the feed's prefix match lets in.
 - **The alert archive has no query interface.** Alerts are recorded per service
   ([ADR 0005](docs/adr/0005-alert-archive.md)); from the next release each
   service also summarises them in the journal every 15 minutes (the `alert
