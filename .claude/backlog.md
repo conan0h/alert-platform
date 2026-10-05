@@ -13,40 +13,29 @@ Statuses: `todo`, `in-pr #N`, `needs-conan`, `blocked: <reason>`.
 Every item in this section works toward reading what the bots sent and improving it.
 Don't start lower sections while this one has unblocked work.
 
-45. **Roll `v0.7.0` and read the digests.** `needs-conan` (tag, #70), then ours.
-    `main` carries the `alert digest` line (#68), the 10b5-1 fix (#69), the
-    `edgar-mna` / `fda-catalysts` funnels (#72), honest sent / archive
-    counters (#74), form4 fetch-failure stages (#77), the price probe (#79)
-    and the form4 feed filter (#81). Once tagged: roll all
-    four (`alertlib` is shared), then read `logs` `since="10 minutes ago"`
-    and `"30 minutes ago"` for one digest per service. For each alert, record
-    ticker and time, and whether the price moved after it; `clinical-trials`
-    (109 in four days) is the least understood.
-    Check #74: `alerts_sent` equals archived, and `alert_archive_records_total`
-    is non-zero at start. Confirm `alert_funnel_planned_sale_total` goes
-    non-zero after a US session; if it stays 0, #69's element name is wrong.
-    Record `unclassified : matched` for the two news services, the #46
-    split (`not_form4`, fetch failures, `unparsed`), and the #39 price probe.
+45. **Judge the alerts.** `todo`
+    Read the digests after a US session (`logs` `since="30 minutes ago"`
+    from ~21:00Z). For each alert record ticker and time, and whether the
+    price moved after it; `clinical-trials` is the least understood. First
+    case: edgar's `10-04T21:08Z` PTC takeover rumour. Confirm
+    `alert_funnel_planned_sale_total` goes non-zero after a session; if it
+    stays 0, #69's element name is wrong. For the two news services, read
+    what the 90%+ `unclassified` entries are before tuning the filter.
 
-39. **`form4-insider` can only alert on trades over $1M.** `needs-conan` (tag, #70)
-    The leaderboard behind its main filter is populated but unscored: 13,782
-    insiders, 32,592 transactions, 0 scored, because `form4_scorer.py` has never
-    run. 576 trades of $100k–$1M stopped at `no_insider_history` in the ~5 days
-    to 2026-10-03. The scorer needs daily closes. From `v0.7.0` it reads them
-    from Yahoo's v8 chart API (#79), and the service reports
-    `price source probe` and `alert_price_source_closes` at start. Next: read
-    the probe. If it is non-zero, decide between a timer unit for the scorer
-    and an in-process daily scoring step. If it is 0, find another price
-    source first.
+39. **`form4-insider` can only alert on trades over $1M.** `todo`
+    The leaderboard behind its main filter is unscored: 13,782 insiders,
+    32,592 transactions, 0 scored, because `form4_scorer.py` has never run.
+    576 trades of $100k–$1M stopped at `no_insider_history` in ~5 days. The
+    price source works on the host (probe 2026-10-05: SPY 200, 19 closes).
+    Next: run the scorer daily — a timer unit (spec and deploy-lifecycle
+    change, ADR) or an in-process step after the US close (no new unit).
+    Prefer in-process unless scoring takes long enough to stall the poll.
 
-46. **`form4-insider` loses most of what its feed calls new.** `needs-conan` (tag, #70)
-    Snapshot 2026-10-03: `new` 9076, `fetched` 5703, `parsed` 3313. A failed
-    fetch or parse is marked handled and never retried. Suspected cause of
-    much of it: the feed's `type=4` is a prefix match that admits 424B2, 497
-    and similar (#81 filters them, unverified). From `v0.7.0`: `not_form4`
-    counts dropped entries (`feed entry is not a Form 4` names each type);
-    `index_unavailable`, `no_form4_xml`, `xml_unavailable` and `unparsed`
-    split what remains. Next: read them. If new→parsed is still well under
+46. **`form4-insider` loses most of what its feed calls new.** `todo`
+    Under `v0.6.0`: `new` 9076, `fetched` 5703, `parsed` 3313; a failed fetch
+    or parse is never retried. `v0.7.0` counts `not_form4`,
+    `index_unavailable`, `no_form4_xml`, `xml_unavailable` and `unparsed`.
+    Next: read them after a session. If new→parsed is still well under
     100%, retry transient failures while the filing stays in the feed
     (~1.5 h), or fix the XML selection rule.
 
