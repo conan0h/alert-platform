@@ -404,8 +404,12 @@ func TestApplyIssuesTheExpectedSequenceAndAudits(t *testing.T) {
 		// runner can faithfully record.
 		Opts: Options{DryRun: true, SkipGates: true, AutoApprove: true},
 	}
-	if err := applier.applyService(plan, plan.Services[0]); err != nil {
+	mutated, err := applier.applyService(plan, plan.Services[0])
+	if err != nil {
 		t.Fatalf("applyService: %v", err)
+	}
+	if mutated {
+		t.Error("a dry-run apply reported mutated=true; --dry-run never mutates")
 	}
 
 	joined := strings.Join(runner.Commands, "\n")
@@ -456,7 +460,7 @@ func TestApplyWritesEnvFileWithSecretsButPlanDoesNot(t *testing.T) {
 		Audit: log, Target: target,
 		Opts: Options{DryRun: true, SkipGates: true, AutoApprove: true},
 	}
-	if err := applier.applyService(plan, plan.Services[0]); err != nil {
+	if _, err := applier.applyService(plan, plan.Services[0]); err != nil {
 		t.Fatal(err)
 	}
 

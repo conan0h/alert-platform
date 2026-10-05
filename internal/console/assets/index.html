@@ -308,6 +308,8 @@ function renderAudit(audit) {
         <b>${esc(e.service || "—")}</b>
         ${e.outcome ? `<span class="outcome ${esc(e.outcome)}">${esc(e.outcome)}</span>` : ""}
         ${e.detail?.automatic ? '<span class="auto">automatic</span>' : ""}
+        ${e.outcome === "failed" && typeof e.detail?.mutated === "boolean"
+          ? `<span class="auto">${e.detail.mutated ? "host changed" : "host untouched"}</span>` : ""}
       </div>
       <div class="audit-detail">
         <span class="refs">${esc(e.from_ref || "(none)")} → ${esc(e.to_ref || "(none)")}</span>

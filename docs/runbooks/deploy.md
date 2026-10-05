@@ -122,6 +122,11 @@ accepts your token.
   the audit log has both entries. Fix forward; nothing is on fire.
 - **Gate failed and rollback failed** — see
   [`service-down.md`](service-down.md). This is the one that pages.
+- **`history` says `host untouched`** on a failed apply or rollback — it was
+  refused before issuing any command (today only secret resolution can do
+  that), so the service is still on its previous ref and both entries read
+  `failed`. `host changed` means the deploy got part-way. Entries written
+  before this field existed say neither.
 - **Deploy succeeded but no alerts** — see
   [`service-down.md`](service-down.md); the "up but silent" section.
 

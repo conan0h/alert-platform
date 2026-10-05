@@ -35,6 +35,8 @@ everything else has already gone wrong.
 
 `history` prints the audit log: who deployed what, when, and whether it
 worked. The last entry with `outcome=success` is what the fast path picks.
+A failed entry also says `host untouched` or `host changed`: whether the
+attempt issued any command before failing.
 
 ## Commit the change
 

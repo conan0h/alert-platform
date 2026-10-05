@@ -69,7 +69,7 @@ func (a *Applier) Apply(plan Plan) error {
 			orNone(sp.CurrentRef), sp.DesiredRef)
 
 		start := time.Now()
-		err := a.applyService(plan, sp)
+		mutated, err := a.applyService(plan, sp)
 		entry := audit.Entry{
 			Event:    "apply",
 			Service:  sp.Service,
@@ -86,6 +86,7 @@ func (a *Applier) Apply(plan Plan) error {
 				"secret_names":  sp.SecretNames,
 				"dry_run":       a.Opts.DryRun,
 				"gates_skipped": a.Opts.SkipGates,
+				"mutated":       mutated,
 			},
 		}
 
@@ -171,7 +172,12 @@ func (a *Applier) preflight(plan Plan) error {
 }
 
 // applyService is the reconcile loop for one service.
-func (a *Applier) applyService(plan Plan, sp ServicePlan) error {
+//
+// mutated reports whether any command reached the host. A failure with
+// mutated=false was refused before acting (today, only secret resolution can
+// do that) and left the host exactly as it was; with mutated=true the host
+// may be part-way through the deploy. A dry run never mutates.
+func (a *Applier) applyService(plan Plan, sp ServicePlan) (mutated bool, err error) {
 	eff := sp.Effective
 	name := sp.Service
 	ref := sp.DesiredRef
@@ -179,7 +185,7 @@ func (a *Applier) applyService(plan Plan, sp ServicePlan) error {
 
 	secrets, err := a.Resolver.Resolve(sp.SecretNames)
 	if err != nil {
-		return fmt.Errorf("resolve secrets: %w", err)
+		return false, fmt.Errorf("resolve secrets: %w", err)
 	}
 
 	steps := []struct {
@@ -210,14 +216,17 @@ func (a *Applier) applyService(plan Plan, sp ServicePlan) error {
 			eff.String("runtime.user", "svc-alerts"), release, release)},
 	}
 
+	// A dry runner records commands without running them, and --dry-run
+	// never mutates.
+	mutated = !a.Opts.DryRun
 	for _, step := range steps {
 		a.logf("  - %s", step.desc)
 		res, err := a.Runner.Run(step.cmd)
 		if err != nil {
-			return fmt.Errorf("%s: %w", step.desc, err)
+			return mutated, fmt.Errorf("%s: %w", step.desc, err)
 		}
 		if !res.OK() {
-			return fmt.Errorf("%s: exit %d: %s", step.desc, res.ExitCode,
+			return mutated, fmt.Errorf("%s: exit %d: %s", step.desc, res.ExitCode,
 				strings.TrimSpace(firstNonEmpty(res.Stderr, res.Stdout)))
 		}
 	}
@@ -227,18 +236,18 @@ func (a *Applier) applyService(plan Plan, sp ServicePlan) error {
 	a.logf("  - write environment (%d secret(s))", len(secrets))
 	envContent := RenderEnv(eff, ref, secrets)
 	if err := a.Runner.WriteFile(EnvFilePath(name), envContent, 0o640); err != nil {
-		return fmt.Errorf("write env file: %w", err)
+		return mutated, fmt.Errorf("write env file: %w", err)
 	}
 	if res, err := a.Runner.Run(fmt.Sprintf("sudo chown root:%s %s && sudo chmod 0640 %s",
 		eff.String("runtime.user", "svc-alerts"), EnvFilePath(name), EnvFilePath(name))); err != nil {
-		return err
+		return mutated, err
 	} else if !res.OK() {
-		return fmt.Errorf("secure env file: %s", strings.TrimSpace(res.Stderr))
+		return mutated, fmt.Errorf("secure env file: %s", strings.TrimSpace(res.Stderr))
 	}
 
 	a.logf("  - write unit %s", UnitName(name))
 	if err := a.Runner.WriteFile(UnitPath(name), sp.Unit, 0o644); err != nil {
-		return fmt.Errorf("write unit: %w", err)
+		return mutated, fmt.Errorf("write unit: %w", err)
 	}
 
 	// Flip `current` atomically: ln -sfn + mv means a restart can never see a
@@ -249,9 +258,9 @@ func (a *Applier) applyService(plan Plan, sp ServicePlan) error {
 		eff.String("runtime.user", "svc-alerts"), release, CurrentLink(name),
 		eff.String("runtime.user", "svc-alerts"), CurrentLink(name), CurrentLink(name))
 	if res, err := a.Runner.Run(activate); err != nil {
-		return err
+		return mutated, err
 	} else if !res.OK() {
-		return fmt.Errorf("activate release: %s", strings.TrimSpace(res.Stderr))
+		return mutated, fmt.Errorf("activate release: %s", strings.TrimSpace(res.Stderr))
 	}
 
 	a.logf("  - reload systemd and restart")
@@ -259,16 +268,16 @@ func (a *Applier) applyService(plan Plan, sp ServicePlan) error {
 		"sudo systemctl daemon-reload && sudo systemctl enable %s && sudo systemctl restart %s",
 		UnitName(name), UnitName(name))
 	if res, err := a.Runner.Run(restart); err != nil {
-		return err
+		return mutated, err
 	} else if !res.OK() {
-		return fmt.Errorf("restart: %s", strings.TrimSpace(res.Stderr))
+		return mutated, fmt.Errorf("restart: %s", strings.TrimSpace(res.Stderr))
 	}
 
 	// Phase 3: the post-deploy gate. Everything above only proves the deploy
 	// mechanics worked; this proves the service actually came up.
 	if !a.Opts.SkipGates && !a.Opts.DryRun {
 		if err := a.postDeployGate(eff); err != nil {
-			return err
+			return mutated, err
 		}
 	} else if a.Opts.SkipGates {
 		a.logf("  ! post-deploy gate SKIPPED (--skip-gates)")
@@ -286,11 +295,11 @@ func (a *Applier) applyService(plan Plan, sp ServicePlan) error {
 	}
 	raw, _ := json.MarshalIndent(manifest, "", "  ")
 	if err := a.Runner.WriteFile(ManifestPath(name), string(raw)+"\n", 0o644); err != nil {
-		return fmt.Errorf("write manifest: %w", err)
+		return mutated, fmt.Errorf("write manifest: %w", err)
 	}
 
 	a.pruneReleases(name, eff)
-	return nil
+	return mutated, nil
 }
 
 // postDeployGate verifies the service is genuinely healthy, not merely started.
@@ -370,7 +379,7 @@ func (a *Applier) rollbackTo(plan Plan, sp ServicePlan, ref string) error {
 	prev.EnvHash = Hash(RenderEnv(sp.Effective, ref, placeholders))
 
 	start := time.Now()
-	err := a.applyService(plan, prev)
+	mutated, err := a.applyService(plan, prev)
 	_ = a.Audit.Append(audit.Entry{
 		Event:    "rollback",
 		Service:  sp.Service,
@@ -381,7 +390,7 @@ func (a *Applier) rollbackTo(plan Plan, sp ServicePlan, ref string) error {
 		ToRef:    ref,
 		Outcome:  outcome(err),
 		Duration: time.Since(start).Round(time.Millisecond).String(),
-		Detail:   map[string]any{"automatic": true},
+		Detail:   map[string]any{"automatic": true, "mutated": mutated},
 	})
 	return err
 }

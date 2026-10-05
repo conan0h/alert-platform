@@ -59,11 +59,6 @@ Don't start lower sections while this one has unblocked work.
 
 ## Deploy safety
 
-30. **The audit log can't tell "refused before acting" from "failed mid-way".**
-    `todo`
-    Both are `failed`. Fix: a `mutated: bool` detail set once the first mutating
-    step runs; show it in `history` and the console; test both paths.
-
 22. **No end-to-end test target.** `todo` (large; slice it)
     A container with sshd and a systemd stand-in that CI can run plan → apply →
     drift → rollback against, including `bootstrap-host.sh`. Most deploy-path
