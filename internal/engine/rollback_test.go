@@ -206,6 +206,14 @@ func TestFailedDeployRollsBackAutomaticallyAndAuditsBothOutcomes(t *testing.T) {
 	if rolledBack.FromRef != nextRef || rolledBack.ToRef != prevRef {
 		t.Errorf("rollback recorded wrong refs: %s -> %s", rolledBack.FromRef, rolledBack.ToRef)
 	}
+	// The restart failed after files had changed on the host, and the
+	// rollback re-ran the whole path: both touched the host.
+	if mutated, known := applied.Mutated(); !known || !mutated {
+		t.Errorf("failed apply: Mutated() = (%v, %v), want (true, true)", mutated, known)
+	}
+	if mutated, known := rolledBack.Mutated(); !known || !mutated {
+		t.Errorf("rollback: Mutated() = (%v, %v), want (true, true)", mutated, known)
+	}
 	if auto, _ := rolledBack.Detail["automatic"].(bool); !auto {
 		t.Error("an operator reading the log must be able to tell this rollback was automatic")
 	}

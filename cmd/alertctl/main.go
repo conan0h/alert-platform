@@ -543,14 +543,31 @@ func cmdHistory(args []string) error {
 		entries = entries[len(entries)-*limit:]
 	}
 	for _, e := range entries {
-		fmt.Printf("%s  %-9s %-16s %-8s %s -> %s  (%s, %s)\n",
+		fmt.Printf("%s  %-9s %-16s %-8s %s -> %s  (%s, %s)%s\n",
 			e.Timestamp.Format(time.RFC3339), e.Event, e.Service, e.Outcome,
-			orNoneStr(e.FromRef), orNoneStr(e.ToRef), e.Actor, e.Duration)
+			orNoneStr(e.FromRef), orNoneStr(e.ToRef), e.Actor, e.Duration, failureScope(e))
 	}
 	return nil
 }
 
 // -- helpers ---------------------------------------------------------------
+
+// failureScope says whether a failed entry touched the host. Only failures
+// get it: on a success the answer is always yes and adds nothing.
+func failureScope(e audit.Entry) string {
+	if e.Outcome != "failed" {
+		return ""
+	}
+	mutated, known := e.Mutated()
+	switch {
+	case !known:
+		return ""
+	case mutated:
+		return "  host changed"
+	default:
+		return "  host untouched"
+	}
+}
 
 // auditPath keeps the audit log next to the repo when running locally and at
 // the fleet-declared path in production. Writing to /var/log from a laptop

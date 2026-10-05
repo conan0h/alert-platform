@@ -127,6 +127,13 @@ func TestSecretResolutionFailureMutatesNothingAndAuditsBothAttemptsFailed(t *tes
 	if entries[1].Event != "rollback" || entries[1].Outcome != "failed" {
 		t.Errorf("second entry: want rollback/failed, got %s/%s", entries[1].Event, entries[1].Outcome)
 	}
+	// Both entries must say the host was never touched; without this they
+	// read exactly like a deploy that failed half-way (backlog #30).
+	for _, e := range entries {
+		if mutated, known := e.Mutated(); !known || mutated {
+			t.Errorf("%s entry: Mutated() = (%v, %v), want (false, true)", e.Event, mutated, known)
+		}
+	}
 	// The rollback names the ref it was trying to restore even though it never
 	// got there, which is what lets a reader reconstruct what was attempted.
 	if entries[1].ToRef != prevRef {

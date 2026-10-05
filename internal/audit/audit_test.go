@@ -192,3 +192,36 @@ func TestLastSuccessfulRefFailsCleanlyWhenNothingQualifies(t *testing.T) {
 		t.Fatal("with no successful deploy on record there is nothing safe to roll back to; this must be an error")
 	}
 }
+
+// Mutated must survive the JSONL round trip, where Detail comes back as
+// map[string]any, and must not invent an answer for entries written before
+// the field existed.
+func TestMutatedRoundTripsAndIsUnknownOnOlderEntries(t *testing.T) {
+	log := tempLog(t)
+	for _, e := range []Entry{
+		{Event: "apply", Service: "a", Outcome: "failed", Detail: map[string]any{"mutated": false}},
+		{Event: "apply", Service: "b", Outcome: "failed", Detail: map[string]any{"mutated": true}},
+		{Event: "apply", Service: "c", Outcome: "failed", Detail: map[string]any{"action": "update"}},
+		{Event: "apply", Service: "d", Outcome: "failed"},
+	} {
+		if err := log.Append(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := log.History("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct{ mutated, known bool }{
+		"a": {false, true},
+		"b": {true, true},
+		"c": {false, false},
+		"d": {false, false},
+	}
+	for _, e := range entries {
+		mutated, known := e.Mutated()
+		if w := want[e.Service]; mutated != w.mutated || known != w.known {
+			t.Errorf("%s: Mutated() = (%v, %v), want (%v, %v)", e.Service, mutated, known, w.mutated, w.known)
+		}
+	}
+}

@@ -33,6 +33,14 @@ type Entry struct {
 	Detail    map[string]any `json:"detail,omitempty"`
 }
 
+// Mutated reports whether an apply or rollback issued any command to the
+// host, which separates a deploy refused before acting from one that failed
+// part-way. known is false for entries written before the field existed.
+func (e Entry) Mutated() (mutated, known bool) {
+	mutated, known = e.Detail["mutated"].(bool)
+	return mutated, known
+}
+
 type Log struct {
 	Path string
 }
