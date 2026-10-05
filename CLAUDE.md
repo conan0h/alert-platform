@@ -362,11 +362,12 @@ Current facts only. When something here is fixed or stops being true, delete it.
 (10b5-1 fix), #72 (`edgar-mna` / `fda-catalysts` funnels), #74 (sent and
 archive counters), #77 (form4 fetch-failure stages), #79 (form4 price
 source probe) and #81 (form4 feed filtered to Form 4, `unparsed` stage),
-waiting on the `v0.7.0` tag (handoff #70).
+waiting on the `v0.7.0` tag (handoff #70). #83 (audit `detail.mutated`) is
+control plane only and reaches the host at the next `deploy.yml step=plan`.
 
 **The main problem: nobody has judged the alerts.** All four services alert.
-Archived in the ~119 hours after the v0.6.0 restart (2026-09-28 08:27–08:30Z):
-`form4-insider` 324 (all `large_trade`), `clinical-trials` 130, `edgar-mna` 52,
+Archived in the ~167 hours after the v0.6.0 restart (2026-09-28 08:27–08:30Z):
+`form4-insider` 324 (all `large_trade`), `clinical-trials` 130, `edgar-mna` 53,
 `fda-catalysts` 16. Their content is not readable off the host until `v0.7.0`
 ships the digest (#45).
 - `form4-insider`: alerts only on trades over $1M, because its leaderboard is

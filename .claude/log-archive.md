@@ -1812,3 +1812,22 @@ startup and crash messages are excluded; `alert_archive_records_total`
 declared at start and seeded from the rows in `alerts.db`). Handoff #70
 retargeted to `c3ee78e`.
 Next: when #70 is done, roll all four to `v0.7.0` (#45), then read the digests.
+
+## 2026-10-02 — plan reason for ref rolls; form4 fetch loss named
+Production, 08:18–08:21Z (04:18 ET): all four `v0.6.0`, active, `drift` exit 0
+(host alertctl `89fe764`). `history` ends at the 2026-09-28 applies. No deploy:
+`v0.7.0` still untagged (#70, no comment).
+Alerts, snapshots 07:51–08:16Z (03:51–04:16 ET), ~343,600–345,000s uptime:
+- `form4-insider`: 262 archived, all `large_trade` (46 in the last ~24h).
+  new 6379, fetched 3563, parsed 1828, transactions 2656, code_not_actionable
+  1371, below_floor 629, no_insider_history 394, planned_sale 0; 115 poll errors.
+- `clinical-trials`: 109 archived. first_sight 760, changed 49, signals 109.
+- `edgar-mna`: 47 archived; 398 of 60,286 fetches failed.
+- `fda-catalysts`: 15 archived; 7,776 of 72,742 failed, 1 source dead.
+- `sends_refused` 0, `delivery_failures` 0 on all four.
+Shipped: #76 (plan says `ALERT_DEPLOYED_REF follows source.ref; no config
+changed` on a ref-only roll; closes #43; reaches the host at the next `plan`).
+#77 (`form4-insider` counts `index_unavailable`, `no_form4_xml`,
+`xml_unavailable` and logs `filing not fetched`). Handoff #70 retargeted.
+Found: #46: ~44% of new Form 4 filings are never fetched and never retried.
+Next: when #70 is done, roll all four to `v0.7.0` (#45), read the #46 split.
