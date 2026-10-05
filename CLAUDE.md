@@ -357,32 +357,26 @@ the evidence, and continue.
 
 Current facts only. When something here is fixed or stops being true, delete it.
 
-**Deployed.** All four services run `v0.6.0` (`d0b33cf`); last verified
-2026-10-04: `active`, `drift` exit 0. `main` carries #68 (alert digest), #69
-(10b5-1 fix), #72 (`edgar-mna` / `fda-catalysts` funnels), #74 (sent and
-archive counters), #77 (form4 fetch-failure stages), #79 (form4 price
-source probe) and #81 (form4 feed filtered to Form 4, `unparsed` stage),
-waiting on the `v0.7.0` tag (handoff #70). #83 (audit `detail.mutated`) is
-control plane only and reaches the host at the next `deploy.yml step=plan`.
+**Deployed.** All four services run `v0.7.0` (`5433ad3`); host alertctl
+`2f815ca`. Last verified 2026-10-05 08:38Z: `active`, `drift` exit 0.
 
-**The main problem: nobody has judged the alerts.** All four services alert.
-Archived in the ~167 hours after the v0.6.0 restart (2026-09-28 08:27–08:30Z):
+**The main problem: nobody has judged the alerts.** All four services alert,
+and from `v0.7.0` each writes an `alert digest` (last 24h, newest 25) with
+every metrics snapshot. Archived under `v0.6.0` (2026-09-28 to 10-05):
 `form4-insider` 324 (all `large_trade`), `clinical-trials` 130, `edgar-mna` 53,
-`fda-catalysts` 16. Their content is not readable off the host until `v0.7.0`
-ships the digest (#45).
+`fda-catalysts` 16.
 - `form4-insider`: alerts only on trades over $1M, because its leaderboard is
-  unscored (#39), and the scorer's price source is unproven on the host.
-  Until #69 deploys, 10b5-1 planned sales pass as large trades. Of what the feed
-  calls new, 37% is never fetched and 42% of the rest never parses (#46).
+  unscored (#39). The price source works on the host (probe: 19 SPY closes).
+  Of what the feed called new under `v0.6.0`, 37% was never fetched and 42% of
+  the rest never parsed (#46); `v0.7.0` splits that loss by stage.
 - `clinical-trials`: 130 signals from 62 status changes and 960 first sightings.
-- `edgar-mna`, `fda-catalysts`: what the category filter drops is measured
-  from `v0.7.0` (`alert_funnel_unclassified_total` against `_matched_total`).
-  `fda-catalysts`' FiercePharma feed is dead (403).
+- `edgar-mna`, `fda-catalysts`: most feed entries are unclassified (first
+  cycle: 294 of 310 and 258 of 279). `fda-catalysts`' FiercePharma feed is
+  dead (403).
 
 **Reading traps.** Each of these has misled a run.
-- Until `v0.7.0` deploys, `alert_alerts_sent_total` is archived + 1 (the
-  startup message), and `alert_archive_records_total` is absent after a
-  restart until the first alert, then counts only that process's writes.
+- `alert_archive_records_total` counts every row in `alerts.db`, across
+  releases; `alert_alerts_sent_total` counts this process's sends only.
 - Per-cycle funnel lines describe one cycle, and read 0 at the 04:15 ET run
   hour on every service. `clinical-trials` printed `changed=0` in every line
   read for a week while `alert_funnel_changed_total` reached 26 in two days.
@@ -399,6 +393,7 @@ ships the digest (#45).
 - `drift` compares refs and unit hashes against the host's own checkout, which
   only `plan` syncs. It doesn't see file edits, and a merged but unapplied
   release shows no drift.
+- The digest covers 24h, so a 04:15 ET Monday read shows the weekend only.
 
 **Environment.**
 - No `gh` CLI: use the GitHub MCP tools. Build a Python 3.12 venv with
