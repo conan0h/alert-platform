@@ -360,16 +360,16 @@ Current facts only. When something here is fixed or stops being true, delete it.
 **Deployed.** All four services run `v0.7.0` (`5433ad3`); host alertctl
 `2f815ca`. Last verified 2026-10-05 08:38Z: `active`, `drift` exit 0.
 
-**The main problem: nobody has judged the alerts.** All four services alert,
-and from `v0.7.0` each writes an `alert digest` (last 24h, newest 25) with
-every metrics snapshot. Archived under `v0.6.0` (2026-09-28 to 10-05):
-`form4-insider` 324 (all `large_trade`), `clinical-trials` 130, `edgar-mna` 53,
-`fda-catalysts` 16.
+**The main problem: nobody has judged the alerts.** Each service writes an
+`alert digest` (last 24h, newest 25) with every metrics snapshot. 24h to
+2026-10-06 08:19Z, a Monday session: `form4-insider` 38, `clinical-trials` 14,
+`edgar-mna` 8, `fda-catalysts` 1.
 - `form4-insider`: alerts only on trades over $1M, because its leaderboard is
-  unscored (#39). The price source works on the host (probe: 19 SPY closes).
-  Of what the feed called new under `v0.6.0`, 37% was never fetched and 42% of
-  the rest never parsed (#46); `v0.7.0` splits that loss by stage.
-- `clinical-trials`: 130 signals from 62 status changes and 960 first sightings.
+  unscored (#39). Under `v0.7.0` it sends one alert per qualifying
+  transaction line; `main` (#87, not yet released) sends one per filing and
+  direction.
+- `clinical-trials`: many signals are academic trials with no tradeable
+  sponsor (#47).
 - `edgar-mna`, `fda-catalysts`: most feed entries are unclassified (first
   cycle: 294 of 310 and 258 of 279). `fda-catalysts`' FiercePharma feed is
   dead (403).
@@ -385,7 +385,8 @@ every metrics snapshot. Archived under `v0.6.0` (2026-09-28 to 10-05):
   is `grep "metrics snapshot"` in a `logs` window, every 900s; difference two
   against `alert_uptime_seconds` for a rate.
 - `logs` returns the *oldest* part of its window, capped near 24 KB. Use a short
-  `since` to see a whole window. The scheduled run fires at 04:15 ET, the
+  `since` to see a whole window: `30 minutes ago` holds three services'
+  snapshots and digests but cuts the fourth, so read `10 minutes ago` too. The scheduled run fires at 04:15 ET, the
   quietest hour; `since="6 hours ago"` then reads from ~22:15 ET, after the US
   close.
 - `clinical-trials` reads `Streamed 0 of 0` on Monday pre-market: its two-day
