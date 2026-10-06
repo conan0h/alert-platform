@@ -286,16 +286,62 @@ def _pct(v: float | None) -> str:
     return f"{v:+.1%}"
 
 
-def format_alert(parsed: dict, tx: dict, accession: str,
-                 insider_stats: dict | None, reason: str) -> str:
-    is_buy = tx["tx_code"] == "P"
+def group_trades(qualifying: list[tuple[dict, str, str]]) -> list[dict]:
+    """Collapse a filing's alerting transactions into one trade per direction.
+
+    One Form 4 can report a single decision as many lines: on 2026-10-05
+    Berkshire Hathaway's LEN purchases produced eight alerts in the same
+    minute, one per line. The reader acts on the decision, so a filing yields
+    one buy and at most one sell. `qualifying` holds (tx, decision, reason)
+    for each transaction `should_alert` passed; each group's decision is
+    `top_tier` if any member is, and its reason is the largest member's.
+    """
+    groups: dict[str, list[tuple[dict, str, str]]] = {}
+    for item in qualifying:
+        groups.setdefault(item[0]["tx_code"], []).append(item)
+
+    trades = []
+    for code in sorted(groups):  # P before S
+        items = groups[code]
+        txs = [tx for tx, _d, _r in items]
+        usd = sum(tx["usd_value"] for tx in txs)
+        shares = sum(tx["shares"] for tx in txs)
+        _largest, _d, reason = max(items, key=lambda i: i[0]["usd_value"])
+        dates = sorted(tx["trade_date"] for tx in txs)
+        trades.append({
+            "tx_code": code,
+            "decision": "top_tier" if any(d == "top_tier" for _t, d, _r in items) else "large_trade",
+            "reason": reason,
+            "usd_value": usd,
+            "shares": shares,
+            "price": usd / shares if shares else 0.0,
+            "trade_date": dates[0],
+            "last_trade_date": dates[-1],
+            "transactions": txs,
+        })
+    return trades
+
+
+def format_alert(parsed: dict, trade: dict, accession: str,
+                 insider_stats: dict | None) -> str:
+    is_buy = trade["tx_code"] == "P"
     banner = "🟢 <b>INSIDER BUY</b>" if is_buy else "🔴 <b>INSIDER SELL</b>"
 
     ticker = parsed.get("ticker") or "—"
     insider_name = parsed["insider_name"]
     relationship = parsed.get("relationship") or "Insider"
 
-    size_line = f"💰 <b>Size:</b> ${tx['usd_value']:,.0f}  ({tx['shares']:,.0f} @ ${tx['price']:,.2f})"
+    n = len(trade["transactions"])
+    if n == 1:
+        size_line = (f"💰 <b>Size:</b> ${trade['usd_value']:,.0f}  "
+                     f"({trade['shares']:,.0f} @ ${trade['price']:,.2f})")
+    else:
+        size_line = (f"💰 <b>Size:</b> ${trade['usd_value']:,.0f} in {n} transactions  "
+                     f"({trade['shares']:,.0f} @ avg ${trade['price']:,.2f})")
+
+    dates = trade["trade_date"]
+    if trade["last_trade_date"] != trade["trade_date"]:
+        dates += f" to {trade['last_trade_date']}"
 
     if insider_stats and insider_stats.get("n_trades", 0) >= 5:
         track_line = (
@@ -312,43 +358,49 @@ def format_alert(parsed: dict, tx: dict, accession: str,
     return (
         f"{banner}\n"
         f"🎯 <b>{html.escape(ticker)}</b>   "
-        f"📅 {tx['trade_date']}\n\n"
+        f"📅 {dates}\n\n"
         f"👤 <b>{html.escape(insider_name)}</b>\n"
         f"     <i>{html.escape(relationship)}</i>\n\n"
         f"{size_line}\n\n"
         f"{track_line}\n\n"
-        f"🏷️ <i>Reason: {html.escape(reason)}</i>\n"
+        f"🏷️ <i>Reason: {html.escape(trade['reason'])}</i>\n"
         f"🔗 {edgar_link}"
     )
 
 
-def build_alert(parsed: dict, tx: dict, accession: str, reason: str, body: str) -> Alert:
-    """The archive record for one transaction.
+def build_alert(parsed: dict, trade: dict, accession: str, body: str) -> Alert:
+    """The archive record for one trade from `group_trades`.
 
-    The dedup key is accession plus the transaction's position within the
-    filing, because one Form 4 can carry several qualifying trades and the
-    accession alone would collapse them into one row. `alerted` is keyed on
-    the accession; this is keyed on what was actually sent.
+    Keyed on accession and direction, which is what one alert now covers.
+    `reason` is the decision name, so the digest's `by_reason` counts alerts
+    by the rule that passed them rather than by dollar amount.
     """
+    n = len(trade["transactions"])
     return Alert(
         source="SEC EDGAR Form 4",
-        dedup_key=f"{accession}#{tx['tx_code']}:{tx['trade_date']}:{tx['shares']:.0f}",
-        title=f"{parsed.get('ticker') or '?'} {tx['tx_code']} ${tx['usd_value']:,.0f} "
-              f"by {parsed['insider_name'][:40]}",
+        dedup_key=f"{accession}#{trade['tx_code']}",
+        title=f"{parsed.get('ticker') or '?'} {trade['tx_code']} ${trade['usd_value']:,.0f} "
+              + (f"({n} tx) " if n > 1 else "")
+              + f"by {parsed['insider_name'][:40]}",
         body=body,
         ticker=(parsed.get("ticker") or "").upper(),
-        reason=reason,
+        reason=trade["decision"],
         payload={
             "accession": accession,
             "issuer_cik": parsed.get("issuer_cik"),
             "insider_cik": parsed.get("insider_cik"),
             "insider_name": parsed.get("insider_name"),
             "relationship": parsed.get("relationship"),
-            "tx_code": tx["tx_code"],
-            "trade_date": tx["trade_date"],
-            "shares": tx["shares"],
-            "price": tx["price"],
-            "usd_value": tx["usd_value"],
+            "tx_code": trade["tx_code"],
+            "trade_date": trade["trade_date"],
+            "last_trade_date": trade["last_trade_date"],
+            "shares": trade["shares"],
+            "price": trade["price"],
+            "usd_value": trade["usd_value"],
+            "transactions": [
+                {k: tx[k] for k in ("trade_date", "shares", "price", "usd_value")}
+                for tx in trade["transactions"]
+            ],
         },
     )
 
@@ -504,7 +556,7 @@ def process_filing(
         return 0
     funnel.count("claimed")
 
-    sent = 0
+    qualifying = []
     for tx in parsed["transactions"]:
         funnel.count("transactions")
         decision, reason = should_alert(tx, insider_stats, alpha_cutoff)
@@ -512,14 +564,20 @@ def process_filing(
         if decision not in ALERTING_DECISIONS:
             log.debug("Skip %s tx %s: %s", accession, tx["tx_code"], reason)
             continue
+        qualifying.append((tx, decision, reason))
 
-        msg = format_alert(parsed, tx, accession, insider_stats, reason)
-        if SVC.send_alert(build_alert(parsed, tx, accession, reason, msg)):
+    # The decisions above count transactions; `sent` counts alerts, of which
+    # a filing produces at most one per direction.
+    sent = 0
+    for trade in group_trades(qualifying):
+        msg = format_alert(parsed, trade, accession, insider_stats)
+        if SVC.send_alert(build_alert(parsed, trade, accession, msg)):
             sent += 1
             funnel.count("sent")
-            log.info("Alert sent: %s %s [%s] %s $%.0f",
-                     parsed.get("ticker"), tx["tx_code"],
-                     parsed["insider_name"][:30], reason, tx["usd_value"])
+            log.info("Alert sent: %s %s [%s] %s $%.0f in %d tx",
+                     parsed.get("ticker"), trade["tx_code"],
+                     parsed["insider_name"][:30], trade["decision"],
+                     trade["usd_value"], len(trade["transactions"]))
 
     return sent
 
