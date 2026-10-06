@@ -33,28 +33,44 @@ TX = {"tx_code": "S", "trade_date": "2026-09-21", "shares": 40_000.0,
       "price": 115.32, "usd_value": 4_612_795.0}
 
 
+def trade(*txs, decision="large_trade", reason="large trade"):
+    [t] = form4.group_trades([(tx, decision, reason) for tx in txs])
+    return t
+
+
 def test_form4_records_the_fields_an_analysis_will_group_by():
-    alert = form4.build_alert(PARSED, TX, "0001193125-26-396718", "large trade", "body")
+    alert = form4.build_alert(PARSED, trade(TX), "0001193125-26-396718", "body")
     assert alert.source == "SEC EDGAR Form 4"
     assert alert.ticker == "DELL", "tickers are upper-cased so grouping does not split"
-    assert alert.reason == "large trade"
+    assert alert.reason == "large_trade", "the rule that passed it, not a dollar amount"
     assert alert.body == "body"
     assert alert.payload["usd_value"] == 4_612_795.0
     assert alert.payload["tx_code"] == "S"
     assert alert.payload["accession"] == "0001193125-26-396718"
+    assert alert.payload["transactions"] == [
+        {"trade_date": "2026-09-21", "shares": 40_000.0, "price": 115.32,
+         "usd_value": 4_612_795.0}]
 
 
-def test_form4_gives_two_trades_in_one_filing_two_keys():
-    """`alerted` is keyed on the accession, so it cannot tell two qualifying
-    transactions in one Form 4 apart. The archive has to."""
-    buy = dict(TX, tx_code="P", shares=1_000.0)
-    a = form4.build_alert(PARSED, TX, "0001193125-26-396718", "r", "body")
-    b = form4.build_alert(PARSED, buy, "0001193125-26-396718", "r", "body")
-    assert a.dedup_key != b.dedup_key
+def test_form4_keys_one_alert_per_filing_and_direction():
+    """`alerted` is keyed on the accession; the archive row is keyed on what
+    one alert covers, so a filing with a buy and a sell keeps both."""
+    sell = trade(TX)
+    buy = trade(dict(TX, tx_code="P", shares=1_000.0))
+    a = form4.build_alert(PARSED, sell, "0001193125-26-396718", "body")
+    b = form4.build_alert(PARSED, buy, "0001193125-26-396718", "body")
+    assert (a.dedup_key, b.dedup_key) == (
+        "0001193125-26-396718#S", "0001193125-26-396718#P")
+
+
+def test_form4_title_says_how_many_transactions_an_alert_covers():
+    alert = form4.build_alert(PARSED, trade(TX, TX), "acc", "body")
+    assert alert.title == "dell S $9,225,590 (2 tx) by Silver Lake Partners IV, L.P."
+    assert len(alert.payload["transactions"]) == 2
 
 
 def test_form4_survives_a_filing_with_no_ticker():
-    alert = form4.build_alert(dict(PARSED, ticker=None), TX, "acc", "r", "body")
+    alert = form4.build_alert(dict(PARSED, ticker=None), trade(TX), "acc", "body")
     assert alert.ticker == ""
     assert alert.title.startswith("? S")
 

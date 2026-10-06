@@ -364,6 +364,15 @@ that matters today is `no_leaderboard`, which says the alpha filter refused
 because there is no leaderboard to compare against rather than because the
 insider fell short.
 
+Decisions are per transaction; alerts are per filing. One Form 4 can
+report a single decision as many lines (on 2026-10-05 Berkshire Hathaway's LEN
+purchases produced eight alerts in the same minute, one per line), so `group_trades` collapses the transactions that pass
+into one buy and at most one sell per filing, with summed value and shares,
+the volume-weighted price and the trade-date range. The decision stages
+therefore sum to `transactions`, while `sent` counts alerts. The archive row
+is keyed `<accession>#<P|S>`, its `reason` is the decision name, and its
+payload lists the member transactions.
+
 A fetch that fails is counted under one of `main.FETCH_FAILURES`:
 `index_unavailable` (the filing's `index.json` request failed),
 `no_form4_xml` (the index lists no candidate XML) or `xml_unavailable` (the
@@ -428,9 +437,9 @@ No read verb can query the archive yet, so its contents leave the host the
 same way the counters do. With every metrics snapshot each service writes an
 `alert digest` line covering the last 24 hours:
 
-    {"msg": "alert digest", "digest": {"since": "...", "total": 46,
-      "by_reason": {"large trade": 46}, "by_delivery": {"sent": 46},
-      "alerts": ["09-28T20:14Z DELL [large trade] DELL S $4,612,795 by ...", ...]}}
+    {"msg": "alert digest", "digest": {"since": "...", "total": 38,
+      "by_reason": {"large_trade": 38}, "by_delivery": {"sent": 38},
+      "alerts": ["10-06T01:47Z ACCV [large_trade] ACCV P $3,600,000 by ...", ...]}}
 
 The counts cover the whole window; the list is the newest 25, titles cut to
 80 characters, so the line stays near 3 KB against the ~24 KB `logs` returns.
