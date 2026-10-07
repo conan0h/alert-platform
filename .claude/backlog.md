@@ -20,15 +20,18 @@ Don't start lower sections while this one has unblocked work.
     whether the price moved after it. No price source reaches this session,
     so a move check needs the host to report it (or #27). Open cases: PTC
     after edgar's `10-04T21:08Z` rumour; whether `v0.8.0` collapses
-    multi-line Form 4s (LEN 10-06 01:05Z was 8 alerts).
+    multi-line Form 4s (MDLN 10-07 01:49Z was 5). form4 printed ticker
+    `NONE` for a GoldenTree purchase, probably the filing's own
+    `issuerTradingSymbol`; check the parser and treat it as no ticker.
 
-47. **`clinical-trials` alerts on trials nobody can trade.** `todo`
-    On 10-06 at least 6 of 14 alerts were academic studies (kidney stones,
-    health-systems outreach, TCM granules). The API's
-    `leadSponsor.class` (`INDUSTRY`, `NIH`, `OTHER`, …) is not requested.
-    Next: request it, put it in the alert and archive payload, and count
-    signals by class in the funnel; then decide from a week of counts
-    whether to drop non-`INDUSTRY` signals behind a `spec.polling` key.
+47. **`clinical-trials` alerts on trials nobody can trade.** `todo` (waits on `v0.8.0`)
+    10-06: 30 alerts in one 12:11–12:13Z burst; many academic. `main` (#90)
+    records `leadSponsor.class` in each title (`TERMINATED [OTHER]: …`) and
+    counts `signals_industry` beside `signals`. Next: after a week of those
+    counters, decide whether to drop non-`INDUSTRY` signals behind a
+    `spec.polling` key. Also: `RESULTS_POSTED` claims "BEFORE press
+    release" for any trial, however old; compare `resultsFirstPostDate`
+    with the completion date before calling it fresh.
 
 39. **`form4-insider` can only alert on trades over $1M.** `todo`
     The leaderboard behind its main filter is unscored: 13,782 insiders,
@@ -84,6 +87,9 @@ Don't start lower sections while this one has unblocked work.
 
 - **`v0.8.0` on `form4-insider`:** a multi-line filing arrives as one alert
   titled `(N tx)`; digest `by_reason` reads `large_trade`, not dollar amounts.
+- **`v0.8.0` on `clinical-trials`:** titles carry `[INDUSTRY]`, `[OTHER]`,
+  …, not all `[UNKNOWN]` (which would mean the API ignored the field);
+  `alert_funnel_signals_industry_total` appears in the snapshot.
 
 ## Parked — don't start while no service alerts
 

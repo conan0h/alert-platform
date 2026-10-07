@@ -10,24 +10,6 @@ verbatim to [`log-archive.md`](log-archive.md).
     Found: new facts, with backlog numbers.
     Next: the first thing the next run should do.
 
-## 2026-10-04 — form4 feed filtered to Form 4; parse loss counted
-Production, 08:17–08:20Z (04:17 ET Sunday): all four `v0.6.0`, active, `drift`
-exit 0 (host alertctl `89fe764`). No deploy: `v0.7.0` still untagged (#70, no
-comment since 2026-09-29).
-Alerts, snapshots 07:51–08:04Z, ~516,300–516,900s uptime. `logs` 07:50–08:06Z:
-INFO only. Every counter equals the 2026-10-03 reading: no filings or alerts
-on a Saturday. Archived 324 / 130 / 52 / 16 (form4 / clinical / edgar / fda).
-Found: #46: `fetched` 5703 → `parsed` 3313; 2390 fetched filings failed to
-parse with no counter. The live feed's `type=4` is EDGAR's form-type prefix
-match, so it can carry 424B2, 497 and similar; the backfill filters to `4` and
-`4/A`, the live path did not. Hypothesis, unverified: sec.gov is unreachable
-from this session.
-Shipped: #81 (feed entries filtered to `4` / `4/A`, counted as `not_form4`
-and logged once per type; parse failures counted as `unparsed` and logged
-with the root element). Handoff #70 retargeted to `5433ad3`.
-Next: when #70 is done, roll all four to `v0.7.0` (#45). Read `not_form4`,
-`unparsed` and the fetch-failure split together.
-
 ## 2026-10-05 — v0.7.0 deployed; audit records host mutation
 Production, 08:17–08:19Z: all four `v0.6.0`, active, `drift` 0. Archived
 324 / 130 / 53 / 16 (form4 / clinical / edgar / fda), edgar +1 since 10-04.
@@ -71,3 +53,25 @@ summed value, VWAP and date range; archive key `<accession>#<P|S>`, reason is
 the decision name). Release `v0.8.0` requested from Conan (#88).
 Next: when `v0.8.0` exists, roll `form4-insider` only and check that a
 multi-line filing arrives as one `(N tx)` alert.
+
+## 2026-10-07 — clinical-trials records the lead sponsor's class
+Production, 08:18–08:19Z (04:18 ET): all four `v0.7.0`, active, `drift`
+exit 0 (host alertctl `2f815ca`). No deploy: `v0.8.0` still untagged (#88).
+Alerts, 24h digests read 07:53–08:21Z (Tuesday session; 10-06 US session):
+- `form4-insider` ≥25 sent (digest caps at 25; `alerts_sent` 38 → 63 since
+  10-06). MDLN: 5 alerts at 01:49Z, all GIC selling (~$722M), one filing —
+  the pattern `v0.8.0` collapses. PSUS 3, SNPS 2, AVR 2, SAH 2. One ticker
+  reads `NONE` (GoldenTree, $42M P) and one `AXIA3` (a B3 symbol).
+- `clinical-trials` 30, all 10-06T12:11–12:13Z (one registry refresh): 19
+  RESULTS_POSTED, 6 TERMINATED, 4 WITHDRAWN, 1 SUSPENDED. Many read as
+  academic or NCI cooperative-group studies; some are industry (SAR30250,
+  TAK-101, iloperidone, anamorelin ×2, PCS6422, aticaprant, NVG-2089).
+  RESULTS_POSTED says "BEFORE press release" with no check of how old the
+  trial is.
+- `edgar-mna` 5: STI ×2 (same headline twice), Aurora/Curaleaf, Swarmer
+  DEFM14A, Locafy/Map Labs. `fda-catalysts` 0.
+Shipped: #90 (`leadSponsor.class` requested; in title `SIGNAL [CLASS]: …`,
+payload, message; funnel stage `signals_industry`). Handoff #88 retargeted
+to `a1cf15e` so `v0.8.0` carries #87 and #90.
+Next: when `v0.8.0` exists, roll `form4-insider` and `clinical-trials`.
+Read the next clinical digest's `[CLASS]` tags and `signals_industry`.

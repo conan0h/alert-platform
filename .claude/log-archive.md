@@ -1853,3 +1853,21 @@ Found: #39: the scorer's v7 CSV endpoint is expected to need a cookie and crumb,
 so scheduling the scorer could score nothing. Unverified: this session's egress
 cannot reach Yahoo, and the probe reaches the host only with `v0.7.0`.
 Next: when #70 is done, roll all four to `v0.7.0` (#45), and read the probe.
+
+## 2026-10-04 — form4 feed filtered to Form 4; parse loss counted
+Production, 08:17–08:20Z (04:17 ET Sunday): all four `v0.6.0`, active, `drift`
+exit 0 (host alertctl `89fe764`). No deploy: `v0.7.0` still untagged (#70, no
+comment since 2026-09-29).
+Alerts, snapshots 07:51–08:04Z, ~516,300–516,900s uptime. `logs` 07:50–08:06Z:
+INFO only. Every counter equals the 2026-10-03 reading: no filings or alerts
+on a Saturday. Archived 324 / 130 / 52 / 16 (form4 / clinical / edgar / fda).
+Found: #46: `fetched` 5703 → `parsed` 3313; 2390 fetched filings failed to
+parse with no counter. The live feed's `type=4` is EDGAR's form-type prefix
+match, so it can carry 424B2, 497 and similar; the backfill filters to `4` and
+`4/A`, the live path did not. Hypothesis, unverified: sec.gov is unreachable
+from this session.
+Shipped: #81 (feed entries filtered to `4` / `4/A`, counted as `not_form4`
+and logged once per type; parse failures counted as `unparsed` and logged
+with the root element). Handoff #70 retargeted to `5433ad3`.
+Next: when #70 is done, roll all four to `v0.7.0` (#45). Read `not_form4`,
+`unparsed` and the fetch-failure split together.
