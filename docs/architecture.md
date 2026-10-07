@@ -349,7 +349,11 @@ a real answer a later cycle can give.
 
 `clinical-trials` is the first adopter, with `first_sight_completed` as a stage
 chosen to test one specific explanation — see
-[ADR 0006](adr/0006-candidate-funnel.md).
+[ADR 0006](adr/0006-candidate-funnel.md). Its `signals_industry` stage counts
+signals whose lead sponsor the registry classes `INDUSTRY`, the sponsors that
+usually have a listed equity; `signals` minus `signals_industry` is the share
+from universities, hospitals and government. Each alert's title carries the
+class (`TERMINATED [OTHER]: …`), so the alert digest shows it too.
 
 `form4-insider` is the second, and its stages are shaped differently. Where
 the trials funnel narrows a stream of candidates, this one has to say which of

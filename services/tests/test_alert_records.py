@@ -120,6 +120,7 @@ TRIAL = {
     "nct_id": "NCT05555555",
     "title": "A Study of Something in Advanced Disease",
     "sponsor": "Acme Pharma",
+    "sponsor_class": "INDUSTRY",
     "status": "COMPLETED",
     "phases": '["PHASE3"]',
     "conditions": ["Condition A"],
@@ -142,6 +143,21 @@ def test_trials_leaves_the_ticker_empty_rather_than_inventing_one():
     assert alert.ticker == ""
     assert alert.payload["sponsor"] == "Acme Pharma"
     assert alert.source == "ClinicalTrials.gov"
+
+
+def test_trials_shows_the_sponsor_class_in_the_title_payload_and_message():
+    """The digest prints titles, not payloads, so the class must be in the
+    title for a run reading the journal to see it (backlog #47)."""
+    academic = {**TRIAL, "sponsor": "State University", "sponsor_class": "OTHER",
+                "last_updated": "2026-10-06"}
+    alert = trials.build_alert(academic, "TERMINATED", "d", "BEARISH", "body")
+    assert alert.title.startswith("TERMINATED [OTHER]: ")
+    assert alert.payload["sponsor_class"] == "OTHER"
+    body = trials.format_alert(academic, "TERMINATED", "x", "d", "BEARISH")
+    assert "State University (OTHER)" in body
+
+    unclassed = {k: v for k, v in TRIAL.items() if k != "sponsor_class"}
+    assert trials.build_alert(unclassed, "COMPLETED", "d", "w", "b").payload["sponsor_class"] == "UNKNOWN"
 
 
 # -- the property that holds across all four --------------------------------

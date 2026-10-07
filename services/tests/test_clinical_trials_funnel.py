@@ -191,3 +191,40 @@ def test_parse_trial_survives_the_statuses_the_signals_care_about(status):
     parsed = ct.parse_trial(raw)
     assert parsed is not None
     assert parsed["status"] == status
+
+
+# --- sponsor class (backlog #47) --------------------------------------------
+
+def raw_study(sponsor: dict) -> dict:
+    return {"protocolSection": {
+        "identificationModule": {"nctId": "NCT00000002", "briefTitle": "t"},
+        "statusModule": {"overallStatus": "TERMINATED"},
+        "sponsorCollaboratorsModule": {"leadSponsor": sponsor},
+    }}
+
+
+def test_the_query_requests_the_sponsor_class():
+    assert "protocolSection.sponsorCollaboratorsModule.leadSponsor.class" in ct.CT_FIELDS
+
+
+@pytest.mark.parametrize("sponsor, expected", [
+    ({"name": "Acme Pharma", "class": "INDUSTRY"}, "INDUSTRY"),
+    ({"name": "State University", "class": "OTHER"}, "OTHER"),
+    ({"name": "No class given"}, "UNKNOWN"),
+    ({}, "UNKNOWN"),
+])
+def test_parse_records_the_lead_sponsor_class(sponsor, expected):
+    assert ct.parse_trial(raw_study(sponsor))["sponsor_class"] == expected
+
+
+@pytest.mark.parametrize("cls, stages", [
+    ("INDUSTRY", ("signals", "signals_industry")),
+    ("OTHER", ("signals",)),
+    ("NIH", ("signals",)),
+    ("UNKNOWN", ("signals",)),
+    (None, ("signals",)),
+])
+def test_only_industry_signals_count_as_industry(cls, stages):
+    assert ct.signal_stages({"sponsor_class": cls}) == stages
+    for stage in stages:
+        assert stage in ct.FUNNEL_STAGES

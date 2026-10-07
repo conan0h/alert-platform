@@ -85,6 +85,7 @@ CT_FIELDS = [
     "protocolSection.statusModule.resultsFirstPostDate",
     "protocolSection.designModule.phases",
     "protocolSection.sponsorCollaboratorsModule.leadSponsor.name",
+    "protocolSection.sponsorCollaboratorsModule.leadSponsor.class",
     "protocolSection.conditionsModule.conditions",
     "protocolSection.armsInterventionsModule.interventions",
     "resultsSection.outcomeMeasuresModule.outcomeMeasures",
@@ -118,8 +119,16 @@ FUNNEL_STAGES = (
     "first_sight_completed",
     "changed",
     "signals",
+    "signals_industry",
     "sent",
 )
+
+# The registry's lead-sponsor classes are INDUSTRY, NIH, FED, OTHER_GOV,
+# INDIV, NETWORK, OTHER, AMBIG and UNKNOWN. Only INDUSTRY sponsors usually
+# have a listed equity; a university or hospital trial moves no price. The
+# class is recorded and counted (`signals_industry` against `signals`) before
+# anything is filtered on it (backlog #47).
+INDUSTRY = "INDUSTRY"
 
 # Logging is configured by the platform (JSON to stdout -> journald).
 
@@ -314,6 +323,7 @@ def parse_trial(raw: dict) -> dict | None:
             "results_posted_date": status_mod.get("resultsFirstPostDate", ""),
             "last_updated": status_mod.get("lastUpdatePostDate", ""),
             "sponsor": sponsor_mod.get("leadSponsor", {}).get("name", "Unknown Sponsor"),
+            "sponsor_class": sponsor_mod.get("leadSponsor", {}).get("class") or "UNKNOWN",
             "phases": json.dumps(sorted(phases_raw)),
             "conditions": conditions[:3],           # top 3 conditions
             "drugs": drug_names[:3],                # top 3 interventions
@@ -350,6 +360,13 @@ def observation_stages(prev: dict | None, curr: dict) -> tuple[str, ...]:
     if prev["status"] != curr["status"]:
         return ("known", "changed")
     return ("known",)
+
+
+def signal_stages(trial: dict) -> tuple[str, ...]:
+    """The funnel stages a detected signal counts toward."""
+    if sponsor_class(trial) == INDUSTRY:
+        return ("signals", "signals_industry")
+    return ("signals",)
 
 
 def detect_signal(prev: dict | None, curr: dict) -> tuple[str, str, str, str] | None:
@@ -410,7 +427,9 @@ def build_alert(trial: dict, signal: str, description: str, direction: str,
     return Alert(
         source="ClinicalTrials.gov",
         dedup_key=f"{trial['nct_id']}#{signal}",
-        title=f"{signal.replace('_', ' ')}: {trial.get('title', '')[:160]}",
+        # The sponsor class leads the title so the digest line shows it: the
+        # digest carries title and reason, not the payload.
+        title=f"{signal.replace('_', ' ')} [{sponsor_class(trial)}]: {trial.get('title', '')[:160]}",
         body=body,
         # The registry identifies studies, not issuers; there is no ticker to
         # record, and an empty column is more honest than the sponsor's name
@@ -422,6 +441,7 @@ def build_alert(trial: dict, signal: str, description: str, direction: str,
             "signal": signal,
             "direction": direction,
             "sponsor": trial.get("sponsor"),
+            "sponsor_class": sponsor_class(trial),
             "status": trial.get("status"),
             "phases": trial.get("phases"),
             "conditions": trial.get("conditions"),
@@ -429,6 +449,10 @@ def build_alert(trial: dict, signal: str, description: str, direction: str,
             "results_posted_date": trial.get("results_posted_date"),
         },
     )
+
+
+def sponsor_class(trial: dict) -> str:
+    return trial.get("sponsor_class") or "UNKNOWN"
 
 
 def format_alert(trial: dict, signal: str, emoji: str, description: str, direction: str) -> str:
@@ -449,7 +473,7 @@ def format_alert(trial: dict, signal: str, emoji: str, description: str, directi
         f"<b>{trial['title']}</b>\n\n"
         f"⚡ <b>Signal:</b> {description}\n"
         f"📈 <b>Bias:</b> {direction}\n\n"
-        f"🏢 <b>Sponsor:</b> {trial['sponsor']}\n"
+        f"🏢 <b>Sponsor:</b> {trial['sponsor']} ({sponsor_class(trial)})\n"
         f"💊 <b>Drug(s):</b> {drugs_str}\n"
         f"🩺 <b>Condition(s):</b> {conditions_str}\n"
         f"🔬 <b>Phase:</b> {phase_str}\n"
@@ -531,12 +555,14 @@ def main():
 
                     if not signal_result:
                         continue
-                    funnel.count("signals")
+                    for stage in signal_stages(trial):
+                        funnel.count(stage)
 
                     signal, emoji, description, direction = signal_result
                     log.info("signal detected", extra={
                         "signal": signal, "nct_id": nct_id,
-                        "sponsor": trial["sponsor"], "title": trial["title"][:80],
+                        "sponsor": trial["sponsor"],
+                        "sponsor_class": sponsor_class(trial), "title": trial["title"][:80],
                     })
 
                     body = format_alert(trial, signal, emoji, description, direction)
