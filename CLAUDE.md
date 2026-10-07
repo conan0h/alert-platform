@@ -362,14 +362,15 @@ Current facts only. When something here is fixed or stops being true, delete it.
 
 **The main problem: nobody has judged the alerts.** Each service writes an
 `alert digest` (last 24h, newest 25) with every metrics snapshot. 24h to
-2026-10-06 08:19Z, a Monday session: `form4-insider` 38, `clinical-trials` 14,
-`edgar-mna` 8, `fda-catalysts` 1.
+2026-10-07 08:21Z, a Tuesday read: `clinical-trials` 30, `form4-insider`
+≥25 (cap), `edgar-mna` 5, `fda-catalysts` 0.
 - `form4-insider`: alerts only on trades over $1M, because its leaderboard is
   unscored (#39). Under `v0.7.0` it sends one alert per qualifying
   transaction line; `main` (#87, not yet released) sends one per filing and
   direction.
-- `clinical-trials`: many signals are academic trials with no tradeable
-  sponsor (#47).
+- `clinical-trials`: alerts arrive in one burst at the registry's daily
+  refresh (~12:10Z); many are academic trials with no tradeable sponsor
+  (#47). `main` (#90, not yet released) tags each with the sponsor class.
 - `edgar-mna`, `fda-catalysts`: most feed entries are unclassified (first
   cycle: 294 of 310 and 258 of 279). `fda-catalysts`' FiercePharma feed is
   dead (403).
