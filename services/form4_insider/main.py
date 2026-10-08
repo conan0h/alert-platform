@@ -15,10 +15,11 @@ Alert message includes the insider's 30/90/180-day alpha numbers and trade
 count, so you can see at a glance whether this is a known performer or a
 rookie swinging big.
 
-Run after form4_backfill.py + form4_scorer.py have populated the leaderboard.
-On the live host neither has ever run, so the leaderboard is empty and the
-second branch cannot fire: everything under $1M is refused. See backlog #39,
-and the `funnel` line this module emits, which says so every cycle.
+The leaderboard comes from form4_backfill.py (insiders and their history)
+and form4_scorer.py (forward returns), which this service runs a few seconds
+per poll cycle. Until it has scored enough buys, the second branch cannot
+fire and everything under $1M is refused; the `leaderboard state` line and
+gauges say how far it has got.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from datetime import datetime, timedelta, timezone
 
 import feedparser
 import form4_common
+import form4_scorer
 
 # ---------------------------------------------------------------------------
 # Platform runtime
@@ -120,6 +122,37 @@ FUNNEL_STAGES = (
 )
 
 
+# Seconds of each poll cycle the scorer may spend fetching prices. 20 of 120
+# leaves the poll its interval, and keeps the heartbeat (stale after 240s) far
+# from its limit even when one more 20s price request starts at the deadline.
+SCORING_BUDGET_SEC = 20.0
+SCORER_METRICS = {
+    "scored": ("alert_scorer_tickers_scored_total",
+               "Tickers whose due buys were scored from fetched prices."),
+    "no_prices": ("alert_scorer_tickers_no_prices_total",
+                  "Tickers the price source returned nothing for; retried weekly."),
+}
+SCORER_DUE_GAUGE = "alert_scorer_tickers_due"
+SCORER_ERRORS = "alert_scorer_errors_total"
+
+
+def run_scoring_step(scorer: form4_scorer.IncrementalScorer) -> bool:
+    """One budgeted scoring step. Never raises: scoring must not stop the
+    alerter. Returns whether the leaderboard was recomputed."""
+    try:
+        result = scorer.step()
+    except Exception:
+        SVC.metrics.inc(SCORER_ERRORS)
+        log.exception("scoring step failed")
+        return False
+    for key, (metric, _help) in SCORER_METRICS.items():
+        SVC.metrics.inc(metric, result[key])
+    SVC.metrics.set(SCORER_DUE_GAUGE, result["remaining"])
+    if result["scored"] or result["no_prices"] or result["leaderboard"] or not result["spy"]:
+        log.info("scoring step", extra=result)
+    return result["leaderboard"]
+
+
 # ---------------------------------------------------------------------------
 # Leaderboard cutoff
 # ---------------------------------------------------------------------------
@@ -161,8 +194,9 @@ def leaderboard_state(conn: sqlite3.Connection) -> dict[str, int]:
     `get_alpha_cutoff` returns None for both, and they need different fixes:
     no rows in `insiders` means `form4_backfill.py` has never run, while rows
     without `alpha_90` means `form4_scorer.py` has not. Neither script is in
-    the fleet spec, so neither runs on a schedule (backlog #39), and until one
-    of them does the cutoff stays None and every trade under $1M is refused.
+    the fleet spec; the scorer runs inside this service (`run_scoring_step`),
+    and until it has scored the cutoff stays None and every trade under $1M
+    is refused.
     """
     def count(sql: str) -> int:
         return conn.execute(sql).fetchone()[0]
@@ -604,6 +638,11 @@ def main():
     for metric, help_text in LEADERBOARD_GAUGES.values():
         SVC.metrics.declare_gauge(metric, help_text)
     SVC.metrics.declare_gauge(PRICE_PROBE_GAUGE, PRICE_PROBE_HELP)
+    for metric, help_text in SCORER_METRICS.values():
+        SVC.metrics.declare_counter(metric, help_text)
+    SVC.metrics.declare_counter(SCORER_ERRORS, "Scoring steps that raised.")
+    SVC.metrics.declare_gauge(SCORER_DUE_GAUGE,
+                              "Tickers with buys due for scoring after the last step.")
 
     with SVC:
         conn = init_db()
@@ -634,10 +673,11 @@ def main():
         )
 
         last_cutoff_refresh = time.time()
+        scorer = form4_scorer.IncrementalScorer(conn, SCORING_BUDGET_SEC)
 
         while SVC.running():
             with SVC.poll_cycle(), funnel.cycle():
-                # Refresh the cutoff hourly — the nightly scorer may have run.
+                # Refresh the cutoff hourly, in case form4_scorer.py ran from the CLI.
                 if time.time() - last_cutoff_refresh >= 3600:
                     alpha_cutoff = get_alpha_cutoff(conn)
                     last_cutoff_refresh = time.time()
@@ -667,6 +707,13 @@ def main():
 
                 if sent_this_cycle:
                     log.info("alerts fired", extra={"count": sent_this_cycle})
+
+            # After the filings, outside the cycle: a slow price source then
+            # delays nothing that alerts, and does not count as a poll error.
+            if SVC.running() and run_scoring_step(scorer):
+                alpha_cutoff = get_alpha_cutoff(conn)
+                last_cutoff_refresh = time.time()
+                publish_leaderboard_state(conn, alpha_cutoff)
 
             SVC.sleep_until_next_poll()
 
