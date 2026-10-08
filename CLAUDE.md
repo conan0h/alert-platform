@@ -358,21 +358,22 @@ the evidence, and continue.
 Current facts only. When something here is fixed or stops being true, delete it.
 
 **Deployed.** All four services run `v0.7.0` (`5433ad3`); host alertctl
-`2f815ca`. Last verified 2026-10-05 08:38Z: `active`, `drift` exit 0.
+`2f815ca`. Last verified 2026-10-08 08:18Z: `active`, `drift` exit 0.
 
 **The main problem: nobody has judged the alerts.** Each service writes an
 `alert digest` (last 24h, newest 25) with every metrics snapshot. 24h to
-2026-10-07 08:21Z, a Tuesday read: `clinical-trials` 30, `form4-insider`
-≥25 (cap), `edgar-mna` 5, `fda-catalysts` 0.
+2026-10-08 08:19Z, a Wednesday read: `clinical-trials` 30, `form4-insider`
+15, `fda-catalysts` 6, `edgar-mna` 5.
 - `form4-insider`: alerts only on trades over $1M, because its leaderboard is
   unscored (#39). Under `v0.7.0` it sends one alert per qualifying
-  transaction line; `main` (#87, not yet released) sends one per filing and
-  direction.
+  transaction line. `main` (not yet released) sends one per filing and
+  direction (#87) and scores the leaderboard in-process (#92).
 - `clinical-trials`: alerts arrive in one burst at the registry's daily
-  refresh (~12:10Z); many are academic trials with no tradeable sponsor
-  (#47). `main` (#90, not yet released) tags each with the sponsor class.
+  refresh (10-06 12:11Z, 10-07 13:46Z); many are academic trials with no
+  tradeable sponsor (#47). `main` (#90, not yet released) tags each with the sponsor class.
 - `edgar-mna`, `fda-catalysts`: most feed entries are unclassified (first
-  cycle: 294 of 310 and 258 of 279). `fda-catalysts`' FiercePharma feed is
+  cycle: 294 of 310 and 258 of 279). Law-firm "shareholder alert" releases
+  pass as deal or FDA signals (#45). `fda-catalysts`' FiercePharma feed is
   dead (403).
 
 **Reading traps.** Each of these has misled a run.

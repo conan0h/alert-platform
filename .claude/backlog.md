@@ -20,9 +20,10 @@ Don't start lower sections while this one has unblocked work.
     whether the price moved after it. No price source reaches this session,
     so a move check needs the host to report it (or #27). Open cases: PTC
     after edgar's `10-04T21:08Z` rumour; whether `v0.8.0` collapses
-    multi-line Form 4s (MDLN 10-07 01:49Z was 5). form4 printed ticker
-    `NONE` for a GoldenTree purchase, probably the filing's own
-    `issuerTradingSymbol`; check the parser and treat it as no ticker.
+    multi-line Form 4s (MDLN 10-07 01:49Z was 5). Law-firm "shareholder
+    alert" releases reach both news services as signals (`fda-catalysts`
+    10-07: UNCY as FDA_CRL, AARD as CLINICAL_HOLD; `edgar-mna` 10-05: PTC as
+    SIGNED_DEAL); they announce litigation, not the event.
 
 47. **`clinical-trials` alerts on trials nobody can trade.** `todo` (waits on `v0.8.0`)
     10-06: 30 alerts in one 12:11–12:13Z burst; many academic. `main` (#90)
@@ -33,18 +34,13 @@ Don't start lower sections while this one has unblocked work.
     release" for any trial, however old; compare `resultsFirstPostDate`
     with the completion date before calling it fresh.
 
-39. **`form4-insider` can only alert on trades over $1M.** `todo`
-    The leaderboard behind its main filter is unscored: 13,782 insiders,
-    32,592 transactions, 0 scored, because `form4_scorer.py` has never run.
-    66 trades of $100k–$1M stopped at `no_insider_history` in the 24h to
-    10-06 08:19Z. The price source works on the host (probe 2026-10-05: SPY
-    200, 19 closes). Before scheduling: the scorer re-selects every trade
-    under 90 days old (`fwd_ret_90 IS NULL`), and `fetch_price_history`'s
-    cache check spans a window 200 days into the future, so it can never
-    pass and every such ticker is refetched each run.
-    Next: run the scorer daily — a timer unit (spec and deploy-lifecycle
-    change, ADR) or an in-process step after the US close (no new unit).
-    Prefer in-process unless scoring takes long enough to stall the poll.
+39. **`form4-insider` can only alert on trades over $1M.** `todo` (waits on `v0.8.0`)
+    The leaderboard is unscored in production (13,782 insiders, 0 scored;
+    113 trades stopped at `no_insider_history` 10-05 to 10-08). `main` (#92)
+    scores it in-process. Next: after the deploy, read
+    `alert_scorer_tickers_due` (first-pass size) and `scoring step` lines; if
+    `no_prices` dominates, the price source is refusing. Once the leaderboard
+    exists, read which `top_tier` trades it lets through.
 
 ## Measurement
 
@@ -90,6 +86,10 @@ Don't start lower sections while this one has unblocked work.
 - **`v0.8.0` on `clinical-trials`:** titles carry `[INDUSTRY]`, `[OTHER]`,
   …, not all `[UNKNOWN]` (which would mean the API ignored the field);
   `alert_funnel_signals_industry_total` appears in the snapshot.
+
+- **`v0.8.0` on `form4-insider` (scorer):** `scoring step` lines appear,
+  `alert_scorer_tickers_due` falls across snapshots, and when it reaches 0
+  `alert_leaderboard_scored` is non-zero.
 
 ## Parked — don't start while no service alerts
 
