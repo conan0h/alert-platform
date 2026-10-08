@@ -150,6 +150,14 @@ CREATE TABLE IF NOT EXISTS price_cache (
 );
 CREATE INDEX IF NOT EXISTS idx_px_ticker ON price_cache(ticker);
 
+-- One row per ticker the scorer has tried, so a ticker with no prices
+-- (delisted, foreign, a placeholder symbol) is retried weekly, not every cycle.
+CREATE TABLE IF NOT EXISTS score_attempts (
+    ticker       TEXT PRIMARY KEY,
+    attempted_on TEXT NOT NULL,   -- YYYY-MM-DD
+    outcome      TEXT NOT NULL    -- scored | no_prices
+);
+
 CREATE TABLE IF NOT EXISTS alerted (
     accession TEXT PRIMARY KEY,
     alerted_at TEXT NOT NULL
@@ -273,6 +281,10 @@ def fetch_yahoo_closes(ticker: str, start: datetime, end: datetime) -> tuple[str
         return "unparsable", {}
 
 
+# A long weekend plus a holiday leaves at most this many days without a close.
+CACHE_EDGE_DAYS = 5
+
+
 def fetch_price_history(ticker: str, start: datetime, end: datetime,
                         cache_conn: sqlite3.Connection | None = None) -> dict[str, float]:
     """
@@ -290,9 +302,15 @@ def fetch_price_history(ticker: str, start: datetime, end: datetime,
         ).fetchall()
         cached = {d: c for d, c in rows}
 
-    # If we have a dense cache for the window, return it — no fetch needed
+    # A cache that is dense and reaches both ends of the window answers
+    # without a fetch. Density alone is not enough: a cache filled last week
+    # is dense but lacks the closes a trade that has just come due needs.
+    # Callers must not ask for dates past today, or no cache ever passes.
     expected_days = (end - start).days
-    if len(cached) >= int(expected_days * 0.55):  # ~0.7 trading days per calendar day, give leeway
+    if (cached
+            and len(cached) >= int(expected_days * 0.55)  # ~0.7 trading days per calendar day
+            and min(cached) <= (start + timedelta(days=CACHE_EDGE_DAYS)).strftime("%Y-%m-%d")
+            and max(cached) >= (end - timedelta(days=CACHE_EDGE_DAYS)).strftime("%Y-%m-%d")):
         return cached
 
     outcome, result = fetch_yahoo_closes(ticker, start, end)

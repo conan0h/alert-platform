@@ -119,6 +119,16 @@ def _txt(el: ET.Element | None) -> str | None:
     return v.strip() if isinstance(v, str) else None
 
 
+# Issuers without a listed class still fill issuerTradingSymbol, with words
+# like these. Taken literally, `NONE` reaches an alert as a ticker.
+NO_TICKER = frozenset({"NONE", "N/A", "NA", "NULL", "-", "--"})
+
+
+def normalize_ticker(raw: str | None) -> str | None:
+    ticker = (raw or "").strip().upper()
+    return None if not ticker or ticker in NO_TICKER else ticker
+
+
 def parse_form4_xml(xml_bytes: bytes) -> dict | None:
     """
     Parse a Form 4 XML document into a structured dict.
@@ -176,7 +186,7 @@ def parse_form4_xml(xml_bytes: bytes) -> dict | None:
 
     return {
         "issuer_cik": issuer_cik,
-        "ticker": (ticker or "").upper() or None,
+        "ticker": normalize_ticker(ticker),
         "insider_cik": insider_cik,
         "insider_name": insider_name,
         "relationship": relationship,

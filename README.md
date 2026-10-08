@@ -205,7 +205,8 @@ From `observe.yml` against the live host, 2026-10-06:
   2026-10-06 08:19Z, a Monday session, `form4-insider` sent 38 alerts (all from
   its over-$1M branch), `clinical-trials` 13 (and 1 undelivered), `edgar-mna` 8 and
   `fda-catalysts` 1. `form4-insider`'s main filter depends on an insider
-  leaderboard that has never been scored.
+  leaderboard that is unscored in production; `main` scores it in-process,
+  not yet released.
 - **The alert archive has no query interface.** Alerts are recorded per service
   ([ADR 0005](docs/adr/0005-alert-archive.md)); each service also summarises
   them in the journal every 15 minutes (the `alert digest` line). Querying

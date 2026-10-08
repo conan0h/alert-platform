@@ -401,6 +401,24 @@ service fetches 30 days of SPY closes once and reports the result as
 closes) and as the `alert_price_source_closes` gauge. A 0 there means the
 scorer would score nothing.
 
+The scorer runs inside `form4-insider`, after each poll cycle's filings, for
+at most `SCORING_BUDGET_SEC` (20s of the 120s interval). It is a step in the
+existing process rather than a timer unit, so it adds no unit, spec field or
+deploy-lifecycle change, and a slow price source delays the next poll by at
+most one request instead of stalling it. Only open-market buys (code `P`) are
+scored, because only buys enter the leaderboard. A buy is due once its 90-day
+close exists (trade date at least 95 days ago) and again at 180 days; younger
+trades are not fetched. Each ticker tried is recorded in `score_attempts`, and
+one that still has due buys (no prices, or history that starts after the
+trade) waits 7 days before the next try. When a step finds nothing due and
+anything changed since the last computation, including a process start, it
+recomputes the leaderboard and the alpha cutoff. Without SPY closes nothing is
+scored, and SPY is retried hourly. A step that raises is logged as
+`scoring step failed` and counted; it never stops the alerter. A step that did
+work logs `scoring step` with its counts, and the snapshot carries
+`alert_scorer_tickers_due`, `alert_scorer_tickers_scored_total`,
+`alert_scorer_tickers_no_prices_total` and `alert_scorer_errors_total`.
+
 `edgar-mna` and `fda-catalysts` count every feed entry into one of
 `unclassified`, `matched` (and, in `edgar-mna`, the `disclosure_noise` and
 `letter_of_intent` title filters), then every match into `already_seen`,

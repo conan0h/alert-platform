@@ -18,11 +18,12 @@ form4 = load_service_main("form4_insider", "form4_insider_main")
 # rather than each repeating the ordering constraint.
 import form4_backfill  # noqa: E402
 import form4_common  # noqa: E402
+import form4_scorer  # noqa: E402
 from alertlib import CycleFunnel, Metrics, get_logger  # noqa: E402
 
 __all__ = [
     "ACCESSION", "CIK", "Svc", "form4", "form4_backfill", "form4_common",
-    "make_funnel",
+    "form4_scorer", "make_funnel",
 ]
 
 ACCESSION = "0001193125-26-396718"
