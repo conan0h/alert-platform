@@ -10,26 +10,6 @@ verbatim to [`log-archive.md`](log-archive.md).
     Found: new facts, with backlog numbers.
     Next: the first thing the next run should do.
 
-## 2026-10-05 — v0.7.0 deployed; audit records host mutation
-Production, 08:17–08:19Z: all four `v0.6.0`, active, `drift` 0. Archived
-324 / 130 / 53 / 16 (form4 / clinical / edgar / fda), edgar +1 since 10-04.
-Deploy: Conan tagged `v0.7.0` (`5433ad3`, ancestor of main). #85 rolled all
-four. Plan `c61cd2ef7180` (run 37283974493): 4 UPDATE `v0.6.0 -> v0.7.0`,
-`no config changed`, nothing created or removed. Apply run 37284115775,
-08:31–08:36Z (5m09s): all four passed the health gate. After: `status` all
-`v0.7.0` active, `drift` exit 0, host alertctl `2f815ca` (carries #83).
-Alerts, first `v0.7.0` digests (24h window, Sunday): edgar 1 —
-`10-04T21:08Z TAKEOVER_RUMOR Schneider Electric is said to near deal to buy
-PTC for more than $20B`; form4, clinical, fda 0.
-First-cycle funnels: edgar entries 310, unclassified 294, disclosure_noise 11,
-matched 5; fda entries 279, unclassified 258, matched 21.
-`alert_archive_records_total` seeded at start: 497 / 216 / 85 / 32 (all
-rows ever, across releases); `alerts_sent` 0 at start.
-form4 `price source probe`: SPY `200`, 19 closes, last 2026-10-02.
-Shipped: #83 (`detail.mutated`; closes #30), #85 (roll to `v0.7.0`).
-Next: read form4's #46 split and `planned_sale` after a US session (from
-~21:00Z); check PTC's move after 10-04 21:08Z; design scorer scheduling (#39).
-
 ## 2026-10-06 — form4 alerts grouped per filing; first weekday digests
 Production, 08:19–08:23Z (04:19 ET): all four `v0.7.0`, active, `healthz=ok`,
 `drift` exit 0 (host alertctl `2f815ca`). No deploy.
@@ -75,3 +55,25 @@ payload, message; funnel stage `signals_industry`). Handoff #88 retargeted
 to `a1cf15e` so `v0.8.0` carries #87 and #90.
 Next: when `v0.8.0` exists, roll `form4-insider` and `clinical-trials`.
 Read the next clinical digest's `[CLASS]` tags and `signals_industry`.
+
+## 2026-10-08 — form4-insider scores its own leaderboard
+Production, 08:18–08:20Z (04:18 ET): all four `v0.7.0`, active, `drift`
+exit 0 (host alertctl `2f815ca`). No deploy: `v0.8.0` still untagged (#88).
+Alerts, 24h digests read 07:50–08:19Z (Wednesday; 10-07 US session):
+- `form4-insider` 15, all `large_trade`: AXIA3 ×4 (one insider, one minute,
+  the per-line pattern `v0.8.0` collapses), GAP ×2, KNTK ×2, GRAL ×2; one
+  ticker reads `N/A` (Partners Group, $30M S). Snapshot since 10-05:
+  no_insider_history 113, large_trade 78, leaderboard scored 0.
+- `clinical-trials` 30, all 10-07T13:46–13:48Z: 22 RESULTS_POSTED, 5
+  TERMINATED, 2 WITHDRAWN, 1 COMPLETED. Several are long-finished industry
+  trials (DS-8201a vs T-DM1, QAW039, palbociclib) — the stale-results case
+  in #47.
+- `edgar-mna` 5 (Third Coast/Great Plains, Beam/Scout, Mattel/Zuru rumour,
+  SRX/CERO, Centerspace DEFM14A). `fda-catalysts` 6, two of them law-firm
+  "shareholder alert" releases classed FDA_CRL and CLINICAL_HOLD (#45).
+Shipped: #92 (scorer runs in-process, 20s per cycle, buys only, due at
+90/180 days, weekly retry for priceless tickers, price cache must reach
+both window ends; `NONE`/`N/A` tickers parse as none). #88 retargeted to
+`47e3df1` so `v0.8.0` carries #87, #90, #92.
+Next: when `v0.8.0` exists, roll `form4-insider` and `clinical-trials`;
+then read `alert_scorer_tickers_due` and the `scoring step` lines.
