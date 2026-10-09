@@ -10,30 +10,6 @@ verbatim to [`log-archive.md`](log-archive.md).
     Found: new facts, with backlog numbers.
     Next: the first thing the next run should do.
 
-## 2026-10-06 — form4 alerts grouped per filing; first weekday digests
-Production, 08:19–08:23Z (04:19 ET): all four `v0.7.0`, active, `healthz=ok`,
-`drift` exit 0 (host alertctl `2f815ca`). No deploy.
-Alerts, 24h digests read 08:11–08:19Z (Monday session):
-- `form4-insider` 38 sent, all `large_trade`. 8 were BERKSHIRE HATHAWAY buying
-  LEN in the same minute (01:05Z), one per transaction line; TWST 3, BPRE 2,
-  CRBG 2 in the same pattern. new 1200 → fetched 1197 → parsed 1197 (#46's
-  loss is gone; `not_form4` 15605). planned_sale 336 (#69 element works).
-  transactions 1771: code_not_actionable 1211, planned_sale 336, below_floor
-  120, no_insider_history 66, large_trade 38.
-- `clinical-trials` 13 sent + 1 `failed` (Tapinarof SUSPENDED), all at
-  10-05T12:06Z. At least 6 of 14 titles read as academic studies with no tradeable
-  sponsor (kidney stones, health-systems outreach, TCM granules, dronabinol
-  COPD, statin SAH, omega-7 diet); the digest omits the sponsor.
-- `edgar-mna` 8: Athabasca/Cenovus (ATH), ADS/StormTrap, 3 DEFM14A, Aurora,
-  and a law-firm "shareholder alert" on the PTC buyout classed SIGNED_DEAL.
-  PTC's move after 10-04 21:08Z unchecked: no price source reaches this session.
-- `fda-catalysts` 1: Abbott CardioMEMS approval.
-Shipped: #87 (`form4-insider` sends one alert per filing and direction, with
-summed value, VWAP and date range; archive key `<accession>#<P|S>`, reason is
-the decision name). Release `v0.8.0` requested from Conan (#88).
-Next: when `v0.8.0` exists, roll `form4-insider` only and check that a
-multi-line filing arrives as one `(N tx)` alert.
-
 ## 2026-10-07 — clinical-trials records the lead sponsor's class
 Production, 08:18–08:19Z (04:18 ET): all four `v0.7.0`, active, `drift`
 exit 0 (host alertctl `2f815ca`). No deploy: `v0.8.0` still untagged (#88).
@@ -77,3 +53,26 @@ both window ends; `NONE`/`N/A` tickers parse as none). #88 retargeted to
 `47e3df1` so `v0.8.0` carries #87, #90, #92.
 Next: when `v0.8.0` exists, roll `form4-insider` and `clinical-trials`;
 then read `alert_scorer_tickers_due` and the `scoring step` lines.
+
+## 2026-10-09 — news services drop plaintiff law-firm releases
+Production, 08:18–08:20Z (04:18 ET): all four `v0.7.0`, active, `drift`
+exit 0 (host alertctl `2f815ca`). No deploy: `v0.8.0` still untagged (#88).
+Alerts, 24h digests read 07:55–08:19Z (Thursday; 10-08 US session):
+- `form4-insider` 36, all large trades. One Silver Lake DELL sale filed
+  at 20:31Z sent ≥21 alerts (digest caps at 25), one per transaction line:
+  the pattern `v0.8.0` collapses. CBL $68M S (Canyon), CRBG $4.1M P
+  (Nippon Life). Snapshot: no_insider_history 131, leaderboard scored 0.
+- `clinical-trials` 21, all 10-08T12:16–12:17Z: 11 RESULTS_POSTED, 4
+  TERMINATED, 4 WITHDRAWN, 2 SUSPENDED (blinatumomab SC, 177Lu girentuximab).
+  Mostly industry this time (Viaskin Peanut, LNZ100, ataluren, VCN-01).
+- `edgar-mna` 13: Viatris/Pacira (PCRX, 11:46Z), Starbucks–Chipotle
+  rumour (CMG, 14:36Z), COPART/ACV tender, two DEFM14A. Sun Life's
+  mini-tender caution sent twice at 21:02Z: same story from two feeds.
+- `fda-catalysts` 6: Tecentriq approval ×2 (Roche release, FDA notice),
+  two recalls, a Fast Track, and AARD "Shareholder Alert … Class Action"
+  as CLINICAL_HOLD (#45).
+Shipped: #94 (`alertlib/noise.py` drops law-firm releases by title in both
+news services; funnel stage `litigation_notice`). #88 retargeted to
+`7f52343` so `v0.8.0` carries #87, #90, #92, #94 and rolls all four.
+Next: when `v0.8.0` exists, roll all four; read `litigation_notice`, the
+form4 `(N tx)` titles, and `alert_scorer_tickers_due`.
