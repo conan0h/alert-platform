@@ -83,7 +83,7 @@ def test_edgar_every_entry_lands_in_exactly_one_stage(monkeypatch, tmp_path):
 
     assert _counts(svc, edgar.FUNNEL_STAGES) == {
         "entries": 5, "disclosure_noise": 1, "letter_of_intent": 1,
-        "unclassified": 1, "matched": 2, "already_seen": 0, "sent": 2, "send_failed": 0,
+        "litigation_notice": 0, "unclassified": 1, "matched": 2, "already_seen": 0, "sent": 2, "send_failed": 0,
     }
 
 
@@ -134,7 +134,7 @@ def test_fda_every_entry_lands_in_exactly_one_stage(monkeypatch, tmp_path):
         fda._process_hits(conn, fda.fetch_feed("wire", "https://example.invalid/feed"))
 
     assert _counts(svc, fda.FUNNEL_STAGES) == {
-        "entries": 6, "unclassified": 2, "matched": 4,
+        "entries": 6, "litigation_notice": 0, "unclassified": 2, "matched": 4,
         "already_seen": 2, "sent": 2, "send_failed": 0,
     }
 

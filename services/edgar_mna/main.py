@@ -53,16 +53,17 @@ import requests
 # Configuration, credentials, state location, logging and delivery all come
 # from the platform (see services/alertlib). Nothing is read from a local
 # .env and no path is relative to the working directory.
-from alertlib import Alert, CycleFunnel, Service, SourceHealth, get_logger
+from alertlib import Alert, CycleFunnel, Service, SourceHealth, get_logger, is_litigation_notice
 
 SVC: Service = None          # bound in main()
 
 # What happens to every feed entry, in order. Each drop stage is a different
-# reason for silence: the UK disclosure and LOI title filters, no category
-# phrase matching, and an entry already alerted on. Without them, a filter
-# that is too tight and a quiet news day produce the same output (#44).
+# reason for silence: the UK disclosure, LOI and law-firm title filters, no
+# category phrase matching, and an entry already alerted on. Without them, a
+# filter that is too tight and a quiet news day produce the same output (#44).
 #
-#   entries -> disclosure_noise | letter_of_intent | unclassified | matched
+#   entries -> disclosure_noise | letter_of_intent | litigation_notice
+#              | unclassified | matched
 #   matched -> already_seen | sent | send_failed
 #
 # Counters only: the service cycles every 45 seconds, so a line per cycle
@@ -72,6 +73,7 @@ FUNNEL_STAGES = (
     "entries",
     "disclosure_noise",
     "letter_of_intent",
+    "litigation_notice",
     "unclassified",
     "matched",
     "already_seen",
@@ -718,6 +720,10 @@ def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50
         # LOIs are overwhelmingly small-cap mining noise and rarely trade well.
         if re.search(r"\b(?:letter\s+of\s+intent|non[-\s]?binding\s+LOI|\bLOI\s+to\s+acquire)\b", title, re.I):
             FUNNEL.count("letter_of_intent")
+            continue
+
+        if is_litigation_notice(title):
+            FUNNEL.count("litigation_notice")
             continue
 
         text_blob = f"{title}\n{summary_raw}"

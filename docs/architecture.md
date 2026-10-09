@@ -420,6 +420,7 @@ work logs `scoring step` with its counts, and the snapshot carries
 `alert_scorer_tickers_no_prices_total` and `alert_scorer_errors_total`.
 
 `edgar-mna` and `fda-catalysts` count every feed entry into one of
+`litigation_notice` (a plaintiff law firm's release, `alertlib/noise.py`),
 `unclassified`, `matched` (and, in `edgar-mna`, the `disclosure_noise` and
 `letter_of_intent` title filters), then every match into `already_seen`,
 `sent` or `send_failed`. They emit no per-cycle line and no

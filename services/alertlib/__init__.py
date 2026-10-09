@@ -31,6 +31,7 @@ from .config import ConfigError, ServiceConfig
 from .funnel import CycleFunnel
 from .health import HealthServer, Metrics
 from .log import configure_logging, get_logger
+from .noise import is_litigation_notice
 from .service import Service
 from .sources import SourceHealth, SourceState
 from .state import state_path
@@ -50,6 +51,7 @@ __all__ = [
     "TelegramClient",
     "configure_logging",
     "get_logger",
+    "is_litigation_notice",
     "state_path",
 ]
 

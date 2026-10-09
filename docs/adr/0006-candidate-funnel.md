@@ -160,8 +160,8 @@ filter that rejects everything (backlog #44).
 
 Their stages are the drop branches of the existing code, in order:
 `entries`, then one of `disclosure_noise`, `letter_of_intent` (`edgar-mna`
-only), `unclassified` or `matched`, then one of `already_seen`, `sent` or
-`send_failed`. The ratio that matters is `unclassified` to `matched`.
+only), `litigation_notice`, `unclassified` or `matched`, then one of
+`already_seen`, `sent` or `send_failed`. The ratio that matters is `unclassified` to `matched`.
 
 Two parts of the decision above do not apply, and both are departures worth
 defending.
