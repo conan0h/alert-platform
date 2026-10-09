@@ -42,20 +42,24 @@ import requests
 # Configuration, credentials, state location, logging and delivery all come
 # from the platform (see services/alertlib). Nothing is read from a local
 # .env and no path is relative to the working directory.
-from alertlib import Alert, CycleFunnel, Service, SourceHealth, get_logger
+from alertlib import Alert, CycleFunnel, Service, SourceHealth, get_logger, is_litigation_notice
 
 SVC: Service = None          # bound in main()
 
 # What happens to every feed entry, in order (#44). `unclassified` against
 # `matched` says whether the category phrases are too tight or the news is
-# quiet; `already_seen` is the same item returned by a later poll.
+# quiet; `already_seen` is the same item returned by a later poll;
+# `litigation_notice` is a plaintiff firm's release (alertlib.noise).
 #
-#   entries -> unclassified | matched
+#   entries -> litigation_notice | unclassified | matched
 #   matched -> already_seen | sent | send_failed
 #
 # Counters only, as in edgar-mna: a 45-second cycle is too frequent for a
 # line each, and the metrics snapshot carries the totals (ADR 0006).
-FUNNEL_STAGES = ("entries", "unclassified", "matched", "already_seen", "sent", "send_failed")
+FUNNEL_STAGES = (
+    "entries", "litigation_notice", "unclassified", "matched",
+    "already_seen", "sent", "send_failed",
+)
 FUNNEL: CycleFunnel = None   # bound in main()
 
 log = get_logger("fda-catalysts")
@@ -495,6 +499,10 @@ def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50
         link = (getattr(entry, "link", "") or "").strip()
         summary_raw = getattr(entry, "summary", "") or getattr(entry, "description", "") or ""
         published = _fmt_published(entry)
+
+        if is_litigation_notice(title):
+            FUNNEL.count("litigation_notice")
+            continue
 
         text_blob = f"{title}\n{summary_raw}"
         category, phrase = classify(text_blob)
