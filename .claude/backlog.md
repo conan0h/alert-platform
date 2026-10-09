@@ -19,11 +19,11 @@ Don't start lower sections while this one has unblocked work.
     cuts the last snapshot). For each alert record ticker and time, and
     whether the price moved after it. No price source reaches this session,
     so a move check needs the host to report it (or #27). Open cases: PTC
-    after edgar's `10-04T21:08Z` rumour; whether `v0.8.0` collapses
-    multi-line Form 4s (MDLN 10-07 01:49Z was 5). Law-firm "shareholder
-    alert" releases reach both news services as signals (`fda-catalysts`
-    10-07: UNCY as FDA_CRL, AARD as CLINICAL_HOLD; `edgar-mna` 10-05: PTC as
-    SIGNED_DEAL); they announce litigation, not the event.
+    after edgar's `10-04T21:08Z` rumour; PCRX after Viatris 10-08 11:46Z;
+    CMG after the Starbucks report 10-08 14:36Z.
+    `edgar-mna` sends one story twice when two feeds carry it (Sun Life
+    10-08 21:02Z, STI 10-06): dedup keys on category plus link. Next: key
+    on a normalised title as well, within a day.
 
 47. **`clinical-trials` alerts on trials nobody can trade.** `todo` (waits on `v0.8.0`)
     10-06: 30 alerts in one 12:11–12:13Z burst; many academic. `main` (#90)
@@ -83,6 +83,8 @@ Don't start lower sections while this one has unblocked work.
 
 - **`v0.8.0` on `form4-insider`:** a multi-line filing arrives as one alert
   titled `(N tx)`; digest `by_reason` reads `large_trade`, not dollar amounts.
+- **`v0.8.0` on `edgar-mna`, `fda-catalysts`:** `alert_funnel_litigation_notice_total`
+  appears and grows; no "Shareholder Alert" / "Class Action" title in a digest.
 - **`v0.8.0` on `clinical-trials`:** titles carry `[INDUSTRY]`, `[OTHER]`,
   …, not all `[UNKNOWN]` (which would mean the API ignored the field);
   `alert_funnel_signals_industry_total` appears in the snapshot.
