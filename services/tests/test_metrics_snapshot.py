@@ -26,6 +26,7 @@ from alertlib.archive import Alert  # noqa: E402
 from alertlib.health import Metrics  # noqa: E402
 from alertlib.log import JsonFormatter  # noqa: E402
 from alertlib.service import METRICS_SNAPSHOT_INTERVAL_SEC  # noqa: E402
+from alertlib.sources import SourceHealth  # noqa: E402
 
 BASE_ENV = {
     "ALERT_SERVICE_NAME": "edgar-mna",
@@ -217,6 +218,54 @@ def test_the_snapshot_never_carries_a_secret_value(env, capsys):
     assert "123:fake" not in json.dumps(snapshot)
     assert "-1001" not in json.dumps(snapshot)
     assert all(isinstance(v, (int, float)) for v in snapshot.values())
+
+
+# -- failing sources ------------------------------------------------------
+def snapshot_records(capsys) -> list[dict]:
+    return [r for r in logged(capsys) if r["msg"] == "metrics snapshot"]
+
+
+def test_a_service_without_sources_has_no_sources_field(env, capsys):
+    """clinical-trials and form4-insider poll one source each; nothing to name."""
+    svc = Service.from_env()
+    with svc.poll_cycle():
+        pass
+    assert "sources_failing" not in snapshot_records(capsys)[0]
+
+
+def test_the_snapshot_names_each_failing_source(env, capsys):
+    """A source dead since before the `logs` window is still named.
+
+    On 2026-10-10 `edgar-mna` read `alert_sources_presumed_dead: 5`, up from 1
+    the day before, and no line in any readable window said which five.
+    """
+    svc = Service.from_env()
+    svc.sources = SourceHealth()
+    svc.sources.record_success("GlobeNewswire-MA")
+    svc.sources.record_success("PRNewswire-AllNews")
+    for _ in range(3):
+        svc.sources.record_failure("GlobeNewswire-MA", "404 Client Error: Not Found")
+    svc.sources.record_failure("PRNewswire-AllNews", "502 Server Error")  # one blip
+
+    with svc.poll_cycle():
+        pass
+
+    (record,) = snapshot_records(capsys)
+    (failing,) = record["sources_failing"]
+    assert failing["name"] == "GlobeNewswire-MA"
+    assert failing["failures"] == 3
+    assert failing["dead"] is False
+    assert failing["error"] == "404 Client Error: Not Found"
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\dZ", failing["last_ok"])
+
+
+def test_an_empty_list_means_every_source_is_working(env, capsys):
+    svc = Service.from_env()
+    svc.sources = SourceHealth()
+    svc.sources.record_success("GlobeNewswire-MA")
+    with svc.poll_cycle():
+        pass
+    assert snapshot_records(capsys)[0]["sources_failing"] == []
 
 
 # -- the alert digest -----------------------------------------------------

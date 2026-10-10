@@ -28,6 +28,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 # Consecutive failures at which a still-failing source is logged again.
 # Widening on purpose: two in a row is the first thing worth a line, the
@@ -58,6 +59,11 @@ FIRST_REPORTED_FAILURE = LOG_AT_FAILURES[0]
 # long enough to clear a deploy or a brief upstream blip, short enough that
 # a genuinely broken feed is named within the hour.
 PRESUMED_DEAD_AFTER = 20
+
+# How much of a source's last error `report()` keeps. Enough for the status
+# code and the URL `requests` names; short enough that a snapshot naming every
+# feed of a service stays well inside one `logs` read.
+REPORT_ERROR_CHARS = 160
 
 
 @dataclass
@@ -187,6 +193,30 @@ class SourceHealth:
             for s in bad
         )
         return f"{total - len(bad)}/{total} sources healthy; failing: {detail}"
+
+    def report(self) -> list[dict]:
+        """Every reportable failing source, with its last error and last success.
+
+        For the metrics snapshot. The presumed-dead line is logged once and the
+        escalation schedule stops at 1,000 failures, so a source that died days
+        ago has no line in any `logs` window; this puts its name, error and the
+        time it last worked into every snapshot instead. `last_ok` is None for a
+        source that has never succeeded since the process started.
+        """
+        return [
+            {
+                "name": s.name,
+                "failures": s.consecutive_failures,
+                "dead": s.presumed_dead,
+                "last_ok": (
+                    datetime.fromtimestamp(s.last_success_at, timezone.utc)
+                    .strftime("%Y-%m-%dT%H:%MZ")
+                    if s.last_success_at else None
+                ),
+                "error": s.last_error[:REPORT_ERROR_CHARS],
+            }
+            for s in self.failing() if s.reportable
+        ]
 
     def _shape(self) -> str:
         """Which sources are failing, and whether each is presumed dead.

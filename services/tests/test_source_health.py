@@ -16,6 +16,7 @@ from alertlib.sources import (  # noqa: E402
     FIRST_REPORTED_FAILURE,
     LOG_AT_FAILURES,
     PRESUMED_DEAD_AFTER,
+    REPORT_ERROR_CHARS,
     SourceHealth,
 )
 
@@ -261,3 +262,30 @@ def test_recovery_from_an_unreported_blip_is_silent(health):
     assert health.summary_if_changed() == ""
     assert not health.record_success("x")
     assert health.summary_if_changed() == ""
+
+
+# -- report(): what the metrics snapshot carries ---------------------------
+def test_report_marks_a_dead_source_and_keeps_its_error_short(health):
+    for _ in range(PRESUMED_DEAD_AFTER):
+        health.record_failure("FiercePharma", "403 Client Error: Forbidden for url: " + "x" * 500)
+
+    (row,) = health.report()
+    assert row["name"] == "FiercePharma"
+    assert row["dead"] is True
+    assert row["failures"] == PRESUMED_DEAD_AFTER
+    assert row["last_ok"] is None  # never worked since start
+    assert len(row["error"]) == REPORT_ERROR_CHARS
+
+
+def test_report_omits_healthy_and_once_failed_sources(health):
+    health.record_success("BioPharmaDive")
+    health.record_failure("EndpointsNews", "read timeout")
+    assert health.report() == []
+
+
+def test_report_lists_the_worst_source_first(health):
+    for _ in range(FIRST_REPORTED_FAILURE):
+        health.record_failure("PRNewswire-Health", "502")
+    for _ in range(FIRST_REPORTED_FAILURE + 5):
+        health.record_failure("GlobeNewswire-Pharma", "404")
+    assert [r["name"] for r in health.report()] == ["GlobeNewswire-Pharma", "PRNewswire-Health"]
