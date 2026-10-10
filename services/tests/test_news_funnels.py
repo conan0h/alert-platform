@@ -83,7 +83,8 @@ def test_edgar_every_entry_lands_in_exactly_one_stage(monkeypatch, tmp_path):
 
     assert _counts(svc, edgar.FUNNEL_STAGES) == {
         "entries": 5, "disclosure_noise": 1, "letter_of_intent": 1,
-        "litigation_notice": 0, "unclassified": 1, "matched": 2, "already_seen": 0, "sent": 2, "send_failed": 0,
+        "litigation_notice": 0, "unclassified": 1, "matched": 2, "already_seen": 0, "duplicate_title": 0, "sent": 2,
+        "send_failed": 0,
     }
 
 
