@@ -921,6 +921,7 @@ def main():
     SVC = Service.from_env()
     FUNNEL = CycleFunnel(SVC.metrics, FUNNEL_STAGES, log=log, cohort=False)
     DB_PATH = SVC.state_file("ma_seen.db")
+    SVC.sources = SOURCES
 
     # SEC blocks unidentified clients; the UA is a credential-ish value and
     # therefore lives in the secret store, referenced by name in the spec.

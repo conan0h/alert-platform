@@ -179,6 +179,7 @@ class _StoppedService(_Svc):
         self.cfg = _Cfg()
         self.telegram = _Telegram()
         self._tmp = tmp_path
+        self.sources = None
 
     def state_file(self, name):
         return str(self._tmp / name)
@@ -210,3 +211,5 @@ def test_main_binds_the_funnel(module, monkeypatch, tmp_path):
     assert isinstance(module.FUNNEL, CycleFunnel)
     assert module.FUNNEL.stages == module.FUNNEL_STAGES
     assert f"{METRIC_PREFIX}_entries_total" in svc.metrics.snapshot()
+    # Bound, or the snapshot would never name a failing feed.
+    assert svc.sources is module.SOURCES

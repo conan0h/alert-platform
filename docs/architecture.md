@@ -301,8 +301,20 @@ current failing run, and decides when a repeated failure is worth a log line:
 the second consecutive one, then at widening intervals, then once when the
 source is presumed dead, then once on recovery. It exposes
 `alert_source_fetches_total`, `alert_source_fetch_failures_total`,
-`alert_sources_failing` and `alert_sources_presumed_dead`. All four services
-report through it.
+`alert_sources_failing` and `alert_sources_presumed_dead`. `edgar-mna` and
+`fda-catalysts` report through it; the other two poll a single source each.
+
+The gauges say how many sources are failing, not which. The presumed-dead line
+is logged once and the schedule stops at 1,000 failures, so a source that died
+before the `logs` window has no line in it. Each metrics snapshot from these two
+services therefore carries `sources_failing`: one entry per reportable failing
+source, with its consecutive failures, whether it is presumed dead, when it last
+succeeded (`last_ok`, `null` if never since start) and its last error, cut to
+160 characters. An empty list means every source answered on its last fetch.
+
+    {"msg": "metrics snapshot", "metrics": {...}, "sources_failing": [
+      {"name": "FiercePharma", "failures": 5739, "dead": true,
+       "last_ok": null, "error": "403 Client Error: Forbidden for url: ..."}]}
 
 The logging schedule is not cosmetic. An unconditional warning per failed fetch
 costs about 1,900 lines per source per day at a 45-second cadence, and the

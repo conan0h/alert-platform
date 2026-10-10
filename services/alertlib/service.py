@@ -24,6 +24,7 @@ from .archive import Alert, AlertArchive, digest
 from .config import ServiceConfig
 from .health import HealthServer, Heartbeat, Metrics
 from .log import configure_logging
+from .sources import SourceHealth
 from .state import state_path
 from .telegram import TelegramClient
 
@@ -78,6 +79,9 @@ class Service:
         # Zero rather than now, so the first cycle always emits a snapshot and
         # a restarted service is legible without waiting a quarter hour.
         self._last_snapshot_at = 0.0
+        # Bound by services that poll several feeds, so each snapshot names
+        # the ones that are failing (`SourceHealth.report`).
+        self.sources: SourceHealth | None = None
 
     @classmethod
     def from_env(cls) -> Service:
@@ -157,7 +161,10 @@ class Service:
         # wait out the interval like a successful one, rather than retry — and
         # warn — on every cycle.
         self._last_snapshot_at = time.time()
-        self.log.info("metrics snapshot", extra={"metrics": self.metrics.snapshot()})
+        extra = {"metrics": self.metrics.snapshot()}
+        if self.sources is not None:
+            extra["sources_failing"] = self.sources.report()
+        self.log.info("metrics snapshot", extra=extra)
 
     def log_alert_digest(self) -> None:
         """Write the last day of this service's alert archive as one line.
