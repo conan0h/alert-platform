@@ -1915,3 +1915,25 @@ summed value, VWAP and date range; archive key `<accession>#<P|S>`, reason is
 the decision name). Release `v0.8.0` requested from Conan (#88).
 Next: when `v0.8.0` exists, roll `form4-insider` only and check that a
 multi-line filing arrives as one `(N tx)` alert.
+
+## 2026-10-07 — clinical-trials records the lead sponsor's class
+Production, 08:18–08:19Z (04:18 ET): all four `v0.7.0`, active, `drift`
+exit 0 (host alertctl `2f815ca`). No deploy: `v0.8.0` still untagged (#88).
+Alerts, 24h digests read 07:53–08:21Z (Tuesday session; 10-06 US session):
+- `form4-insider` ≥25 sent (digest caps at 25; `alerts_sent` 38 → 63 since
+  10-06). MDLN: 5 alerts at 01:49Z, all GIC selling (~$722M), one filing —
+  the pattern `v0.8.0` collapses. PSUS 3, SNPS 2, AVR 2, SAH 2. One ticker
+  reads `NONE` (GoldenTree, $42M P) and one `AXIA3` (a B3 symbol).
+- `clinical-trials` 30, all 10-06T12:11–12:13Z (one registry refresh): 19
+  RESULTS_POSTED, 6 TERMINATED, 4 WITHDRAWN, 1 SUSPENDED. Many read as
+  academic or NCI cooperative-group studies; some are industry (SAR30250,
+  TAK-101, iloperidone, anamorelin ×2, PCS6422, aticaprant, NVG-2089).
+  RESULTS_POSTED says "BEFORE press release" with no check of how old the
+  trial is.
+- `edgar-mna` 5: STI ×2 (same headline twice), Aurora/Curaleaf, Swarmer
+  DEFM14A, Locafy/Map Labs. `fda-catalysts` 0.
+Shipped: #90 (`leadSponsor.class` requested; in title `SIGNAL [CLASS]: …`,
+payload, message; funnel stage `signals_industry`). Handoff #88 retargeted
+to `a1cf15e` so `v0.8.0` carries #87 and #90.
+Next: when `v0.8.0` exists, roll `form4-insider` and `clinical-trials`.
+Read the next clinical digest's `[CLASS]` tags and `signals_industry`.

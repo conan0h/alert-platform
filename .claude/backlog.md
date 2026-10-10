@@ -13,6 +13,14 @@ Statuses: `todo`, `in-pr #N`, `needs-conan`, `blocked: <reason>`.
 Every item in this section works toward reading what the bots sent and improving it.
 Don't start lower sections while this one has unblocked work.
 
+48. **News feeds are going dark.** `todo` (waits on the next release)
+    `edgar-mna` has 5 sources presumed dead (1 on 10-09 08:26Z) and
+    `fda-catalysts` 4. All of them fail every 45s wire cycle. The likely
+    cause is GlobeNewswire since ~13:20Z 10-09, but that is inferred from
+    the counters and not confirmed. `main` (#96) adds `sources_failing` to
+    each snapshot. Next: after the deploy, read it. A 404 means fix the URL;
+    a 403 means a block, so find another feed for that wire.
+
 45. **Judge the alerts.** `todo`
     Read the digests after a US session (`logs` `since="30 minutes ago"`
     for three services, then `"10 minutes ago"` for the fourth: the 24 KB cap
@@ -21,9 +29,9 @@ Don't start lower sections while this one has unblocked work.
     so a move check needs the host to report it (or #27). Open cases: PTC
     after edgar's `10-04T21:08Z` rumour; PCRX after Viatris 10-08 11:46Z;
     CMG after the Starbucks report 10-08 14:36Z.
-    `edgar-mna` sends one story twice when two feeds carry it (Sun Life
-    10-08 21:02Z, STI 10-06): dedup keys on category plus link. Next: key
-    on a normalised title as well, within a day.
+    Misclassified on 10-09: MTY "Announces End of Strategic Review" as
+    STRATEGIC_REVIEW; Atossa "Executes Contingent Value Rights Agreement"
+    as PRIORITY_REVIEW. Both matched a phrase without its negation or context.
 
 47. **`clinical-trials` alerts on trials nobody can trade.** `todo` (waits on `v0.8.0`)
     10-06: 30 alerts in one 12:11–12:13Z burst; many academic. `main` (#90)
@@ -80,6 +88,10 @@ Don't start lower sections while this one has unblocked work.
   config and CI to v2 together, so lint runs locally.
 
 ## Verify when it happens
+
+- **Next release on `edgar-mna`, `fda-catalysts`:** each snapshot carries
+  `sources_failing` (a list; `[]` when healthy). `edgar-mna` gains
+  `alert_funnel_duplicate_title_total`, and no digest shows one title twice.
 
 - **`v0.8.0` on `form4-insider`:** a multi-line filing arrives as one alert
   titled `(N tx)`; digest `by_reason` reads `large_trade`, not dollar amounts.
