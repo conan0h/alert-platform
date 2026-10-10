@@ -39,7 +39,7 @@ import re
 import sqlite3
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import feedparser
 import requests
@@ -59,12 +59,13 @@ SVC: Service = None          # bound in main()
 
 # What happens to every feed entry, in order. Each drop stage is a different
 # reason for silence: the UK disclosure, LOI and law-firm title filters, no
-# category phrase matching, and an entry already alerted on. Without them, a
-# filter that is too tight and a quiet news day produce the same output (#44).
+# category phrase matching, an entry already alerted on, and the same story
+# already sent from another feed. Without them, a filter that is too tight and
+# a quiet news day produce the same output (#44).
 #
 #   entries -> disclosure_noise | letter_of_intent | litigation_notice
 #              | unclassified | matched
-#   matched -> already_seen | sent | send_failed
+#   matched -> already_seen | duplicate_title | sent | send_failed
 #
 # Counters only: the service cycles every 45 seconds, so a line per cycle
 # would crowd the `logs` window, and the metrics snapshot carries the
@@ -77,6 +78,7 @@ FUNNEL_STAGES = (
     "unclassified",
     "matched",
     "already_seen",
+    "duplicate_title",
     "sent",
     "send_failed",
 )
@@ -98,6 +100,14 @@ PR_FETCH_TIMEOUT_SECONDS = 3          # hard cap — never stall the poll loop
 PR_FETCH_MAX_BYTES = 200_000          # don't pull multi-megabyte pages
 
 DB_PATH = "ma_seen.db"
+
+# Wires syndicate one release under one headline, so `fingerprint()` (keyed on
+# the link) lets it through once per feed: Sun Life's 2026-10-08 21:02Z release
+# was sent twice in the same minute. A news hit whose normalised title was sent
+# within this window is dropped. Bounded so a recurring headline ("... Announces
+# Results of Tender Offer") on a later day still alerts. EDGAR hits are exempt:
+# each is a distinct filing with its own link.
+TITLE_DEDUP_HOURS = 24
 
 HTTP_HEADERS_DEFAULT = {
     "User-Agent": "Mozilla/5.0 (compatible; MA-CatalystBot/2.0)",
@@ -429,6 +439,18 @@ class Hit:
         base = f"{self.category}|{self.link.strip().lower()}"
         return hashlib.sha256(base.encode("utf-8", errors="ignore")).hexdigest()
 
+    def title_key(self) -> str | None:
+        """The headline with case and punctuation removed; None for EDGAR or an empty title.
+
+        Not keyed on category: two feeds can classify one story differently.
+        """
+        if self.source.startswith("EDGAR-"):
+            return None
+        words = re.findall(r"[a-z0-9]+", self.title.lower())
+        if not words:
+            return None
+        return hashlib.sha256(" ".join(words).encode()).hexdigest()
+
 
 # ---------------------------------------------------------------------------
 # Dedup
@@ -443,6 +465,9 @@ def init_db():
             source TEXT, category TEXT, title TEXT, link TEXT, seen_at TEXT
         )"""
     )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS seen_title (key TEXT PRIMARY KEY, seen_at TEXT NOT NULL)"
+    )
     conn.commit()
     return conn
 
@@ -456,6 +481,28 @@ def mark_seen(conn, hit: Hit):
         "INSERT OR IGNORE INTO seen (fp, source, category, title, link, seen_at) VALUES (?, ?, ?, ?, ?, ?)",
         (hit.fingerprint(), hit.source, hit.category, hit.title, hit.link,
          datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+
+
+def title_sent_recently(conn, hit: Hit, now: datetime | None = None) -> bool:
+    key = hit.title_key()
+    if key is None:
+        return False
+    row = conn.execute("SELECT seen_at FROM seen_title WHERE key = ?", (key,)).fetchone()
+    if row is None:
+        return False
+    now = now or datetime.now(timezone.utc)
+    return now - datetime.fromisoformat(row[0]) < timedelta(hours=TITLE_DEDUP_HOURS)
+
+
+def mark_title(conn, hit: Hit, now: datetime | None = None):
+    key = hit.title_key()
+    if key is None:
+        return
+    conn.execute(
+        "INSERT OR REPLACE INTO seen_title (key, seen_at) VALUES (?, ?)",
+        (key, (now or datetime.now(timezone.utc)).isoformat()),
     )
     conn.commit()
 
@@ -896,11 +943,18 @@ def _process_hits(conn, hits: list[Hit]) -> int:
         if is_seen(conn, fp):
             FUNNEL.count("already_seen")
             continue
+        if title_sent_recently(conn, hit):
+            # Marked seen as well, so the next poll counts it `already_seen`
+            # and it cannot alert once the title window lapses.
+            FUNNEL.count("duplicate_title")
+            mark_seen(conn, hit)
+            continue
         try:
             enrich_hit(hit)
         except Exception as e:
             log.debug("Enrichment failed for %s: %s", hit.title[:60], e)
         mark_seen(conn, hit)
+        mark_title(conn, hit)
         if SVC.send_alert(build_alert(hit, format_alert(hit))):
             FUNNEL.count("sent")
             sent += 1

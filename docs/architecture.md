@@ -435,7 +435,8 @@ work logs `scoring step` with its counts, and the snapshot carries
 `litigation_notice` (a plaintiff law firm's release, `alertlib/noise.py`),
 `unclassified`, `matched` (and, in `edgar-mna`, the `disclosure_noise` and
 `letter_of_intent` title filters), then every match into `already_seen`,
-`sent` or `send_failed`. They emit no per-cycle line and no
+`sent` or `send_failed` (and, in `edgar-mna`, `duplicate_title`: a news hit
+whose normalised headline was sent from another feed within 24 hours). They emit no per-cycle line and no
 `new_in_window`: they cycle every 45 seconds over up to sixteen feeds on three
 cadences, so a line per cycle would crowd the `logs` window and there is no
 single cohort to compare. The counters reach the journal in the metrics
