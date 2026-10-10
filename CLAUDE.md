@@ -358,12 +358,15 @@ the evidence, and continue.
 Current facts only. When something here is fixed or stops being true, delete it.
 
 **Deployed.** All four services run `v0.7.0` (`5433ad3`); host alertctl
-`2f815ca`. Last verified 2026-10-09 08:18Z: `active`, `drift` exit 0.
+`2f815ca`. Last verified 2026-10-10 08:19Z: `active`, `drift` exit 0.
+
+**News feeds are going dark (#48).** `edgar-mna` 5 sources presumed dead,
+`fda-catalysts` 4. Which ones is not readable until `main` (#96) is deployed.
 
 **The main problem: nobody has judged the alerts.** Each service writes an
 `alert digest` (last 24h, newest 25) with every metrics snapshot. 24h to
-2026-10-09 08:19Z, a Thursday read: `form4-insider` 36, `clinical-trials`
-21, `edgar-mna` 13, `fda-catalysts` 6.
+2026-10-10 08:19Z, a Saturday read: `form4-insider` 17, `clinical-trials`
+21, `edgar-mna` 5, `fda-catalysts` 3.
 - `form4-insider`: alerts only on trades over $1M, because its leaderboard is
   unscored (#39). Under `v0.7.0` it sends one alert per qualifying
   transaction line (one DELL filing on 10-08: 21+ alerts). `main` (not yet released) sends one per filing and
@@ -374,7 +377,7 @@ Current facts only. When something here is fixed or stops being true, delete it.
 - `edgar-mna`, `fda-catalysts`: most feed entries are unclassified (first
   cycle: 294 of 310 and 258 of 279). Law-firm "shareholder alert" releases
   pass as deal or FDA signals under `v0.7.0`; `main` (#94, not yet released)
-  drops them. `fda-catalysts`' FiercePharma feed is dead (403).
+  drops them. `main` (#97) also stops edgar sending one headline once per wire.
 
 **Reading traps.** Each of these has misled a run.
 - `alert_archive_records_total` counts every row in `alerts.db`, across

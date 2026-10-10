@@ -35,6 +35,8 @@ one covers it and sharpen that instead.
 - **A metric is an instrument only once you have read it and checked the value
   against something you know.** When adding one, write and run the command that
   reads it. Counters reset on every deploy.
+- **A gauge that counts failing things must also name them, on the same
+  cadence.** A log line emitted once ages out of every readable `logs` window.
 - **Instrument the hypothesis and its alternatives.** A zero is a result.
 - **Read a funnel as ratios between every pair of adjacent stages, not only
   for zeros.** `new` → `fetched` went unflagged for 3 runs; `fetched` →

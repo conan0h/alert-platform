@@ -10,28 +10,6 @@ verbatim to [`log-archive.md`](log-archive.md).
     Found: new facts, with backlog numbers.
     Next: the first thing the next run should do.
 
-## 2026-10-07 — clinical-trials records the lead sponsor's class
-Production, 08:18–08:19Z (04:18 ET): all four `v0.7.0`, active, `drift`
-exit 0 (host alertctl `2f815ca`). No deploy: `v0.8.0` still untagged (#88).
-Alerts, 24h digests read 07:53–08:21Z (Tuesday session; 10-06 US session):
-- `form4-insider` ≥25 sent (digest caps at 25; `alerts_sent` 38 → 63 since
-  10-06). MDLN: 5 alerts at 01:49Z, all GIC selling (~$722M), one filing —
-  the pattern `v0.8.0` collapses. PSUS 3, SNPS 2, AVR 2, SAH 2. One ticker
-  reads `NONE` (GoldenTree, $42M P) and one `AXIA3` (a B3 symbol).
-- `clinical-trials` 30, all 10-06T12:11–12:13Z (one registry refresh): 19
-  RESULTS_POSTED, 6 TERMINATED, 4 WITHDRAWN, 1 SUSPENDED. Many read as
-  academic or NCI cooperative-group studies; some are industry (SAR30250,
-  TAK-101, iloperidone, anamorelin ×2, PCS6422, aticaprant, NVG-2089).
-  RESULTS_POSTED says "BEFORE press release" with no check of how old the
-  trial is.
-- `edgar-mna` 5: STI ×2 (same headline twice), Aurora/Curaleaf, Swarmer
-  DEFM14A, Locafy/Map Labs. `fda-catalysts` 0.
-Shipped: #90 (`leadSponsor.class` requested; in title `SIGNAL [CLASS]: …`,
-payload, message; funnel stage `signals_industry`). Handoff #88 retargeted
-to `a1cf15e` so `v0.8.0` carries #87 and #90.
-Next: when `v0.8.0` exists, roll `form4-insider` and `clinical-trials`.
-Read the next clinical digest's `[CLASS]` tags and `signals_industry`.
-
 ## 2026-10-08 — form4-insider scores its own leaderboard
 Production, 08:18–08:20Z (04:18 ET): all four `v0.7.0`, active, `drift`
 exit 0 (host alertctl `2f815ca`). No deploy: `v0.8.0` still untagged (#88).
@@ -76,3 +54,25 @@ news services; funnel stage `litigation_notice`). #88 retargeted to
 `7f52343` so `v0.8.0` carries #87, #90, #92, #94 and rolls all four.
 Next: when `v0.8.0` exists, roll all four; read `litigation_notice`, the
 form4 `(N tx)` titles, and `alert_scorer_tickers_due`.
+
+## 2026-10-10 — news feeds going dark; snapshots now name them
+Production, 08:18–08:21Z (04:18 ET): all four `v0.7.0`, active, `drift`
+exit 0 (host alertctl `2f815ca`). No deploy: `v0.8.0` still untagged (#88).
+Source health: `edgar-mna` `alert_sources_presumed_dead` 1 (10-09 08:26Z)
+→ 5 (10-10 07:57Z); `fda-catalysts` 4 (was FiercePharma only). Failures
+grow 5 and 4 per 45s cycle, so every dead feed is on the wire cadence.
+Probably GlobeNewswire (4 edgar + 3 fda feeds), dead since ~13:20Z 10-09
+by the failure arithmetic. Unconfirmed: no readable window names them (#32).
+Alerts, 24h digests read 08:12–08:19Z (Saturday; 10-09 US session):
+- `form4-insider` 17, all `large_trade`: BPRE ×4 (one insider, one minute),
+  AXIA3 ×4, GGR ×2 ($35M P), CRBG $20.9M P (Nippon Life), BBD $29M P.
+- `clinical-trials` 21, all 10-09T12:06–12:07Z; 12 RESULTS_POSTED.
+- `edgar-mna` 5: CCC/GTCR-Elliott and Ambarella/Qualcomm rumours, ATD
+  signed deal, PPC/JBS special committee, and MTY "End of Strategic
+  Review" classed STRATEGIC_REVIEW (a review ending is not a deal signal).
+- `fda-catalysts` 3, one an Atossa CVR agreement classed PRIORITY_REVIEW.
+Shipped: #96 (snapshot field `sources_failing`: name, failures, dead,
+`last_ok`, error). #97 (edgar drops a headline already sent from another
+wire within 24h, stage `duplicate_title`). #88 retargeted to carry both.
+Next: when the tag exists, roll all four; the first edgar/fda snapshot's
+`sources_failing` names the dead feeds and their errors. Fix those first.
