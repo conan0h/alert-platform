@@ -10,7 +10,7 @@ spec:
   source:
     repo: https://github.com/conan0h/alert-platform
     path: services/clinical_trials
-    ref: v0.7.0                       # git tag; carries the alert digest (#68)
+    ref: v0.8.0                       # git tag; carries the sponsor class (#90)
     entrypoint: main.py
 
   polling:
