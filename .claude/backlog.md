@@ -13,13 +13,15 @@ Statuses: `todo`, `in-pr #N`, `needs-conan`, `blocked: <reason>`.
 Every item in this section works toward reading what the bots sent and improving it.
 Don't start lower sections while this one has unblocked work.
 
-48. **News feeds are going dark.** `todo` (waits on the next release)
-    `edgar-mna` has 5 sources presumed dead (1 on 10-09 08:26Z) and
-    `fda-catalysts` 4. All of them fail every 45s wire cycle. The likely
-    cause is GlobeNewswire since ~13:20Z 10-09, but that is inferred from
-    the counters and not confirmed. `main` (#96) adds `sources_failing` to
-    each snapshot. Next: after the deploy, read it. A 404 means fix the URL;
-    a 403 means a block, so find another feed for that wire.
+48. **GlobeNewswire refuses the host.** `todo`
+    Since ~13:20Z 10-09 GlobeNewswire answers 403 on four `edgar-mna` feeds
+    and three `fda-catalysts` feeds; FiercePharma 403 too. Both User-Agents
+    are refused, so the block is not specific to the SEC contact string.
+    `main` (#100) retries a dead feed every 15 minutes instead of every 45s.
+    Next: after the `v0.8.1` deploy, check whether any GlobeNewswire feed
+    recovers once the request rate drops. If none does in a week, find
+    another source for those wires; do not evade the block with a browser
+    User-Agent.
 
 45. **Judge the alerts.** `todo`
     Read the digests after a US session (`logs` `since="30 minutes ago"`
@@ -33,22 +35,26 @@ Don't start lower sections while this one has unblocked work.
     STRATEGIC_REVIEW; Atossa "Executes Contingent Value Rights Agreement"
     as PRIORITY_REVIEW. Both matched a phrase without its negation or context.
 
-47. **`clinical-trials` alerts on trials nobody can trade.** `todo` (waits on `v0.8.0`)
+47. **`clinical-trials` alerts on trials nobody can trade.** `todo`
     10-06: 30 alerts in one 12:11–12:13Z burst; many academic. `main` (#90)
     records `leadSponsor.class` in each title (`TERMINATED [OTHER]: …`) and
-    counts `signals_industry` beside `signals`. Next: after a week of those
-    counters, decide whether to drop non-`INDUSTRY` signals behind a
+    counts `signals_industry` beside `signals` (deployed 10-11). Next: after a
+    week of those counters, decide whether to drop non-`INDUSTRY` signals behind a
     `spec.polling` key. Also: `RESULTS_POSTED` claims "BEFORE press
     release" for any trial, however old; compare `resultsFirstPostDate`
     with the completion date before calling it fresh.
 
-39. **`form4-insider` can only alert on trades over $1M.** `todo` (waits on `v0.8.0`)
-    The leaderboard is unscored in production (13,782 insiders, 0 scored;
-    113 trades stopped at `no_insider_history` 10-05 to 10-08). `main` (#92)
-    scores it in-process. Next: after the deploy, read
-    `alert_scorer_tickers_due` (first-pass size) and `scoring step` lines; if
-    `no_prices` dominates, the price source is refusing. Once the leaderboard
-    exists, read which `top_tier` trades it lets through.
+39. **`form4-insider`'s leaderboard is new and small.** `todo`
+    The in-process scorer (#92) ran on the `v0.8.0` deploy: 208 insiders
+    scored, 20 eligible (5+ buys), alpha cutoff 11.5%, so `top_tier` alerts
+    are now possible. Next: after a weekday session, read which `top_tier`
+    trades it sent. Unexplained: every top-15 row prints `a180=+0.0%`
+    (`(a180 or 0)` renders NULL as 0). That is expected only if no scored
+    buy is 185+ days old, yet the backfill default is 2 years; have the
+    scorer log the buy date range and the count with `fwd_ret_180`. Also
+    the weighted `alpha_180` divides by the value of buys without a 180-day
+    return, biasing it toward 0. The gate reads only `alpha_90`; alert text
+    shows `180d:`.
 
 ## Measurement
 
@@ -86,24 +92,18 @@ Don't start lower sections while this one has unblocked work.
 
 - **Environment:** pin `golangci-lint` v1.59.1 in the image, or migrate the
   config and CI to v2 together, so lint runs locally.
+  CI's `config verify` fetches its schema from golangci-lint.run at run time;
+  a timeout there failed main's push run on `f0208ff` (10-11).
 
 ## Verify when it happens
 
-- **Next release on `edgar-mna`, `fda-catalysts`:** each snapshot carries
-  `sources_failing` (a list; `[]` when healthy). `edgar-mna` gains
-  `alert_funnel_duplicate_title_total`, and no digest shows one title twice.
-
-- **`v0.8.0` on `form4-insider`:** a multi-line filing arrives as one alert
-  titled `(N tx)`; digest `by_reason` reads `large_trade`, not dollar amounts.
-- **`v0.8.0` on `edgar-mna`, `fda-catalysts`:** `alert_funnel_litigation_notice_total`
-  appears and grows; no "Shareholder Alert" / "Class Action" title in a digest.
-- **`v0.8.0` on `clinical-trials`:** titles carry `[INDUSTRY]`, `[OTHER]`,
-  …, not all `[UNKNOWN]` (which would mean the API ignored the field);
-  `alert_funnel_signals_industry_total` appears in the snapshot.
-
-- **`v0.8.0` on `form4-insider` (scorer):** `scoring step` lines appear,
-  `alert_scorer_tickers_due` falls across snapshots, and when it reaches 0
-  `alert_leaderboard_scored` is non-zero.
+- **`v0.8.0`, first weekday digest:** form4 sends one `(N tx)` alert per
+  filing; clinical titles carry `[INDUSTRY]`, `[OTHER]`, … (all `[UNKNOWN]`
+  would mean the API ignored the field); no "Shareholder Alert" or repeated
+  headline in an edgar or fda digest; a snapshot's `sources_failing` lists
+  the dead feeds (it read `[]` at cycle 1, before 2 failures).
+- **`v0.8.1` on edgar, fda:** `alert_source_fetch_failures_total` grows
+  ~5 (edgar) and ~4 (fda) per 15 minutes, not per 45s cycle.
 
 ## Parked — don't start while no service alerts
 

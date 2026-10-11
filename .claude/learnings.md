@@ -16,6 +16,7 @@ one covers it and sharpen that instead.
 - **A failed command produces zeros, not evidence.** Check that the input
   arrived (size, status, a line that must be present) before trusting a count.
   A zero that confirms what you hoped needs the most scrutiny.
+  `(x or 0)` in a report prints a missing value as a plausible zero.
 - **Read the code path before inferring from an outcome.** "X must have
   happened" needs the code or the timing to show it. Durations are cheap
   evidence: a 0.2s cycle cannot have fetched a filing.
@@ -46,6 +47,8 @@ one covers it and sharpen that instead.
 - **Before scheduling code that has never run, check that its external
   endpoints still answer.** `form4_scorer.py` was written against a Yahoo
   endpoint that now needs a crumb.
+- **Back off a source that refuses you.** A dead feed polled at full cadence
+  is load on a site that is blocking you and may keep the block in place.
 - **Before reusing a module, check that it fits the new place's failure mode.**
   The journal reports conditions; counters report rates.
 

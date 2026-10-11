@@ -188,14 +188,14 @@ Built, and running the fleet:
 
 ### Production
 
-From `observe.yml` against the live host, 2026-10-06:
+From `observe.yml` against the live host, 2026-10-11:
 
 | Service | Ref | Unit | Health |
 |---|---|---|---|
-| `clinical-trials` | `v0.7.0` | active | `ok` |
-| `edgar-mna` | `v0.7.0` | active | `ok` |
-| `fda-catalysts` | `v0.7.0` | active | `ok` |
-| `form4-insider` | `v0.7.0` | active | `ok` |
+| `clinical-trials` | `v0.8.0` | active | `ok` |
+| `edgar-mna` | `v0.8.0` | active | `ok` |
+| `fda-catalysts` | `v0.8.0` | active | `ok` |
+| `form4-insider` | `v0.8.0` | active | `ok` |
 
 `drift` reports none. No deploy through the pipeline has needed a rollback.
 
@@ -204,9 +204,9 @@ From `observe.yml` against the live host, 2026-10-06:
 - **Nobody has judged whether the alerts are any good.** In the 24 hours to
   2026-10-06 08:19Z, a Monday session, `form4-insider` sent 38 alerts (all from
   its over-$1M branch), `clinical-trials` 13 (and 1 undelivered), `edgar-mna` 8 and
-  `fda-catalysts` 1. `form4-insider`'s main filter depends on an insider
-  leaderboard that is unscored in production; `main` scores it in-process,
-  not yet released.
+  `fda-catalysts` 1. `form4-insider`'s insider leaderboard was first scored on
+  2026-10-11 (208 insiders, 20 with five or more buys), so its main filter
+  has had no session to act on yet.
 - **The alert archive has no query interface.** Alerts are recorded per service
   ([ADR 0005](docs/adr/0005-alert-archive.md)); each service also summarises
   them in the journal every 15 minutes (the `alert digest` line). Querying
