@@ -1937,3 +1937,25 @@ payload, message; funnel stage `signals_industry`). Handoff #88 retargeted
 to `a1cf15e` so `v0.8.0` carries #87 and #90.
 Next: when `v0.8.0` exists, roll `form4-insider` and `clinical-trials`.
 Read the next clinical digest's `[CLASS]` tags and `signals_industry`.
+
+## 2026-10-08 — form4-insider scores its own leaderboard
+Production, 08:18–08:20Z (04:18 ET): all four `v0.7.0`, active, `drift`
+exit 0 (host alertctl `2f815ca`). No deploy: `v0.8.0` still untagged (#88).
+Alerts, 24h digests read 07:50–08:19Z (Wednesday; 10-07 US session):
+- `form4-insider` 15, all `large_trade`: AXIA3 ×4 (one insider, one minute,
+  the per-line pattern `v0.8.0` collapses), GAP ×2, KNTK ×2, GRAL ×2; one
+  ticker reads `N/A` (Partners Group, $30M S). Snapshot since 10-05:
+  no_insider_history 113, large_trade 78, leaderboard scored 0.
+- `clinical-trials` 30, all 10-07T13:46–13:48Z: 22 RESULTS_POSTED, 5
+  TERMINATED, 2 WITHDRAWN, 1 COMPLETED. Several are long-finished industry
+  trials (DS-8201a vs T-DM1, QAW039, palbociclib) — the stale-results case
+  in #47.
+- `edgar-mna` 5 (Third Coast/Great Plains, Beam/Scout, Mattel/Zuru rumour,
+  SRX/CERO, Centerspace DEFM14A). `fda-catalysts` 6, two of them law-firm
+  "shareholder alert" releases classed FDA_CRL and CLINICAL_HOLD (#45).
+Shipped: #92 (scorer runs in-process, 20s per cycle, buys only, due at
+90/180 days, weekly retry for priceless tickers, price cache must reach
+both window ends; `NONE`/`N/A` tickers parse as none). #88 retargeted to
+`47e3df1` so `v0.8.0` carries #87, #90, #92.
+Next: when `v0.8.0` exists, roll `form4-insider` and `clinical-trials`;
+then read `alert_scorer_tickers_due` and the `scoring step` lines.

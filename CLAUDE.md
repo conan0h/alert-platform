@@ -357,27 +357,27 @@ the evidence, and continue.
 
 Current facts only. When something here is fixed or stops being true, delete it.
 
-**Deployed.** All four services run `v0.7.0` (`5433ad3`); host alertctl
-`2f815ca`. Last verified 2026-10-10 08:19Z: `active`, `drift` exit 0.
+**Deployed.** All four services run `v0.8.0` (`f29a2fb`); host alertctl
+`f0208ff`. Last verified 2026-10-11 08:28Z: `active`, `drift` exit 0.
+`main` (#100, not yet released) retries dead feeds every 15 minutes.
 
-**News feeds are going dark (#48).** `edgar-mna` 5 sources presumed dead,
-`fda-catalysts` 4. Which ones is not readable until `main` (#96) is deployed.
+**GlobeNewswire refuses the host (#48).** 403 on four `edgar-mna` and three
+`fda-catalysts` feeds since ~10-09 13:20Z; FiercePharma 403 too.
 
 **The main problem: nobody has judged the alerts.** Each service writes an
-`alert digest` (last 24h, newest 25) with every metrics snapshot. 24h to
-2026-10-10 08:19Z, a Saturday read: `form4-insider` 17, `clinical-trials`
-21, `edgar-mna` 5, `fda-catalysts` 3.
-- `form4-insider`: alerts only on trades over $1M, because its leaderboard is
-  unscored (#39). Under `v0.7.0` it sends one alert per qualifying
-  transaction line (one DELL filing on 10-08: 21+ alerts). `main` (not yet released) sends one per filing and
-  direction (#87) and scores the leaderboard in-process (#92).
+`alert digest` (last 24h, newest 25) with every metrics snapshot. Weekday
+volume under `v0.7.0` (24h to 10-10 08:19Z): `form4-insider` 17,
+`clinical-trials` 21, `edgar-mna` 5, `fda-catalysts` 3. No weekday digest
+under `v0.8.0` has been read yet.
+- `form4-insider`: sends one alert per filing and direction. Its leaderboard
+  was first scored on the `v0.8.0` deploy (208 insiders, 20 eligible, cutoff
+  11.5%), so trades under $1M can now alert as `top_tier` (#39).
 - `clinical-trials`: alerts arrive in one burst at the registry's daily
-  refresh (10-06 12:11Z, 10-07 13:46Z, 10-08 12:16Z); many are academic trials with no
-  tradeable sponsor (#47). `main` (#90, not yet released) tags each with the sponsor class.
+  refresh (~12:00–13:50Z); many are academic trials with no tradeable
+  sponsor (#47). Titles carry the sponsor class.
 - `edgar-mna`, `fda-catalysts`: most feed entries are unclassified (first
-  cycle: 294 of 310 and 258 of 279). Law-firm "shareholder alert" releases
-  pass as deal or FDA signals under `v0.7.0`; `main` (#94, not yet released)
-  drops them. `main` (#97) also stops edgar sending one headline once per wire.
+  cycle under `v0.8.0`: edgar 169 of 179). Law-firm releases and cross-wire
+  duplicate headlines are dropped before classification.
 
 **Reading traps.** Each of these has misled a run.
 - `alert_archive_records_total` counts every row in `alerts.db`, across
@@ -411,6 +411,8 @@ Current facts only. When something here is fixed or stops being true, delete it.
 - Auto-merge is off: merge by hand once every check is green. If checks are
   missing, read `mergeable_state`.
 - `deploy.yml` takes the plan id as input `plan`.
+- `get_job_logs` drops the middle of a long log; `tail_lines` picks where the
+  kept head starts. The run-log zip URL is blocked by this session's egress.
 - Two scheduled sessions can be live at once: re-read `git log origin/main`
   before writing the log.
 - The sandbox refuses edits to the wrapper installer and `iam_infra.tf`. That
