@@ -28,7 +28,7 @@ Enrichment (populated when available):
     RSS summary tried first; PR body fetched only if offer price missing.
 
 Source tiers:
-    Tier 1 — PR wires          [~45s]   GlobeNewswire, PRNewswire, Yahoo Finance
+    Tier 1 — PR wires          [~45s]   GlobeNewswire, PRNewswire
     Tier 2 — SEC EDGAR         [~5 min] 8-K, SC 13D, SC 13G, SC TO-T, DEFM14A
     Tier 3 — Financial press   [~10 min] NYT, MarketWatch, CNBC, SeekingAlpha
 """
@@ -372,8 +372,6 @@ WIRE_FEEDS = [
      "https://www.prnewswire.com/rss/financial-services-latest-news/financial-services-latest-news-list.rss"),
     ("PRNewswire-AllNews",
      "https://www.prnewswire.com/rss/news-releases-list.rss"),
-    ("Yahoo-Finance-Headlines",
-     "https://finance.yahoo.com/news/rssindex"),
 ]
 
 EDGAR_FEEDS = [
@@ -712,7 +710,7 @@ def enrich_hit(hit: Hit) -> None:
 # Fetchers
 # ---------------------------------------------------------------------------
 
-# Fetch outcomes per source. This service polls sixteen feeds across three
+# Fetch outcomes per source. This service polls fifteen feeds across three
 # tiers and, until now, said nothing about which of them work: a failure
 # logged one line and a dead feed logged that line forever, so "PRNewswire
 # has 404'd twice" and "PRNewswire has 404'd for three weeks" produced the
@@ -740,6 +738,8 @@ def _report_fetch(name: str, error: BaseException | None = None) -> None:
 
 
 def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50) -> list[Hit]:
+    if not SOURCES.due(name):
+        return []
     hits: list[Hit] = []
     try:
         resp = requests.get(url, headers=headers or HTTP_HEADERS_DEFAULT, timeout=20)
@@ -790,6 +790,8 @@ def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50
 
 
 def fetch_edgar(name: str, url: str, form_type: str) -> list[Hit]:
+    if not SOURCES.due(name):
+        return []
     hits: list[Hit] = []
     try:
         headers = {"User-Agent": EDGAR_USER_AGENT, "Accept": "application/atom+xml"}

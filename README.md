@@ -220,5 +220,7 @@ From `observe.yml` against the live host, 2026-10-06:
   the host's own checkout, so a merged but unapplied release shows no drift.
 - **Nothing backs up the SQLite databases**; `state.backup` and `dedup.keys` are
   declared in the spec but not implemented.
-- **One `fda-catalysts` feed (FiercePharma) is dead.**
+- **GlobeNewswire refuses the host with 403**, on four `edgar-mna` feeds and
+  three `fda-catalysts` feeds, as does FiercePharma. No replacement wire is
+  wired in yet.
 - **Root account access keys are in use, and SSH is open.**

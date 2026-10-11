@@ -65,6 +65,14 @@ PRESUMED_DEAD_AFTER = 20
 # feed of a service stays well inside one `logs` read.
 REPORT_ERROR_CHARS = 160
 
+# How long a presumed-dead source waits between attempts. Before this, every
+# dead feed was fetched on every 45s cycle: on 2026-10-11 GlobeNewswire
+# answered seven feeds across two services with 403, about 13,000 refused
+# requests a day. A site that is refusing us is not helped by being asked 80
+# times an hour, and a rate-triggered block may never lift while we do. At
+# 15 minutes a recovered source is still noticed within one snapshot interval.
+DEAD_RETRY_SEC = 900
+
 
 @dataclass
 class SourceState:
@@ -76,6 +84,7 @@ class SourceState:
     consecutive_failures: int = 0
     last_error: str = ""
     last_success_at: float = 0.0
+    last_attempt_at: float = 0.0
     presumed_dead: bool = False
 
     @property
@@ -131,7 +140,7 @@ class SourceHealth:
             st.successes += 1
             st.consecutive_failures = 0
             st.last_error = ""
-            st.last_success_at = time.time()
+            st.last_success_at = st.last_attempt_at = time.time()
             st.presumed_dead = False
             # An all-clear for an alarm nobody raised is pure noise, so a
             # run that never reached FIRST_REPORTED_FAILURE recovers in
@@ -150,6 +159,7 @@ class SourceHealth:
             st.failures += 1
             st.consecutive_failures += 1
             st.last_error = error
+            st.last_attempt_at = time.time()
             n = st.consecutive_failures
 
             # The presumed-dead line supersedes the routine one at the
@@ -167,6 +177,21 @@ class SourceHealth:
                     f"source {name} failed ({n} consecutive): {error}",
                 )
             return _Decision()
+
+    def due(self, name: str, now: float | None = None) -> bool:
+        """Should the caller fetch this source now?
+
+        Always, unless it is presumed dead and was tried within
+        DEAD_RETRY_SEC. A skipped fetch records nothing, so the source's
+        counts and its place in the snapshot stay as the last attempt left
+        them, and one success on a retry revives it at full cadence.
+        """
+        with self._lock:
+            st = self.sources.get(name)
+            if st is None or not st.presumed_dead:
+                return True
+            now = time.time() if now is None else now
+            return now - st.last_attempt_at >= DEAD_RETRY_SEC
 
     def failing(self) -> list[SourceState]:
         """Sources currently in a failing run, worst first."""

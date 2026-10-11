@@ -18,11 +18,13 @@ Run: python3 -m pytest services/tests -q     (from the repo root)
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
+import alertlib.sources as alertlib_sources  # noqa: E402
 import pytest
 from _loader import load_service_main  # noqa: E402
 from alertlib.funnel import CycleFunnel  # noqa: E402
-from alertlib.sources import PRESUMED_DEAD_AFTER, SourceHealth  # noqa: E402
+from alertlib.sources import DEAD_RETRY_SEC, PRESUMED_DEAD_AFTER, SourceHealth  # noqa: E402
 
 edgar = load_service_main("edgar_mna", "edgar_mna_main")
 
@@ -81,17 +83,26 @@ def always_404(monkeypatch):
         )
     monkeypatch.setattr(edgar.requests, "get", boom)
 
+@pytest.fixture
+def clock(monkeypatch):
+    """The tracker's clock, moved only by the test."""
+    now = [1_000_000.0]
+    monkeypatch.setattr(alertlib_sources, "time", SimpleNamespace(time=lambda: now[0]))
+    return now
+
 
 @pytest.fixture
 def always_ok(monkeypatch):
     monkeypatch.setattr(edgar.requests, "get", lambda *a, **k: _Resp())
 
 
-def test_repeated_failures_do_not_log_every_cycle(svc, always_404, caplog):
+def test_repeated_failures_do_not_log_every_cycle(svc, always_404, clock, caplog):
     """200 failing fetches must not produce 200 log records."""
     caplog.set_level("DEBUG", logger="edgar-mna")
 
+    # A retry interval apart, so every call fetches even once presumed dead.
     for _ in range(200):
+        clock[0] += DEAD_RETRY_SEC
         assert edgar.fetch_feed("PRNewswire-AllNews", "https://example.invalid/feed") == []
 
     records = [r for r in caplog.records if "PRNewswire-AllNews" in r.getMessage()]
@@ -194,12 +205,13 @@ def test_a_sustained_outage_still_speaks(svc, always_404, caplog):
     assert "Yahoo-Finance-Headlines" in edgar.SOURCES.summary()
 
 
-def test_a_good_fetch_clears_the_gauges(svc, always_404, monkeypatch):
+def test_a_good_fetch_clears_the_gauges(svc, always_404, clock, monkeypatch):
     for _ in range(PRESUMED_DEAD_AFTER):
         edgar.fetch_feed("NYT-Business", "https://example.invalid/feed")
     assert svc.metrics.gauges["alert_sources_failing"] == 1
 
     monkeypatch.setattr(edgar.requests, "get", lambda *a, **k: _Resp())
+    clock[0] += DEAD_RETRY_SEC
     edgar.fetch_feed("NYT-Business", "https://example.invalid/feed")
 
     assert svc.metrics.gauges["alert_sources_failing"] == 0
@@ -215,3 +227,30 @@ def test_enrichment_fetches_are_not_sources(svc, always_404):
     assert edgar.fetch_pr_body("https://example.invalid/some-release") is None
     assert edgar.SOURCES.sources == {}
     assert {k: v for k, v in svc.metrics.counters.items() if v} == {}
+
+
+@pytest.mark.parametrize("fetch", [
+    lambda: edgar.fetch_feed("GlobeNewswire-MA", "https://example.invalid/feed"),
+    lambda: edgar.fetch_edgar("EDGAR-8K", "https://example.invalid/atom", "8-K"),
+], ids=["wire", "edgar"])
+def test_a_dead_feed_is_retried_on_an_interval_not_every_cycle(svc, clock, monkeypatch, fetch):
+    """GlobeNewswire refused seven feeds with 403 at every 45s cycle (2026-10-11)."""
+    requested = []
+
+    def refuse(url, *_a, **_kw):
+        requested.append(url)
+        raise RuntimeError("403 Client Error: Forbidden for url: " + url)
+
+    monkeypatch.setattr(edgar.requests, "get", refuse)
+    for _ in range(PRESUMED_DEAD_AFTER):
+        fetch()
+    assert len(requested) == PRESUMED_DEAD_AFTER
+
+    clock[0] += edgar.WIRE_POLL_INTERVAL_SECONDS
+    assert fetch() == []
+    assert len(requested) == PRESUMED_DEAD_AFTER
+    assert svc.metrics.counters["alert_source_fetches_total"] == PRESUMED_DEAD_AFTER
+
+    clock[0] += DEAD_RETRY_SEC
+    fetch()
+    assert len(requested) == PRESUMED_DEAD_AFTER + 1

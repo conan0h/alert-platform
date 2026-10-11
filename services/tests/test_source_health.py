@@ -7,12 +7,15 @@ repeated log line, and it stops shouting once it has been named.
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import alertlib.sources as alertlib_sources  # noqa: E402
 from alertlib.sources import (  # noqa: E402
+    DEAD_RETRY_SEC,
     FIRST_REPORTED_FAILURE,
     LOG_AT_FAILURES,
     PRESUMED_DEAD_AFTER,
@@ -24,6 +27,20 @@ from alertlib.sources import (  # noqa: E402
 @pytest.fixture
 def health():
     return SourceHealth()
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """The tracker's clock, moved only by the test."""
+    now = [1_000_000.0]
+    monkeypatch.setattr(alertlib_sources, "time", SimpleNamespace(time=lambda: now[0]))
+    return now
+
+
+def _kill(health, name):
+    for _ in range(PRESUMED_DEAD_AFTER):
+        health.record_failure(name, "403 Client Error")
+    assert health.sources[name].presumed_dead
 
 
 def test_an_isolated_failure_says_nothing(health):
@@ -289,3 +306,35 @@ def test_report_lists_the_worst_source_first(health):
     for _ in range(FIRST_REPORTED_FAILURE + 5):
         health.record_failure("GlobeNewswire-Pharma", "404")
     assert [r["name"] for r in health.report()] == ["GlobeNewswire-Pharma", "PRNewswire-Health"]
+
+
+def test_every_source_is_due_until_presumed_dead(health, clock):
+    assert health.due("never-fetched")
+    for _ in range(PRESUMED_DEAD_AFTER - 1):
+        health.record_failure("GlobeNewswire-MA", "403 Client Error")
+    assert health.due("GlobeNewswire-MA")
+
+
+def test_a_dead_source_waits_out_the_retry_interval(health, clock):
+    _kill(health, "GlobeNewswire-MA")
+    assert not health.due("GlobeNewswire-MA")
+    clock[0] += DEAD_RETRY_SEC - 1
+    assert not health.due("GlobeNewswire-MA")
+    clock[0] += 1
+    assert health.due("GlobeNewswire-MA")
+
+
+def test_a_failed_retry_restarts_the_wait(health, clock):
+    _kill(health, "GlobeNewswire-MA")
+    clock[0] += DEAD_RETRY_SEC
+    health.record_failure("GlobeNewswire-MA", "403 Client Error")
+    assert not health.due("GlobeNewswire-MA")
+
+
+def test_a_successful_retry_restores_every_cycle(health, clock):
+    _kill(health, "GlobeNewswire-MA")
+    clock[0] += DEAD_RETRY_SEC
+    health.record_success("GlobeNewswire-MA")
+    assert health.due("GlobeNewswire-MA")
+    health.record_failure("GlobeNewswire-MA", "403 Client Error")
+    assert health.due("GlobeNewswire-MA")

@@ -316,6 +316,13 @@ succeeded (`last_ok`, `null` if never since start) and its last error, cut to
       {"name": "FiercePharma", "failures": 5739, "dead": true,
        "last_ok": null, "error": "403 Client Error: Forbidden for url: ..."}]}
 
+A presumed-dead source is fetched once every 15 minutes
+(`DEAD_RETRY_SEC`) instead of every cycle: `SourceHealth.due()` answers
+whether to fetch, and one success on a retry restores the full cadence. On
+2026-10-11 GlobeNewswire refused seven feeds across the two services with 403,
+which at every cycle came to about 13,000 refused requests a day. A skipped
+fetch records nothing, so `failures` in the snapshot counts attempts made.
+
 The logging schedule is not cosmetic. An unconditional warning per failed fetch
 costs about 1,900 lines per source per day at a 45-second cadence, and the
 `logs` read verb captures roughly the first 24 KB of its window — so source
@@ -437,7 +444,7 @@ work logs `scoring step` with its counts, and the snapshot carries
 `letter_of_intent` title filters), then every match into `already_seen`,
 `sent` or `send_failed` (and, in `edgar-mna`, `duplicate_title`: a news hit
 whose normalised headline was sent from another feed within 24 hours). They emit no per-cycle line and no
-`new_in_window`: they cycle every 45 seconds over up to sixteen feeds on three
+`new_in_window`: they cycle every 45 seconds over up to fifteen feeds on three
 cadences, so a line per cycle would crowd the `logs` window and there is no
 single cohort to compare. The counters reach the journal in the metrics
 snapshot.
