@@ -11,11 +11,13 @@ Run: python3 -m pytest services/tests -q     (from the repo root)
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
+import alertlib.sources as alertlib_sources  # noqa: E402
 import pytest
 from _loader import load_service_main  # noqa: E402
 from alertlib.funnel import CycleFunnel  # noqa: E402
-from alertlib.sources import PRESUMED_DEAD_AFTER, SourceHealth  # noqa: E402
+from alertlib.sources import DEAD_RETRY_SEC, PRESUMED_DEAD_AFTER, SourceHealth  # noqa: E402
 
 fda = load_service_main("fda_catalysts", "fda_catalysts_main")
 
@@ -62,12 +64,21 @@ def always_403(monkeypatch):
         raise RuntimeError("403 Client Error: Forbidden for url: https://example.invalid/feed")
     monkeypatch.setattr(fda.requests, "get", boom)
 
+@pytest.fixture
+def clock(monkeypatch):
+    """The tracker's clock, moved only by the test."""
+    now = [1_000_000.0]
+    monkeypatch.setattr(alertlib_sources, "time", SimpleNamespace(time=lambda: now[0]))
+    return now
 
-def test_repeated_failures_do_not_log_every_cycle(svc, always_403, caplog):
+
+def test_repeated_failures_do_not_log_every_cycle(svc, always_403, clock, caplog):
     """200 failing fetches must not produce 200 log records."""
     caplog.set_level("DEBUG", logger="fda-catalysts")
 
+    # A retry interval apart, so every call fetches even once presumed dead.
     for _ in range(200):
+        clock[0] += DEAD_RETRY_SEC
         assert fda.fetch_feed("FiercePharma", "https://example.invalid/feed") == []
 
     records = [r for r in caplog.records if "FiercePharma" in r.getMessage()]
@@ -99,7 +110,7 @@ def test_failing_source_gauges_track_the_condition(svc, always_403):
     assert svc.metrics.gauges["alert_sources_presumed_dead"] == 1
 
 
-def test_a_good_fetch_clears_the_gauges(svc, monkeypatch, always_403):
+def test_a_good_fetch_clears_the_gauges(svc, monkeypatch, always_403, clock):
     for _ in range(PRESUMED_DEAD_AFTER):
         fda.fetch_feed("EndpointsNews", "https://example.invalid/feed")
     assert svc.metrics.gauges["alert_sources_failing"] == 1
@@ -111,6 +122,7 @@ def test_a_good_fetch_clears_the_gauges(svc, monkeypatch, always_403):
             return None
 
     monkeypatch.setattr(fda.requests, "get", lambda *a, **k: _Resp())
+    clock[0] += DEAD_RETRY_SEC
     fda.fetch_feed("EndpointsNews", "https://example.invalid/feed")
 
     assert svc.metrics.gauges["alert_sources_failing"] == 0
@@ -149,3 +161,30 @@ def test_each_destination_gets_its_own_user_agent(svc, monkeypatch):
     assert "someone@example.invalid" in edgar_ua
     # The shared default must not have been mutated by either call.
     assert fda.HTTP_HEADERS_DEFAULT["User-Agent"] == wire_ua
+
+
+@pytest.mark.parametrize("fetch", [
+    lambda: fda.fetch_feed("GlobeNewswire-Pharma", "https://example.invalid/feed"),
+    lambda: fda.fetch_edgar_8k("EDGAR-8K", "https://example.invalid/atom"),
+], ids=["wire", "edgar"])
+def test_a_dead_feed_is_retried_on_an_interval_not_every_cycle(svc, clock, monkeypatch, fetch):
+    """GlobeNewswire refused seven feeds with 403 at every 45s cycle (2026-10-11)."""
+    requested = []
+
+    def refuse(url, *_a, **_kw):
+        requested.append(url)
+        raise RuntimeError("403 Client Error: Forbidden for url: " + url)
+
+    monkeypatch.setattr(fda.requests, "get", refuse)
+    for _ in range(PRESUMED_DEAD_AFTER):
+        fetch()
+    assert len(requested) == PRESUMED_DEAD_AFTER
+
+    clock[0] += fda.WIRE_POLL_INTERVAL_SECONDS
+    assert fetch() == []
+    assert len(requested) == PRESUMED_DEAD_AFTER
+    assert svc.metrics.counters["alert_source_fetches_total"] == PRESUMED_DEAD_AFTER
+
+    clock[0] += DEAD_RETRY_SEC
+    fetch()
+    assert len(requested) == PRESUMED_DEAD_AFTER + 1

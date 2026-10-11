@@ -482,6 +482,8 @@ def _report_fetch(name: str, error: BaseException | None = None) -> None:
 
 def fetch_feed(name: str, url: str, headers: dict | None = None, limit: int = 50) -> list[Hit]:
     """Generic RSS/Atom fetcher with classification."""
+    if not SOURCES.due(name):
+        return []
     hits: list[Hit] = []
     try:
         resp = requests.get(url, headers=headers or HTTP_HEADERS_DEFAULT, timeout=20)
@@ -530,6 +532,8 @@ def fetch_edgar_8k(name: str, url: str) -> list[Hit]:
     EDGAR 8-K current feed. Unlike v2, we classify by keyword content —
     a plain 8-K filing is too noisy to alert on without an FDA keyword match.
     """
+    if not SOURCES.due(name):
+        return []
     hits: list[Hit] = []
     try:
         headers = {"User-Agent": EDGAR_USER_AGENT, "Accept": "application/atom+xml"}
