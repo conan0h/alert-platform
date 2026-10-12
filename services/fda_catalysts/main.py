@@ -151,7 +151,9 @@ CATEGORIES = [
         "urgency": "HIGH",
         "label": "PRIORITY REVIEW",
         "patterns": [
-            r"\bpriority\s+review\s+(?:designation|granted|voucher)\b",
+            # Not "priority review voucher": a voucher is sold, bought or redeemed,
+            # and none of those is a review designation (Atossa's CVR, 10-09).
+            r"\bpriority\s+review\s+(?:designation|granted)\b",
             r"\bgranted\s+priority\s+review\b",
             r"\bFDA\s+grants?\s+priority\s+review\b",
             r"\baccepted\s+for\s+priority\s+review\b",

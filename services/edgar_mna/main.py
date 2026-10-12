@@ -128,6 +128,20 @@ HTTP_HEADERS_DEFAULT = {
 #   * LOI patterns removed from SIGNED_DEAL — LOIs are now unmatched.
 # ---------------------------------------------------------------------------
 
+# A category's "unless" patterns veto its match. With "otherwise" set, the
+# headline goes to that category; without it, matching continues down the list.
+#
+# Wording that marks a story as unconfirmed. A deal category vetoed by these is
+# a rumour: "Amazon in talks to acquire Decart for $7B: WSJ" was sent as
+# SIGNED_DEAL on 10-11.
+RUMOR_HEDGES = [
+    r"\bin\s+(?:advanced\s+|early\s+|exclusive\s+|late[-\s]stage\s+)?(?:talks|discussions|negotiations)\b",
+    r"\bnear(?:s|ing)?\s+(?:a\s+)?deal\b",
+    r"\b(?:reportedly|people\s+familiar|sources?\s+(?:say|said)|according\s+to\s+(?:a\s+)?(?:report|sources?|people))\b",
+    r"\b(?:weigh(?:s|ing)?|consider(?:s|ing)?|mull(?:s|ing)?|explor(?:es|ing))\s+(?:a\s+)?(?:bid|offer|deal|sale|acquisition|takeover)\b",
+    r":\s*(?:WSJ|Bloomberg|Reuters|FT|report)\s*$",
+]
+
 CATEGORIES = [
     # ---- CRITICAL ----
     {
@@ -216,6 +230,8 @@ CATEGORIES = [
             r"\bprivate\s+equity\s+(?:consortium|firm|group)\s+to\s+acquire\b",
             r"\bled\s+by\s+(?:a\s+)?private\s+equity\b.{0,60}\bacqui",
         ],
+        "unless": RUMOR_HEDGES,
+        "otherwise": "TAKEOVER_RUMOR",
     },
     {
         "name": "SIGNED_DEAL",
@@ -237,7 +253,9 @@ CATEGORIES = [
             # Required substance context so we don't match "plans to acquire expertise":
             r"\bto\s+acquire\s+(?:all\s+of|the\s+outstanding|\$[\d,.]+|100%)",
             r"\bto\s+acquire\s+(?:\w+\s+)?\d+\s+(?:asset|propert|project|compan|busines|stream|mine|well|store)",
-            r"\bto\s+acquire\s+(?:[A-Z][\w&.-]+\s+){1,6}(?:for\s+\$|in\s+(?:a\s+)?(?:\$|all-?cash|stock))",
+            # (?-i:) keeps the capital-letter test under IGNORECASE; without it
+            # "to acquire additional shares for $5M" read as a deal.
+            r"\bto\s+acquire\s+(?:(?-i:[A-Z])[\w&.-]+\s+){1,6}(?:for\s+\$|in\s+(?:a\s+)?(?:\$|all-?cash|stock))",
             # Deal mechanics
             r"\ball[-\s]cash\s+(?:transaction|acquisition|deal|merger)\b",
             r"\bcombine\s+(?:in\s+)?(?:a\s+)?merger\s+of\s+equals\b",
@@ -251,6 +269,8 @@ CATEGORIES = [
             # NOTE: no "Completes acquisition" — dropped intentionally.
             # NOTE: no "LOI" / "letter of intent" — dropped intentionally.
         ],
+        "unless": RUMOR_HEDGES,
+        "otherwise": "TAKEOVER_RUMOR",
     },
     {
         "name": "TAKEOVER_RUMOR",
@@ -296,6 +316,12 @@ CATEGORIES = [
             r"\bengag(?:es|ed)\s+(?:a\s+)?(?:financial\s+)?advisors?\s+to\s+explore\b",
             r"\bexploring\s+(?:a\s+)?(?:potential\s+)?sale\s+of\s+the\s+company\b",
             r"\bput(?:s|ting)\s+itself\s+up\s+for\s+sale\b",
+        ],
+        # A review that ends without a deal: MTY "Announces End of Strategic
+        # Review" was sent on 10-09. A review that ends in a deal is caught by
+        # SIGNED_DEAL, which is tried first.
+        "unless": [
+            r"\b(?:end(?:s|ed)?|conclu(?:des?|ded|sion)|complet(?:es?|ed|ion)|terminat(?:es?|ed|ion))\s+(?:of\s+)?(?:its\s+|the\s+)?(?:formal\s+)?(?:strategic\s+review|review\s+of\s+strategic\s+alternatives)\b",
         ],
     },
 
@@ -347,6 +373,7 @@ CATEGORIES = [
 
 for cat in CATEGORIES:
     cat["_re"] = re.compile("|".join(cat["patterns"]), re.IGNORECASE) if cat["patterns"] else None
+    cat["_unless"] = re.compile("|".join(cat["unless"]), re.IGNORECASE | re.MULTILINE) if cat.get("unless") else None
 
 URGENCY_BANNER = {
     "CRITICAL": "🚨🚨🚨 CRITICAL",
@@ -515,8 +542,13 @@ def classify(text: str) -> tuple[str | None, str | None]:
         if cat["_re"] is None:
             continue
         m = cat["_re"].search(text or "")
-        if m:
-            return cat["name"], m.group(0)
+        if not m:
+            continue
+        if cat["_unless"] and cat["_unless"].search(text or ""):
+            if cat.get("otherwise"):
+                return cat["otherwise"], m.group(0)
+            continue
+        return cat["name"], m.group(0)
     return None, None
 
 
