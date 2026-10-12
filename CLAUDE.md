@@ -358,8 +358,9 @@ the evidence, and continue.
 Current facts only. When something here is fixed or stops being true, delete it.
 
 **Deployed.** All four services run `v0.8.0` (`f29a2fb`); host alertctl
-`f0208ff`. Last verified 2026-10-11 08:28Z: `active`, `drift` exit 0.
-`main` (#100, not yet released) retries dead feeds every 15 minutes.
+`f0208ff`. Last verified 2026-10-12 08:18Z: `active`, `drift` exit 0.
+`main` (`544f8f6`, not yet released) adds #100, which retries dead feeds every
+15 minutes, and #103, which sends hedged deals as TAKEOVER_RUMOR.
 
 **GlobeNewswire refuses the host (#48).** 403 on four `edgar-mna` and three
 `fda-catalysts` feeds since ~10-09 13:20Z; FiercePharma 403 too.
