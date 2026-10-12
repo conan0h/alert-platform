@@ -30,10 +30,8 @@ Don't start lower sections while this one has unblocked work.
     whether the price moved after it. No price source reaches this session,
     so a move check needs the host to report it (or #27). Open cases: PTC
     after edgar's `10-04T21:08Z` rumour; PCRX after Viatris 10-08 11:46Z;
-    CMG after the Starbucks report 10-08 14:36Z.
-    Misclassified on 10-09: MTY "Announces End of Strategic Review" as
-    STRATEGIC_REVIEW; Atossa "Executes Contingent Value Rights Agreement"
-    as PRIORITY_REVIEW. Both matched a phrase without its negation or context.
+    CMG after the Starbucks report 10-08 14:36Z; Amazon/Decart WSJ
+    rumour 10-11T23:26Z (private target, nothing to trade).
 
 47. **`clinical-trials` alerts on trials nobody can trade.** `todo`
     10-06: 30 alerts in one 12:11–12:13Z burst; many academic. `main` (#90)
@@ -104,6 +102,8 @@ Don't start lower sections while this one has unblocked work.
   the dead feeds (it read `[]` at cycle 1, before 2 failures).
 - **`v0.8.1` on edgar, fda:** `alert_source_fetch_failures_total` grows
   ~5 (edgar) and ~4 (fda) per 15 minutes, not per 45s cycle.
+- **`v0.8.1`, #103:** a hedged deal headline arrives as TAKEOVER_RUMOR;
+  no SIGNED_DEAL in a digest carries "in talks", "nears" or ": WSJ".
 
 ## Parked — don't start while no service alerts
 

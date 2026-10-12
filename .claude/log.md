@@ -10,29 +10,6 @@ verbatim to [`log-archive.md`](log-archive.md).
     Found: new facts, with backlog numbers.
     Next: the first thing the next run should do.
 
-## 2026-10-09 — news services drop plaintiff law-firm releases
-Production, 08:18–08:20Z (04:18 ET): all four `v0.7.0`, active, `drift`
-exit 0 (host alertctl `2f815ca`). No deploy: `v0.8.0` still untagged (#88).
-Alerts, 24h digests read 07:55–08:19Z (Thursday; 10-08 US session):
-- `form4-insider` 36, all large trades. One Silver Lake DELL sale filed
-  at 20:31Z sent ≥21 alerts (digest caps at 25), one per transaction line:
-  the pattern `v0.8.0` collapses. CBL $68M S (Canyon), CRBG $4.1M P
-  (Nippon Life). Snapshot: no_insider_history 131, leaderboard scored 0.
-- `clinical-trials` 21, all 10-08T12:16–12:17Z: 11 RESULTS_POSTED, 4
-  TERMINATED, 4 WITHDRAWN, 2 SUSPENDED (blinatumomab SC, 177Lu girentuximab).
-  Mostly industry this time (Viaskin Peanut, LNZ100, ataluren, VCN-01).
-- `edgar-mna` 13: Viatris/Pacira (PCRX, 11:46Z), Starbucks–Chipotle
-  rumour (CMG, 14:36Z), COPART/ACV tender, two DEFM14A. Sun Life's
-  mini-tender caution sent twice at 21:02Z: same story from two feeds.
-- `fda-catalysts` 6: Tecentriq approval ×2 (Roche release, FDA notice),
-  two recalls, a Fast Track, and AARD "Shareholder Alert … Class Action"
-  as CLINICAL_HOLD (#45).
-Shipped: #94 (`alertlib/noise.py` drops law-firm releases by title in both
-news services; funnel stage `litigation_notice`). #88 retargeted to
-`7f52343` so `v0.8.0` carries #87, #90, #92, #94 and rolls all four.
-Next: when `v0.8.0` exists, roll all four; read `litigation_notice`, the
-form4 `(N tx)` titles, and `alert_scorer_tickers_due`.
-
 ## 2026-10-10 — news feeds going dark; snapshots now name them
 Production, 08:18–08:21Z (04:18 ET): all four `v0.7.0`, active, `drift`
 exit 0 (host alertctl `2f815ca`). No deploy: `v0.8.0` still untagged (#88).
@@ -80,3 +57,23 @@ every 45s cycle; edgar drops Yahoo-Finance-Headlines).
 Next: after Conan tags `v0.8.1`, roll edgar and fda (or all four: alertlib
 changed) and check `alert_source_fetch_failures_total` grows ~5 per 15 min.
 Read a weekday digest: form4 `(N tx)` titles and first `top_tier` trades.
+
+## 2026-10-12 — rumours no longer sent as signed deals
+Production, 08:18–08:20Z (04:18 ET Monday): all four `v0.8.0`, active,
+`drift` exit 0 (host alertctl `f0208ff`). No deploy: `v0.8.1` untagged (#102).
+Source health: edgar 5 dead (4 GlobeNewswire 403, Yahoo 404), fda 4 dead
+(3 GlobeNewswire, FiercePharma 403); each failure count equals the cycle
+count, so none answered once since the deploy. Failures still grow per cycle.
+Alerts, 24h digests read 07:49–08:20Z (covering Sunday):
+- `edgar-mna` 1: `10-11T23:26Z` "Amazon in talks to acquire AI startup
+  Decart for $7B: WSJ" sent as SIGNED_DEAL (private target).
+- `fda-catalysts` 0, `form4-insider` 0. `clinical-trials` `Streamed 0 of 0`
+  (Monday pre-market); its snapshot fell outside both windows.
+- form4 leaderboard: scored 212, eligible 20; scorer due 0, errors 0.
+Shipped: #103. A category can now be vetoed (`unless`) and redirected
+(`otherwise`). Hedged deals go to TAKEOVER_RUMOR, and an ended strategic
+review is dropped. The edgar proper-name pattern is case-sensitive, and fda
+PRIORITY_REVIEW no longer matches "voucher". #102 retargeted to `544f8f6`
+(CI run 38223341560), so `v0.8.1` carries #100 and #103.
+Next: when `v0.8.1` exists, roll all four (Handoff #102 steps). Read
+Monday's weekday digest: form4 `(N tx)` titles, first `top_tier` trades.

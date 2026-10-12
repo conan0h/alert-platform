@@ -30,6 +30,8 @@ one covers it and sharpen that instead.
   was read. Before concluding "never happens" on any service, read its
   cumulative counter in the snapshot; a per-cycle zero at the run hour is not
   evidence.
+- **A pattern compiled with `re.IGNORECASE` has no capital-letter test.**
+  `[A-Z]` matches any letter; scope it with `(?-i:[A-Z])`.
 - **A filter branch that never fires across hundreds of inputs is a parser bug
   until shown otherwise.** Check that the parser produces the field the branch
   reads, against the source's schema.
