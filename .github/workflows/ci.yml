@@ -89,6 +89,7 @@ jobs:
           shellcheck deploy/ops/ssm_scripts_test.sh
           shellcheck .github/actions/ssm-run/verdict.sh .github/actions/ssm-run/verdict_test.sh
           shellcheck .github/actions/ssm-run/stamp.sh .github/actions/ssm-run/stamp_test.sh
+          shellcheck .github/actions/oidc-claims/claims.sh .github/actions/oidc-claims/claims_test.sh
       - name: The wrapper refuses what it should refuse
         run: ./deploy/ops/alert-deploy_test.sh
       # The SSM documents' shell lives inside yamlencode, so `terraform
@@ -106,6 +107,9 @@ jobs:
 
       - name: A stale control plane is reported, not hidden
         run: ./.github/actions/ssm-run/stamp_test.sh
+
+      - name: OIDC claims are printed, the token is not
+        run: ./.github/actions/oidc-claims/claims_test.sh
 
   infra:
     name: terraform

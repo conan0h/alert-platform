@@ -66,6 +66,18 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # AWS reports a trust-policy mismatch without saying what the token
+      # claimed. Printing the claims (never the token) before every assumption
+      # puts that answer in the log of the run that fails. See claims.sh.
+      - name: What the OIDC token claims
+        if: steps.configured.outputs.ready == 'true'
+        continue-on-error: true
+        run: |
+          curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" \
+            | jq -r '.value // empty' \
+            | ./.github/actions/oidc-claims/claims.sh
+
       - name: Assume the deploy role via OIDC
         if: steps.configured.outputs.ready == 'true'
         uses: aws-actions/configure-aws-credentials@v4

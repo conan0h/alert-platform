@@ -169,6 +169,7 @@ others) and `ruff`; both run in CI alongside a `gofmt` check.
 - [Roll back a service](docs/runbooks/rollback.md)
 - [A service is down or silent](docs/runbooks/service-down.md)
 - [Rotate a secret](docs/runbooks/secret-rotation.md)
+- [A workflow cannot assume its AWS role](docs/runbooks/oidc-denied.md)
 - [Run a service locally](docs/runbooks/local-development.md)
 
 ## Status
